@@ -1,87 +1,75 @@
 .animated-background {
-  position: fixed;
-  inset: 0;
-  overflow: hidden;
-  z-index: 0;
-  background-color: #0f172a;
+	position: fixed;
+	inset: 0;
+	overflow: hidden;
+	z-index: 0;
+	background-color: #0f172a;
 }
 
 .mesh-gradient {
-  position: absolute;
-  inset: -50%;
-  background:
-    radial-gradient(at 0% 0%,
-      rgba(37, 99, 235, 0.15) 0%,
-      transparent 50%
-    ),
-    radial-gradient(at 100% 0%,
-      rgba(29, 78, 216, 0.1) 0%,
-      transparent 50%
-    ),
-    linear-gradient(45deg,
-      rgba(15, 23, 42, 0.8) 0%,
-      rgba(15, 23, 42, 0.9) 100%
-    );
-  transform: scale(2);
+	position: absolute;
+	inset: -50%;
+	background:
+		radial-gradient(at 0% 0%,
+			rgba(37, 99, 235, 0.15) 0%,
+			transparent 50%),
+		radial-gradient(at 100% 0%,
+			rgba(29, 78, 216, 0.1) 0%,
+			transparent 50%),
+		linear-gradient(45deg,
+			rgba(15, 23, 42, 0.8) 0%,
+			rgba(15, 23, 42, 0.9) 100%);
+	transform: scale(2);
 }
 
 .noise {
-  position: absolute;
-  inset: 0;
-  opacity: 0.4;
-  background-image:
-    repeating-linear-gradient(
-      45deg,
-      rgba(255, 255, 255, 0.015) 0px,
-      rgba(255, 255, 255, 0.015) 1px,
-      transparent 1px,
-      transparent 4px
-    ),
-    repeating-linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.015) 0px,
-      rgba(255, 255, 255, 0.015) 1px,
-      transparent 1px,
-      transparent 4px
-    );
-  background-size: 8px 8px;
-  pointer-events: none;
+	position: absolute;
+	inset: 0;
+	opacity: 0.4;
+	background-image:
+		repeating-linear-gradient(45deg,
+			rgba(255, 255, 255, 0.015) 0px,
+			rgba(255, 255, 255, 0.015) 1px,
+			transparent 1px,
+			transparent 4px),
+		repeating-linear-gradient(135deg,
+			rgba(255, 255, 255, 0.015) 0px,
+			rgba(255, 255, 255, 0.015) 1px,
+			transparent 1px,
+			transparent 4px);
+	background-size: 8px 8px;
+	pointer-events: none;
 }
 
 .noise::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-  opacity: 0.08;
-  mix-blend-mode: overlay;
+	content: '';
+	position: absolute;
+	inset: 0;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+	opacity: 0.08;
+	mix-blend-mode: overlay;
 }
 
 .overlay {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at center,
-      rgba(0, 0, 0, 0) 0%,
-      rgba(0, 0, 0, 0.4) 50%,
-      rgba(0, 0, 0, 0.8) 100%
-    ),
-    repeating-linear-gradient(
-      0deg,
-      transparent 0%,
-      transparent 49px,
-      rgba(37, 99, 235, 0.03) 50px,
-      transparent 51px,
-      transparent 99px,
-      rgba(37, 99, 235, 0.03) 100px
-    ),
-    repeating-linear-gradient(
-      90deg,
-      transparent 0%,
-      transparent 49px,
-      rgba(37, 99, 235, 0.03) 50px,
-      transparent 51px,
-      transparent 99px,
-      rgba(37, 99, 235, 0.03) 100px
-    );
+	position: absolute;
+	inset: 0;
+	background:
+		radial-gradient(circle at center,
+			rgba(0, 0, 0, 0) 0%,
+			rgba(0, 0, 0, 0.4) 50%,
+			rgba(0, 0, 0, 0.8) 100%),
+		repeating-linear-gradient(0deg,
+			transparent 0%,
+			transparent 49px,
+			rgba(37, 99, 235, 0.03) 50px,
+			transparent 51px,
+			transparent 99px,
+			rgba(37, 99, 235, 0.03) 100px),
+		repeating-linear-gradient(90deg,
+			transparent 0%,
+			transparent 49px,
+			rgba(37, 99, 235, 0.03) 50px,
+			transparent 51px,
+			transparent 99px,
+			rgba(37, 99, 235, 0.03) 100px);
 }
