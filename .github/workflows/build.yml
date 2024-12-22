@@ -42,10 +42,10 @@ jobs:
       if: runner.os == 'Windows'
       uses: actions/upload-artifact@v4
       with:
-        name: windows-build
+        name: windows-installer
         path: |
-          dist/win-unpacked/**/*
-          !dist/win-unpacked/resources/app.asar.unpacked
+          dist/*.exe
+          dist/*.msi
         if-no-files-found: error
 
     # macOS artifacts
@@ -53,10 +53,10 @@ jobs:
       if: runner.os == 'macOS'
       uses: actions/upload-artifact@v4
       with:
-        name: macos-build
+        name: macos-installer
         path: |
-          dist/mac-arm64/**/*
-          !dist/mac-arm64/resources/app.asar.unpacked
+          dist/*.dmg
+          dist/*.pkg
         if-no-files-found: error
 
     # Linux artifacts
@@ -64,8 +64,9 @@ jobs:
       if: runner.os == 'Linux'
       uses: actions/upload-artifact@v4
       with:
-        name: linux-build
+        name: linux-installer
         path: |
-          dist/linux-unpacked/**/*
-          !dist/linux-unpacked/resources/app.asar.unpacked
+          dist/*.deb
+          dist/*.rpm
+          dist/*.AppImage
         if-no-files-found: error
