@@ -11,7 +11,7 @@
 .drop-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(3, 7, 18, 0.9);
+  background-color: rgba(15, 23, 42, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -33,7 +33,7 @@
   font-size: 1.5rem;
   font-weight: 500;
   padding: 2rem;
-  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border: 2px dashed rgba(59, 130, 246, 0.2);
   border-radius: 1rem;
 }
 
@@ -46,27 +46,30 @@
 .main-content {
   position: relative;
   z-index: 1;
-  width: 100%;
-  max-width: 400px;
   margin: 0 1rem;
+  display: flex;
+  justify-content: center;
+  width: 100%;
 }
 
 .database-form {
-  background-color: rgba(17, 24, 39, 0.7);
+  background-color: rgba(15, 23, 42, 0.7);
   backdrop-filter: blur(16px);
   padding: 2.5rem;
-  border-radius: 1.5rem;
+  border-radius: 1rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   text-align: center;
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
+  width: 100%;
+  max-width: 400px;
 }
 
 .form-icon {
   width: 4rem;
   height: 4rem;
   margin: 0 auto 1.5rem;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
-  border-radius: 1rem;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  border-radius: 0.75rem;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -82,7 +85,7 @@
   margin: 0 0 1rem 0;
   font-size: 1.5rem;
   font-weight: 600;
-  background: linear-gradient(to right, #60a5fa, #3b82f6);
+  background: linear-gradient(to right, #3b82f6, #2563eb);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -98,7 +101,7 @@
   align-items: center;
   gap: 0.5rem;
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: white;
   border-radius: 0.75rem;
   cursor: pointer;
@@ -163,7 +166,7 @@
   width: 100%;
   padding: 0.75rem 1rem;
   padding-right: 2.5rem;
-  background-color: rgba(255, 255, 255, 0.05);
+  background-color: rgba(15, 23, 42, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.75rem;
   color: white;
@@ -173,9 +176,9 @@
 
 .password-input:focus {
   outline: none;
-  border-color: #2563eb;
-  background-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+  border-color: #3b82f6;
+  background-color: rgba(15, 23, 42, 0.8);
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
 }
 
 .toggle-password {
@@ -208,7 +211,7 @@
   gap: 0.5rem;
   width: 100%;
   padding: 0.75rem 1.5rem;
-  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: white;
   border: none;
   border-radius: 0.75rem;
@@ -220,7 +223,7 @@
 
 .unlock-button:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
 }
 
 .unlock-icon {
