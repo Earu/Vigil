@@ -47,6 +47,7 @@ jobs:
         path: |
           dist/win-unpacked/**/*
           !dist/win-unpacked/resources/app.asar.unpacked
+          dist/*.exe
         if-no-files-found: error
 
     # macOS artifacts
@@ -58,6 +59,7 @@ jobs:
         path: |
           dist/mac-arm64/**/*
           !dist/mac-arm64/resources/app.asar.unpacked
+          dist/*.dmg
         if-no-files-found: error
 
     # Linux artifacts
@@ -69,4 +71,5 @@ jobs:
         path: |
           dist/linux-unpacked/**/*
           !dist/linux-unpacked/resources/app.asar.unpacked
+          dist/*.AppImage
         if-no-files-found: error
