@@ -7,8 +7,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"node electron/build.mjs && electron dist-electron/main.js\"",
-    "electron:build": "tsc -b && vite build && node electron/build.mjs && electron-builder"
+    "electron:dev": "cross-env NODE_ENV=development && concurrently \"vite\" \"node electron/build.mjs && electron dist-electron/main.js\"",
+    "electron:build": "cross-env NODE_ENV=production && tsc -b && vite build && node electron/build.mjs && electron-builder --dir"
   },
   "dependencies": {
     "kdbxweb": "^2.1.1",
@@ -38,11 +38,16 @@
     "appId": "com.vigil.app",
     "productName": "Vigil",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
-    ]
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "dist-electron/main.js"
+    }
   }
 }
