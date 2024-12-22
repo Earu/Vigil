@@ -38,11 +38,13 @@ function createWindow() {
     win.webContents.send('window-maximized', false)
   })
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV === 'development') {
     win.loadURL('http://localhost:5173')
     win.webContents.openDevTools()
   } else {
-    win.loadFile(path.join(__dirname, '../index.html'))
+    const indexPath = path.join(__dirname, '..', 'dist', 'index.html')
+    console.log('Loading production file from:', indexPath)
+    win.loadFile(indexPath)
   }
 }
 
