@@ -48,6 +48,15 @@
 		],
 		"extraMetadata": {
 			"main": "dist-electron/main.js"
+		},
+		"mac": {
+			"target": "dmg"
+		},
+		"linux": {
+			"target": "AppImage"
+		},
+		"win": {
+			"target": "msi"
 		}
 	}
 }
