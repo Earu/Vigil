@@ -48,6 +48,18 @@
     ],
     "extraMetadata": {
       "main": "dist-electron/main.js"
+    },
+    "mac": {
+      "target": "dir",
+      "arch": ["arm64"]
+    },
+    "linux": {
+      "target": "dir",
+      "arch": ["x64"]
+    },
+    "win": {
+      "target": "dir",
+      "arch": ["x64"]
     }
   }
 }
