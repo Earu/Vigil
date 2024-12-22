@@ -1,144 +1,144 @@
 .title-bar {
-  height: 48px;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(12px);
-  display: flex;
-  align-items: center;
-  -webkit-app-region: drag;
-  user-select: none;
-  position: fixed;
-  z-index: 1000;
-  left: 0;
-  right: 0;
-  top: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  -webkit-app-region: drag;
+	height: 48px;
+	background: rgba(0, 0, 0, 0.4);
+	backdrop-filter: blur(12px);
+	display: flex;
+	align-items: center;
+	-webkit-app-region: drag;
+	user-select: none;
+	position: fixed;
+	z-index: 1000;
+	left: 0;
+	right: 0;
+	top: 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	-webkit-app-region: drag;
 }
 
 .title-bar.in-password-view {
-  background: rgba(0, 0, 0, 0.4);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  height: 48px;
+	background: rgba(0, 0, 0, 0.4);
+	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	height: 48px;
 }
 
 .title-bar-drag-area {
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  padding-right: 0px;
-  gap: 1px;
-  height: 100%;
-  flex: 1;
-  min-width: 0;
+	display: flex;
+	align-items: center;
+	padding: 0 12px;
+	padding-right: 0px;
+	gap: 1px;
+	height: 100%;
+	flex: 1;
+	min-width: 0;
 }
 
 .title-bar-text {
-  color: #3b82f6;
-  font-size: 2rem;
-  opacity: 0.9;
-  flex-shrink: 0;
-  font-family: 'Bebas Neue', sans-serif;
-  text-transform: uppercase;
-  font-weight: 400;
-  margin: 0px;
-  padding: 0px;
-  transform: translateY(2px);
+	color: #3b82f6;
+	font-size: 2rem;
+	opacity: 0.9;
+	flex-shrink: 0;
+	font-family: 'Bebas Neue', sans-serif;
+	text-transform: uppercase;
+	font-weight: 400;
+	margin: 0px;
+	padding: 0px;
+	transform: translateY(2px);
 }
 
 .title-bar-controls {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  flex: 1;
-  min-width: 0;
-  margin-right: 12px;
-  -webkit-app-region: drag;
+	display: flex;
+	align-items: center;
+	gap: 24px;
+	flex: 1;
+	min-width: 0;
+	margin-right: 12px;
+	-webkit-app-region: drag;
 }
 
 .search-container {
-  flex: 1;
-  min-width: 200px;
-  max-width: 600px;
-  margin: 0 12px;
+	flex: 1;
+	min-width: 200px;
+	max-width: 600px;
+	margin: 0 12px;
 }
 
 .search-input {
-  width: 100%;
-  height: 32px;
-  padding: 0 12px;
-  font-family: inherit;
-  font-size: 13px;
-  color: #ffffff;
-  background-color: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  transition: all 0.2s ease;
-  -webkit-app-region: no-drag;
+	width: 100%;
+	height: 32px;
+	padding: 0 12px;
+	font-family: inherit;
+	font-size: 13px;
+	color: #ffffff;
+	background-color: rgba(255, 255, 255, 0.1);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 6px;
+	transition: all 0.2s ease;
+	-webkit-app-region: no-drag;
 }
 
 .search-input:focus {
-  outline: none;
-  background-color: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.2);
+	outline: none;
+	background-color: rgba(255, 255, 255, 0.15);
+	border-color: rgba(255, 255, 255, 0.2);
 }
 
 .lock-button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 16px;
-  font-family: inherit;
-  font-size: 13px;
-  color: #fff;
-  background-color: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  -webkit-app-region: no-drag;
-  white-space: nowrap;
-  flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	height: 32px;
+	padding: 0 16px;
+	font-family: inherit;
+	font-size: 13px;
+	color: #fff;
+	background-color: rgba(255, 255, 255, 0.1);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 6px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	-webkit-app-region: no-drag;
+	white-space: nowrap;
+	flex-shrink: 0;
 }
 
 .lock-button:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.2);
+	background-color: rgba(255, 255, 255, 0.15);
+	border-color: rgba(255, 255, 255, 0.2);
 }
 
 .lock-button .lock-icon {
-  width: 12px;
-  height: 12px;
-  flex-shrink: 0;
+	width: 12px;
+	height: 12px;
+	flex-shrink: 0;
 }
 
 .window-controls {
-  display: flex;
-  height: 100%;
-  -webkit-app-region: no-drag;
-  flex-shrink: 0;
+	display: flex;
+	height: 100%;
+	-webkit-app-region: no-drag;
+	flex-shrink: 0;
 }
 
 .window-control {
-  width: 46px;
-  height: 100%;
-  border: none;
-  background: transparent;
-  outline: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  opacity: 0.8;
-  cursor: pointer;
-  padding: 0;
-  -webkit-app-region: no-drag;
+	width: 46px;
+	height: 100%;
+	border: none;
+	background: transparent;
+	outline: none;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #fff;
+	opacity: 0.8;
+	cursor: pointer;
+	padding: 0;
+	-webkit-app-region: no-drag;
 }
 
 .window-control:hover {
-  background: rgba(255, 255, 255, 0.1);
+	background: rgba(255, 255, 255, 0.1);
 }
 
 .window-control.close:hover {
-  background: #e81123;
+	background: #e81123;
 }
