@@ -15,6 +15,7 @@ function App() {
   const [database, setDatabase] = useState<Database | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const passwordInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     if (selectedFile) {
@@ -116,15 +117,23 @@ function App() {
   if (database) {
     return (
       <>
-        <TitleBar />
-        <PasswordView database={database} onLock={handleLock} />
+        <TitleBar
+          inPasswordView={true}
+          onLock={handleLock}
+          searchQuery={searchQuery}
+          onSearch={setSearchQuery}
+        />
+        <PasswordView
+          database={database}
+          searchQuery={searchQuery}
+        />
       </>
     );
   }
 
   return (
     <>
-      <TitleBar />
+      <TitleBar inPasswordView={false} />
       <div
         className="app"
         onDragOver={handleDragOver}

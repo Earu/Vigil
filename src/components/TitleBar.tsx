@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
 import './TitleBar.css';
 
-export function TitleBar() {
+interface TitleBarProps {
+  inPasswordView?: boolean;
+  onLock?: () => void;
+  searchQuery?: string;
+  onSearch?: (query: string) => void;
+}
+
+export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -29,9 +36,38 @@ export function TitleBar() {
   if (!window.electron) return null;
 
   return (
-    <div className="title-bar">
+    <div className={`title-bar ${inPasswordView ? 'in-password-view' : ''}`}>
       <div className="title-bar-drag-area">
         <span className="title-bar-text">Vigil</span>
+        {inPasswordView && (
+          <div className="title-bar-controls">
+            <div className="search-container">
+              <input
+                type="text"
+                className="search-input"
+                placeholder="Search passwords..."
+                value={searchQuery}
+                onChange={(e) => onSearch?.(e.target.value)}
+              />
+            </div>
+            <button className="lock-button" onClick={onLock} title="Lock database">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="lock-icon"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Lock
+            </button>
+          </div>
+        )}
       </div>
       <div className="window-controls">
         <button className="window-control minimize" onClick={handleMinimize}>
