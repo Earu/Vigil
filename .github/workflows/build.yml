@@ -36,6 +36,7 @@ jobs:
       run: npm run electron:build
       env:
         NODE_ENV: production
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     # Windows artifacts
     - name: Upload Windows artifacts
@@ -69,3 +70,17 @@ jobs:
           dist/linux-unpacked/**/*
           !dist/linux-unpacked/resources/app.asar.unpacked
         if-no-files-found: error
+
+    # Create Release
+    - name: Create Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          dist/*.exe
+          dist/*.dmg
+          dist/*.AppImage
+        draft: true
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
