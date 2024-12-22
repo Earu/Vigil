@@ -44,8 +44,8 @@ jobs:
       with:
         name: windows-installer
         path: |
-          dist/*.exe
-          dist/*.msi
+          dist/win-unpacked/**/*
+          !dist/win-unpacked/resources/app.asar.unpacked
         if-no-files-found: error
 
     # macOS artifacts
@@ -55,8 +55,8 @@ jobs:
       with:
         name: macos-installer
         path: |
-          dist/*.dmg
-          dist/*.pkg
+          dist/mac-arm64/**/*
+          !dist/mac-arm64/resources/app.asar.unpacked
         if-no-files-found: error
 
     # Linux artifacts
@@ -66,7 +66,6 @@ jobs:
       with:
         name: linux-installer
         path: |
-          dist/*.deb
-          dist/*.rpm
-          dist/*.AppImage
+          dist/linux-unpacked/**/*
+          !dist/linux-unpacked/resources/app.asar.unpacked
         if-no-files-found: error
