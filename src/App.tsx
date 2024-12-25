@@ -11,7 +11,6 @@ declare var argon2: any;
 // Initialize Argon2 implementation for kdbxweb
 kdbxweb.CryptoEngine.argon2 = async (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, _version: number) => {
 	try {
-		console.log(argon2);
 		const result = await argon2.hash({
 			pass: new Uint8Array(password),
 			salt: new Uint8Array(salt),
@@ -41,6 +40,9 @@ function App() {
 	const [isCreatingNew, setIsCreatingNew] = useState(false)
 	const [confirmPassword, setConfirmPassword] = useState('')
 	const [databaseName, setDatabaseName] = useState('New Database')
+	const [databasePath, setDatabasePath] = useState<string | null>(null)
+	// Keep a reference to the loaded KeePass database
+	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
 
 	useEffect(() => {
 		if (selectedFile) {
@@ -87,7 +89,7 @@ function App() {
 					id: entry.uuid.toString(),
 					title: entry.fields.get('Title')?.toString() || '',
 					username: entry.fields.get('UserName')?.toString() || '',
-					password: entry.fields.get('Password')?.toString() || '',
+					password: entry.fields.get('Password') || '',
 					url: entry.fields.get('URL')?.toString(),
 					notes: entry.fields.get('Notes')?.toString(),
 					created: entry.times.creationTime as Date,
@@ -124,6 +126,17 @@ function App() {
 
 			const convertedDb = convertKdbxToDatabase(db)
 			setDatabase(convertedDb)
+			setKdbxDb(db);  // Store the KeePass database
+			
+			// Try to get the full path from electron
+			if (window.electron) {
+				const fullPath = await window.electron.getFilePath(selectedFile.name);
+				if (fullPath) {
+					setDatabasePath(fullPath);
+				}
+				// If we can't get the path, we'll wait until the user makes changes
+				// before asking where to save
+			}
 		} catch (err) {
 			console.error('Failed to unlock database:', err)
 			setError('Invalid password or corrupted database file')
@@ -137,6 +150,8 @@ function App() {
 		setSelectedFile(null)
 		setPassword('')
 		setError(null)
+		setDatabasePath(null)
+		setKdbxDb(null)  // Clear the KeePass database
 	}
 
 	const handleCreateNew = async () => {
@@ -170,6 +185,9 @@ function App() {
 
 			const convertedDb = convertKdbxToDatabase(db)
 			setDatabase(convertedDb)
+			if (result.filePath) {
+				setDatabasePath(result.filePath);
+			}
 		} catch (err) {
 			console.error('Failed to create database:', err)
 			setError(err instanceof Error ? err.message : 'Failed to create database')
@@ -188,6 +206,79 @@ function App() {
 		}
 	};
 
+	const handleDatabaseChange = async (updatedDatabase: Database) => {
+		setDatabase(updatedDatabase);
+
+		try {
+			if (!kdbxDb) {
+				throw new Error('Database not loaded');
+			}
+
+			// Update the entries in the existing database
+			const updateGroup = (group: Group, kdbxGroup: kdbxweb.KdbxGroup) => {
+				// Clear existing entries
+				while (kdbxGroup.entries.length > 0) {
+					kdbxGroup.entries.pop();
+				}
+
+				// Add updated entries
+				group.entries.forEach(entry => {
+					const kdbxEntry = kdbxDb.createEntry(kdbxGroup);
+					kdbxEntry.fields.set('Title', entry.title);
+					kdbxEntry.fields.set('UserName', entry.username);
+					kdbxEntry.fields.set('Password', typeof entry.password === 'string' 
+						? kdbxweb.ProtectedValue.fromString(entry.password)
+						: entry.password
+					);
+					if (entry.url) kdbxEntry.fields.set('URL', entry.url);
+					if (entry.notes) kdbxEntry.fields.set('Notes', entry.notes);
+					kdbxEntry.times.creationTime = entry.created;
+					kdbxEntry.times.lastModTime = entry.modified;
+				});
+
+				// Update subgroups recursively
+				group.groups.forEach((subgroup, index) => {
+					const kdbxSubgroup = kdbxGroup.groups[index] || kdbxDb.createGroup(kdbxGroup, subgroup.name);
+					updateGroup(subgroup, kdbxSubgroup);
+				});
+			};
+
+			const root = kdbxDb.getDefaultGroup();
+			if (root) {
+				updateGroup(updatedDatabase.root, root);
+			}
+
+			// Save the updated database
+			const arrayBuffer = await kdbxDb.save();
+			
+			let result;
+			if (databasePath) {
+				// If we have a path, save directly to it
+				result = await window.electron?.saveToFile(databasePath, new Uint8Array(arrayBuffer));
+				if (!result?.success) {
+					// If direct save fails, fall back to save dialog
+					result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
+					if (result?.success && result.filePath) {
+						setDatabasePath(result.filePath);
+					}
+				}
+			} else {
+				// If no path, use save dialog
+				result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
+				if (result?.success && result.filePath) {
+					setDatabasePath(result.filePath);
+				}
+			}
+
+			if (!result?.success) {
+				throw new Error(result?.error || 'Failed to save database');
+			}
+		} catch (err) {
+			console.error('Failed to save database:', err);
+			setError('Failed to save database changes');
+		}
+	};
+
 	if (database) {
 		return (
 			<>
@@ -200,6 +291,7 @@ function App() {
 				<PasswordView
 					database={database}
 					searchQuery={searchQuery}
+					onDatabaseChange={handleDatabaseChange}
 				/>
 			</>
 		);

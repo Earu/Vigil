@@ -83,3 +83,34 @@ ipcMain.handle('save-file', async (_, data: Uint8Array) => {
 		return { success: false, error: 'Failed to save file' };
 	}
 });
+
+ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array) => {
+	try {
+		await fs.promises.writeFile(filePath, Buffer.from(data));
+		return { success: true };
+	} catch (error) {
+		console.error('Failed to save file:', error);
+		return { success: false, error: 'Failed to save file' };
+	}
+});
+
+ipcMain.handle('get-file-path', async (_, filePath: string) => {
+	try {
+		// If it's already an absolute path, return it
+		if (path.isAbsolute(filePath)) {
+			return filePath;
+		}
+
+		// Try to resolve relative to the app's current working directory
+		const resolvedPath = path.resolve(process.cwd(), filePath);
+		if (fs.existsSync(resolvedPath)) {
+			return resolvedPath;
+		}
+
+		// If we can't find the file, return null
+		return null;
+	} catch (error) {
+		console.error('Error resolving file path:', error);
+		return null;
+	}
+});

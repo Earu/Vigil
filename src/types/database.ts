@@ -1,8 +1,10 @@
+import * as kdbxweb from 'kdbxweb';
+
 export interface Entry {
 	id: string;
 	title: string;
 	username: string;
-	password: string;
+	password: string | kdbxweb.ProtectedValue;
 	url?: string;
 	notes?: string;
 	created: Date;
