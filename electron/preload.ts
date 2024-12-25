@@ -6,5 +6,6 @@ contextBridge.exposeInMainWorld('electron', {
 	closeWindow: () => ipcRenderer.invoke('close-window'),
 	onMaximizeChange: (callback: (maximized: boolean) => void) => {
 		ipcRenderer.on('window-maximized', (_, maximized) => callback(maximized))
-	}
+	},
+	saveFile: (buffer: Buffer) => ipcRenderer.invoke('save-file', buffer)
 })

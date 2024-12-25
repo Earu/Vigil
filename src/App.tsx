@@ -1,10 +1,32 @@
-import { useState, useEffect, useRef } from 'react'
-import { Background } from './components/Background'
-import { PasswordView } from './components/PasswordView'
-import * as kdbxweb from 'kdbxweb'
-import { Database, Group } from './types/database'
-import './App.css'
-import { TitleBar } from './components/TitleBar'
+import { useState, useEffect, useRef } from 'react';
+import { Background } from './components/Background';
+import { PasswordView } from './components/PasswordView';
+import * as kdbxweb from 'kdbxweb';
+import { Database, Group } from './types/database';
+import './App.css';
+import { TitleBar } from './components/TitleBar';
+
+declare var argon2: any;
+
+// Initialize Argon2 implementation for kdbxweb
+kdbxweb.CryptoEngine.argon2 = async (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, _version: number) => {
+	try {
+		console.log(argon2);
+		const result = await argon2.hash({
+			pass: new Uint8Array(password),
+			salt: new Uint8Array(salt),
+			time: iterations,
+			mem: memory,
+			parallelism,
+			type,
+			hashLen: length
+		});
+		return result.hash;
+	} catch (err) {
+		console.error('Argon2 error:', err);
+		throw err;
+	}
+};
 
 function App() {
 	const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -138,11 +160,19 @@ function App() {
 			const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password))
 			const db = kdbxweb.Kdbx.create(credentials, databaseName.trim())
 
+			// Save the database
+			const arrayBuffer = await db.save();
+			const result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
+
+			if (!result?.success) {
+				throw new Error(result?.error || 'Failed to save database');
+			}
+
 			const convertedDb = convertKdbxToDatabase(db)
 			setDatabase(convertedDb)
 		} catch (err) {
 			console.error('Failed to create database:', err)
-			setError('Failed to create database')
+			setError(err instanceof Error ? err.message : 'Failed to create database')
 		} finally {
 			setIsLoading(false)
 		}
