@@ -1,11 +1,16 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { IElectronAPI } from '../src/types/electron'
 
-contextBridge.exposeInMainWorld('electron', {
+const api: IElectronAPI = {
 	minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
 	maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
 	closeWindow: () => ipcRenderer.invoke('close-window'),
-	onMaximizeChange: (callback: (maximized: boolean) => void) => {
-		ipcRenderer.on('window-maximized', (_, maximized) => callback(maximized))
+	onMaximizeChange: (callback) => {
+		ipcRenderer.on('maximize-change', (_, maximized) => callback(maximized))
 	},
-	saveFile: (buffer: Buffer) => ipcRenderer.invoke('save-file', buffer)
-})
+	saveFile: (data) => ipcRenderer.invoke('save-file', data),
+	saveToFile: (filePath, data) => ipcRenderer.invoke('save-to-file', filePath, data),
+	getFilePath: (path) => ipcRenderer.invoke('get-file-path', path)
+}
+
+contextBridge.exposeInMainWorld('electron', api)
