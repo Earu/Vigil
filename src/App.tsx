@@ -178,6 +178,16 @@ function App() {
 		}
 	}
 
+	const handleKeyPress = (e: React.KeyboardEvent) => {
+		if (e.key === 'Enter' && !isLoading) {
+			if (isCreatingNew) {
+				handleCreateNew();
+			} else if (selectedFile) {
+				handleUnlock();
+			}
+		}
+	};
+
 	if (database) {
 		return (
 			<>
@@ -298,6 +308,7 @@ function App() {
 											className="text-input"
 											value={databaseName}
 											onChange={(e) => setDatabaseName(e.target.value)}
+											onKeyPress={handleKeyPress}
 										/>
 									</div>
 								)}
@@ -309,6 +320,7 @@ function App() {
 										value={password}
 										onChange={(e) => setPassword(e.target.value)}
 										ref={passwordInputRef}
+										onKeyPress={handleKeyPress}
 									/>
 									<button
 										className="toggle-password"
@@ -346,6 +358,7 @@ function App() {
 											className="password-input"
 											value={confirmPassword}
 											onChange={(e) => setConfirmPassword(e.target.value)}
+											onKeyPress={handleKeyPress}
 										/>
 									</div>
 								)}
