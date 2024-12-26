@@ -15,7 +15,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
 			return {
-				id: crypto.randomUUID(),
+				id: '',
 				title: '',
 				username: '',
 				password: '',
