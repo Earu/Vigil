@@ -290,6 +290,46 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 		return null;
 	};
 
+	const handleMoveEntry = (entryToMove: Entry, targetGroup: Group) => {
+		const updatedDatabase: Database = deepCopyWithDates(database);
+
+		// Find and remove the entry from its current group
+		const removeEntryFromGroup = (group: Group): boolean => {
+			const index = group.entries.findIndex(e => e.id === entryToMove.id);
+			if (index !== -1) {
+				group.entries.splice(index, 1);
+				return true;
+			}
+			for (const subgroup of group.groups) {
+				if (removeEntryFromGroup(subgroup)) return true;
+			}
+			return false;
+		};
+
+		// Find the target group
+		const findTargetGroup = (group: Group): Group | null => {
+			if (group.id === targetGroup.id) {
+				return group;
+			}
+			for (const subgroup of group.groups) {
+				const found = findTargetGroup(subgroup);
+				if (found) return found;
+			}
+			return null;
+		};
+
+		// Remove from current group
+		removeEntryFromGroup(updatedDatabase.root);
+
+		// Add to target group
+		const target = findTargetGroup(updatedDatabase.root);
+		if (target) {
+			target.entries.push(entryToMove);
+		}
+
+		onDatabaseChange?.(updatedDatabase);
+	};
+
 	return (
 		<div className="password-view">
 			<div className="password-view-content">
@@ -301,15 +341,17 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 					onRemoveGroup={handleRemoveGroup}
 					onGroupNameChange={handleGroupNameChange}
 					onMoveGroup={handleMoveGroup}
+					onMoveEntry={handleMoveEntry}
 				/>
 				<EntryList
 					group={selectedGroup}
 					searchQuery={searchQuery}
 					selectedEntry={selectedEntry}
 					onEntrySelect={setSelectedEntry}
-					onRemoveEntry={handleRemoveEntry}
 					database={database}
 					onNewEntry={handleNewEntry}
+					onRemoveEntry={handleRemoveEntry}
+					onMoveEntry={handleMoveEntry}
 				/>
 				{(selectedEntry || isCreatingNew) && (
 					<EntryDetails

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Database, Group } from '../../types/database';
+import { Database, Group, Entry } from '../../types/database';
 
 interface SidebarProps {
 	database: Database;
@@ -9,6 +9,7 @@ interface SidebarProps {
 	onRemoveGroup: (group: Group) => void;
 	onGroupNameChange?: (group: Group, newName: string) => void;
 	onMoveGroup?: (group: Group, newParent: Group) => void;
+	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
 }
 
 interface GroupItemProps {
@@ -20,10 +21,11 @@ interface GroupItemProps {
 	onRemoveGroup: (group: Group) => void;
 	onGroupNameChange?: (group: Group, newName: string) => void;
 	onMoveGroup?: (group: Group, newParent: Group) => void;
+	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
 	database: Database;
 }
 
-const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, database }: GroupItemProps) => {
+const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry, database }: GroupItemProps) => {
 	const [isExpanded, setIsExpanded] = useState(true);
 	const [isEditing, setIsEditing] = useState(false);
 	const [editedName, setEditedName] = useState(group.name);
@@ -107,34 +109,62 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 
 		try {
 			const data = JSON.parse(e.dataTransfer.getData('application/json'));
-			const draggedGroupId = data.groupId;
+			
+			// Handle group drops
+			if (data.groupId) {
+				const draggedGroupId = data.groupId;
 
-			// Don't allow dropping on itself or root
-			if (draggedGroupId === group.id || group.id === database.root.id) {
-				return;
-			}
-
-			// Find the dragged group
-			const findGroup = (searchGroup: Group): Group | null => {
-				if (searchGroup.id === draggedGroupId) {
-					return searchGroup;
+				// Don't allow dropping on itself or root
+				if (draggedGroupId === group.id || group.id === database.root.id) {
+					return;
 				}
-				for (const subgroup of searchGroup.groups) {
-					const found = findGroup(subgroup);
-					if (found) return found;
+
+				// Find the dragged group
+				const findGroup = (searchGroup: Group): Group | null => {
+					if (searchGroup.id === draggedGroupId) {
+						return searchGroup;
+					}
+					for (const subgroup of searchGroup.groups) {
+						const found = findGroup(subgroup);
+						if (found) return found;
+					}
+					return null;
+				};
+
+				const draggedGroup = findGroup(database.root);
+				if (!draggedGroup) return;
+
+				// Don't allow dropping on a descendant
+				if (isGroupInHierarchy(group, draggedGroup)) {
+					return;
 				}
-				return null;
-			};
 
-			const draggedGroup = findGroup(database.root);
-			if (!draggedGroup) return;
-
-			// Don't allow dropping on a descendant
-			if (isGroupInHierarchy(group, draggedGroup)) {
-				return;
+				onMoveGroup?.(draggedGroup, group);
 			}
+			// Handle entry drops
+			else if (data.entryId) {
+				const draggedEntryId = data.entryId;
 
-			onMoveGroup?.(draggedGroup, group);
+				// Find the dragged entry
+				const findEntry = (searchGroup: Group): [Entry | null, Group | null] => {
+					const entry = searchGroup.entries.find(e => e.id === draggedEntryId);
+					if (entry) return [entry, searchGroup];
+					
+					for (const subgroup of searchGroup.groups) {
+						const [found, sourceGroup] = findEntry(subgroup);
+						if (found) return [found, sourceGroup];
+					}
+					return [null, null];
+				};
+
+				const [draggedEntry, sourceGroup] = findEntry(database.root);
+				if (!draggedEntry || !sourceGroup) return;
+
+				// Don't move to the same group
+				if (sourceGroup.id === group.id) return;
+
+				onMoveEntry?.(draggedEntry, group);
+			}
 		} catch (err) {
 			console.error('Error handling drop:', err);
 		}
@@ -227,16 +257,16 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-									<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-								</svg>
-							</button>
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+							>
+								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+								<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+							</svg>
+						</button>
 					)}
 					{group.id !== database.root.id && (
 						<button
@@ -252,7 +282,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 								strokeWidth="2"
 								strokeLinecap="round"
 								strokeLinejoin="round"
-								>
+							>
 								<line x1="18" y1="6" x2="6" y2="18" />
 								<line x1="6" y1="6" x2="18" y2="18" />
 							</svg>
@@ -273,6 +303,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 							onRemoveGroup={onRemoveGroup}
 							onGroupNameChange={onGroupNameChange}
 							onMoveGroup={onMoveGroup}
+							onMoveEntry={onMoveEntry}
 							database={database}
 						/>
 					))}
@@ -282,7 +313,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	);
 };
 
-export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup }: SidebarProps) => {
+export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry }: SidebarProps) => {
 	return (
 		<div className="sidebar">
 			<div className="sidebar-header">
@@ -298,6 +329,7 @@ export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, on
 					onRemoveGroup={onRemoveGroup}
 					onGroupNameChange={onGroupNameChange}
 					onMoveGroup={onMoveGroup}
+					onMoveEntry={onMoveEntry}
 					database={database}
 				/>
 			</div>
