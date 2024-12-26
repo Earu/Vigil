@@ -10,11 +10,7 @@
 }
 
 .toast {
-	background: rgba(15, 23, 42, 0.9);
-	backdrop-filter: blur(8px);
-	border: 1px solid rgba(255, 255, 255, 0.1);
-	border-radius: 8px;
-	padding: 12px 16px;
+	background: #111;
 	color: #e5e7eb;
 	font-size: 14px;
 	display: flex;
@@ -23,6 +19,9 @@
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 	animation: toast-slide-in 0.2s ease-out;
 	pointer-events: none;
+	padding: 12px 16px;
+    border: 1px solid #333;
+    border-radius: 8px;
 }
 
 .toast.success {
@@ -30,7 +29,7 @@
 }
 
 .toast.error {
-	border-left: 4px solid #ef4444;
+	border-left: 4px solid #ff0000;
 }
 
 @keyframes toast-slide-in {
