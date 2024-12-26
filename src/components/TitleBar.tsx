@@ -38,6 +38,18 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }:
 	return (
 		<div className={`title-bar ${inPasswordView ? 'in-password-view' : ''}`}>
 			<div className="title-bar-drag-area">
+				<svg
+					width="24"
+					height="24"
+					viewBox="0 0 24 24"
+					fill="none"
+					xmlns="http://www.w3.org/2000/svg"
+					className="title-bar-logo"
+				>
+					<path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6l7-4z" fill="#3b82f6"/>
+					<circle cx="12" cy="12" r="3" fill="#ffffff"/>
+					<path d="M12 5v2M12 17v2M5 12h2M17 12h2" stroke="#2563eb" strokeWidth="1.5"/>
+				</svg>
 				<span className="title-bar-text">Vigil</span>
 				{inPasswordView && (
 					<div className="title-bar-controls">

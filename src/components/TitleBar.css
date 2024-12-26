@@ -143,3 +143,9 @@
 .window-control.close:hover {
 	background: #e81123;
 }
+
+.title-bar-logo {
+	width: 24px;
+	height: 24px;
+	margin-right: 8px;
+}
