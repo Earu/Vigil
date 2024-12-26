@@ -60,22 +60,45 @@ function App() {
 		setIsDragging(false)
 	}
 
-	const handleDrop = (e: React.DragEvent) => {
-		e.preventDefault()
-		setIsDragging(false)
+	const handleDrop = async (e: React.DragEvent) => {
+		e.preventDefault();
+		setIsDragging(false);
 
-		const files = e.dataTransfer.files
+		const files = e.dataTransfer.files;
 		if (files.length > 0) {
-			setSelectedFile(files[0])
-			setError(null)
+			const file = files[0];
+			setSelectedFile(file);
+			setError(null);
+
+			// Try to get the full path from electron
+			if (window.electron) {
+				const fullPath = await window.electron.getFilePath(file.name);
+				if (fullPath) {
+					setDatabasePath(fullPath);
+				}
+			}
 		}
 	}
 
-	const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const files = e.target.files
-		if (files && files.length > 0) {
-			setSelectedFile(files[0])
-			setError(null)
+	const handleFileSelect = async (e: React.MouseEvent) => {
+		e.preventDefault();
+		if (!window.electron) return;
+
+		const result = await window.electron.openFile();
+		if (result.canceled || !result.filePath) return;
+
+		try {
+			const fileResult = await window.electron.readFile(result.filePath);
+			if (!fileResult.success || !fileResult.data) {
+				throw new Error(fileResult.error || 'Failed to read file');
+			}
+
+			setSelectedFile(new File([fileResult.data], result.filePath.split('/').pop() || 'database.kdbx'));
+			setDatabasePath(result.filePath);
+			setError(null);
+		} catch (err) {
+			console.error('Failed to read file:', err);
+			setError('Failed to read file');
 		}
 	}
 
@@ -110,38 +133,38 @@ function App() {
 	};
 
 	const handleUnlock = async () => {
-		if (!selectedFile) return
+		if (!selectedFile) return;
 
-		setIsLoading(true)
-		setError(null)
+		setIsLoading(true);
+		setError(null);
 
 		try {
-			const fileBuffer = await selectedFile.arrayBuffer()
-			const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password))
+			let fileBuffer: ArrayBuffer;
+			if (databasePath && window.electron) {
+				const result = await window.electron.readFile(databasePath);
+				if (!result.success || !result.data) {
+					throw new Error(result.error || 'Failed to read file');
+				}
+				fileBuffer = result.data.buffer;
+			} else {
+				fileBuffer = await selectedFile.arrayBuffer();
+			}
+
+			const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
 
 			const db = await kdbxweb.Kdbx.load(
 				new Uint8Array(fileBuffer).buffer,
 				credentials
-			)
+			);
 
-			const convertedDb = convertKdbxToDatabase(db)
-			setDatabase(convertedDb)
+			const convertedDb = convertKdbxToDatabase(db);
+			setDatabase(convertedDb);
 			setKdbxDb(db);  // Store the KeePass database
-			
-			// Try to get the full path from electron
-			if (window.electron) {
-				const fullPath = await window.electron.getFilePath(selectedFile.name);
-				if (fullPath) {
-					setDatabasePath(fullPath);
-				}
-				// If we can't get the path, we'll wait until the user makes changes
-				// before asking where to save
-			}
 		} catch (err) {
-			console.error('Failed to unlock database:', err)
-			setError('Invalid password or corrupted database file')
+			console.error('Failed to unlock database:', err);
+			setError('Invalid password or corrupted database file');
 		} finally {
-			setIsLoading(false)
+			setIsLoading(false);
 		}
 	}
 
@@ -207,6 +230,7 @@ function App() {
 	};
 
 	const handleDatabaseChange = async (updatedDatabase: Database) => {
+		console.log('handleDatabaseChange', updatedDatabase);
 		setDatabase(updatedDatabase);
 
 		try {
@@ -216,6 +240,9 @@ function App() {
 
 			// Update the entries in the existing database
 			const updateGroup = (group: Group, kdbxGroup: kdbxweb.KdbxGroup) => {
+				// Update group name
+				kdbxGroup.name = group.name;
+
 				// Clear existing entries
 				while (kdbxGroup.entries.length > 0) {
 					kdbxGroup.entries.pop();
@@ -224,6 +251,14 @@ function App() {
 				// Add updated entries
 				group.entries.forEach(entry => {
 					const kdbxEntry = kdbxDb.createEntry(kdbxGroup);
+					// If this is an existing entry, preserve its UUID
+					if (entry.id && entry.id.length === 32) {
+						const uuidBytes = new Uint8Array(16);
+						for (let i = 0; i < 16; i++) {
+							uuidBytes[i] = parseInt(entry.id.substr(i * 2, 2), 16);
+						}
+						kdbxEntry.uuid = new kdbxweb.KdbxUuid(uuidBytes);
+					}
 					kdbxEntry.fields.set('Title', entry.title);
 					kdbxEntry.fields.set('UserName', entry.username);
 					kdbxEntry.fields.set('Password', typeof entry.password === 'string' 
@@ -236,9 +271,22 @@ function App() {
 					kdbxEntry.times.lastModTime = entry.modified;
 				});
 
-				// Update subgroups recursively
+				// Handle subgroups
+				// First, remove groups that no longer exist
+				const groupIds = new Set(group.groups.map(g => g.id));
+				kdbxGroup.groups = kdbxGroup.groups.filter(kg => 
+					groupIds.has(kg.uuid.toString())
+				);
+
+				// Then update or create groups
 				group.groups.forEach((subgroup, index) => {
-					const kdbxSubgroup = kdbxGroup.groups[index] || kdbxDb.createGroup(kdbxGroup, subgroup.name);
+					let kdbxSubgroup = kdbxGroup.groups.find(kg => kg.uuid.toString() === subgroup.id);
+					if (!kdbxSubgroup) {
+						kdbxSubgroup = kdbxDb.createGroup(kdbxGroup, subgroup.name);
+						// For new groups, we'll let KdbxWeb generate the UUID
+						// and update our group object to match
+						subgroup.id = kdbxSubgroup.uuid.toString();
+					}
 					updateGroup(subgroup, kdbxSubgroup);
 				});
 			};
@@ -347,7 +395,10 @@ function App() {
 							<>
 								<p>Select or drop your KeePass database file to get started</p>
 								<div className="database-actions">
-									<label className="file-input-label">
+									<button
+										className="file-input-label"
+										onClick={handleFileSelect}
+									>
 										<svg
 											xmlns="http://www.w3.org/2000/svg"
 											viewBox="0 0 24 24"
@@ -360,13 +411,7 @@ function App() {
 											<path d="M14 3v5h5M18 21v-6M15 18h6" />
 										</svg>
 										Browse Database
-										<input
-											type="file"
-											accept=".kdbx"
-											onChange={handleFileSelect}
-											className="file-input"
-										/>
-									</label>
+									</button>
 									<button
 										className="create-new-button"
 										onClick={() => setIsCreatingNew(true)}

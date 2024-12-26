@@ -6,6 +6,8 @@ export interface IElectronAPI {
 	saveFile: (data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
 	saveToFile: (filePath: string, data: Uint8Array) => Promise<{ success: boolean; error?: string }>;
 	getFilePath: (path: string) => Promise<string>;
+	openFile: () => Promise<{ filePath: string; canceled: boolean }>;
+	readFile: (filePath: string) => Promise<{ success: boolean; data?: Uint8Array; error?: string }>;
 }
 
 declare global {

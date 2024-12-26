@@ -114,3 +114,27 @@ ipcMain.handle('get-file-path', async (_, filePath: string) => {
 		return null;
 	}
 });
+
+ipcMain.handle('open-file', async () => {
+	const result = await dialog.showOpenDialog({
+		properties: ['openFile'],
+		filters: [
+			{ name: 'KeePass Database', extensions: ['kdbx'] }
+		]
+	});
+
+	return {
+		filePath: result.filePaths[0],
+		canceled: result.canceled
+	};
+});
+
+ipcMain.handle('read-file', async (_, filePath: string) => {
+	try {
+		const data = await fs.promises.readFile(filePath);
+		return { success: true, data };
+	} catch (error) {
+		console.error('Failed to read file:', error);
+		return { success: false, error: 'Failed to read file' };
+	}
+});
