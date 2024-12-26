@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Entry } from '../../types/database';
 import * as kdbxweb from 'kdbxweb';
 
@@ -12,6 +12,9 @@ interface EntryDetailsProps {
 export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
+	const [clipboardTimer, setClipboardTimer] = useState<number>(0);
+	const [copiedField, setCopiedField] = useState<string>('');
+	const timerRef = useRef<NodeJS.Timeout>();
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
 			return {
@@ -66,9 +69,39 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		return () => window.removeEventListener('keydown', handleKeyDown);
 	}, [isEditing, isNew, editedEntry]);
 
+	// Timer cleanup effect
+	useEffect(() => {
+		return () => {
+			if (timerRef.current) {
+				clearInterval(timerRef.current);
+			}
+		};
+	}, []);
+
+	// Timer countdown effect
+	useEffect(() => {
+		if (clipboardTimer > 0) {
+			const interval = setInterval(() => {
+				setClipboardTimer((prev) => {
+					if (prev <= 1) {
+						clearInterval(interval);
+						navigator.clipboard.writeText(''); // Clear clipboard
+						setCopiedField(''); // Clear the copied field indicator
+						return 0;
+					}
+					return prev - 1;
+				});
+			}, 1000);
+			timerRef.current = interval;
+			return () => clearInterval(interval);
+		}
+	}, [clipboardTimer]);
+
 	const copyToClipboard = async (text: string, field: string) => {
 		try {
 			await navigator.clipboard.writeText(text);
+			setClipboardTimer(20); // Reset timer to 20 seconds
+			setCopiedField(field); // Set which field was copied
 			(window as any).showToast?.({
 				message: `${field} copied to clipboard`,
 				type: 'success'
@@ -81,6 +114,34 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 			});
 		}
 	};
+
+	const renderCopyButton = (onClick: () => void, title: string, field: string) => (
+		<>
+			<button
+				className="copy-button"
+				onClick={onClick}
+				title={title}
+			>
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					strokeWidth="2"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				>
+					<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+					<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+				</svg>
+				{clipboardTimer > 0 && copiedField === field && (
+					<div className="clipboard-timer" style={{ '--progress': `${(clipboardTimer / 20) * 100}%` } as React.CSSProperties}>
+						{clipboardTimer}s
+					</div>
+				)}
+			</button>
+		</>
+	);
 
 	const handleSave = () => {
 		const updatedEntry = {
@@ -174,25 +235,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							readOnly={!isEditing}
 							placeholder="Enter title"
 						/>
-						{!isEditing && editedEntry.title && (
-							<button
-								className="copy-button"
-								onClick={() => copyToClipboard(editedEntry.title, 'Title')}
-								title="Copy title"
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-									<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-								</svg>
-							</button>
+						{!isEditing && editedEntry.title && renderCopyButton(
+							() => copyToClipboard(editedEntry.title, 'Title'),
+							'Copy title',
+							'Title'
 						)}
 					</div>
 				</div>
@@ -208,25 +254,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							readOnly={!isEditing}
 							placeholder="Enter username"
 						/>
-						{!isEditing && editedEntry.username && (
-							<button
-								className="copy-button"
-								onClick={() => copyToClipboard(editedEntry.username, 'Username')}
-								title="Copy username"
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-									<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-								</svg>
-							</button>
+						{!isEditing && editedEntry.username && renderCopyButton(
+							() => copyToClipboard(editedEntry.username, 'Username'),
+							'Copy username',
+							'Username'
 						)}
 					</div>
 				</div>
@@ -303,25 +334,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 								</svg>
 							</button>
 						)}
-						{!isEditing && editedEntry.password && (
-							<button
-								className="copy-button"
-								onClick={() => copyToClipboard(getPasswordString(), 'Password')}
-								title="Copy password"
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-									<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-								</svg>
-							</button>
+						{!isEditing && editedEntry.password && renderCopyButton(
+							() => copyToClipboard(getPasswordString(), 'Password'),
+							'Copy password',
+							'Password'
 						)}
 					</div>
 				</div>
@@ -339,28 +355,16 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 						/>
 						{!isEditing && editedEntry.url && (
 							<>
-								<button
-									className="copy-button"
-									onClick={() => copyToClipboard(editedEntry.url!, 'URL')}
-									title="Copy URL"
-								>
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
-									>
-										<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-										<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-									</svg>
-								</button>
+								{renderCopyButton(
+									() => copyToClipboard(editedEntry.url!, 'URL'),
+									'Copy URL',
+									'URL'
+								)}
 								<a
 									href={editedEntry.url}
 									target="_blank"
 									rel="noopener noreferrer"
+									
 									className="open-button"
 									title="Open URL"
 								>
