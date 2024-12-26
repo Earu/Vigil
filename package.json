@@ -47,13 +47,16 @@
 			"main": "dist-electron/main.js"
 		},
 		"mac": {
-			"target": "dmg"
+			"target": "dmg",
+			"icon": "build/icons/icon.icns"
 		},
 		"linux": {
-			"target": "AppImage"
+			"target": "AppImage",
+			"icon": "build/icons"
 		},
 		"win": {
-			"target": "nsis"
+			"target": "nsis",
+			"icon": "build/icons/icon.ico"
 		}
 	}
 }
