@@ -46,6 +46,13 @@ function createWindow() {
 		const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
 		console.log('Loading production file from:', indexPath);
 		win.loadFile(indexPath);
+
+		// Ensure required resources can load
+		win.webContents.session.webRequest.onBeforeRequest({ urls: ['file://*/*'] },
+			(_, callback) => {
+				callback({ cancel: false });
+			}
+		);
 	}
 }
 
