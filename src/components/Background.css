@@ -3,7 +3,7 @@
 	inset: 0;
 	overflow: hidden;
 	z-index: 0;
-	background-color: #0f172a;
+	background-color: #0f0f0f;
 }
 
 .mesh-gradient {
@@ -11,14 +11,14 @@
 	inset: -50%;
 	background:
 		radial-gradient(at 0% 0%,
-			rgba(37, 99, 235, 0.15) 0%,
+			rgba(255, 255, 255, 0.15) 0%,
 			transparent 50%),
 		radial-gradient(at 100% 0%,
-			rgba(29, 78, 216, 0.1) 0%,
+			rgba(255, 255, 255, 0.1) 0%,
 			transparent 50%),
 		linear-gradient(45deg,
-			rgba(15, 23, 42, 0.8) 0%,
-			rgba(15, 23, 42, 0.9) 100%);
+			rgba(15, 15, 15, 0.8) 0%,
+			rgba(15, 15, 15, 0.9) 100%);
 	transform: scale(2);
 }
 
