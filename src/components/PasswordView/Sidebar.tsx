@@ -8,6 +8,7 @@ interface SidebarProps {
 	onNewGroup: (parentGroup: Group) => void;
 	onRemoveGroup: (group: Group) => void;
 	onGroupNameChange?: (group: Group, newName: string) => void;
+	onMoveGroup?: (group: Group, newParent: Group) => void;
 }
 
 interface GroupItemProps {
@@ -18,13 +19,16 @@ interface GroupItemProps {
 	onNewGroup: (parentGroup: Group) => void;
 	onRemoveGroup: (group: Group) => void;
 	onGroupNameChange?: (group: Group, newName: string) => void;
+	onMoveGroup?: (group: Group, newParent: Group) => void;
 	database: Database;
 }
 
-const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, database }: GroupItemProps) => {
+const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, database }: GroupItemProps) => {
 	const [isExpanded, setIsExpanded] = useState(true);
 	const [isEditing, setIsEditing] = useState(false);
 	const [editedName, setEditedName] = useState(group.name);
+	const [isDragging, setIsDragging] = useState(false);
+	const [isDragOver, setIsDragOver] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const hasSubgroups = group.groups.length > 0;
 
@@ -63,12 +67,91 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 		return count;
 	};
 
+	const handleDragStart = (e: React.DragEvent) => {
+		e.stopPropagation();
+		if (group.id === database.root.id) {
+			e.preventDefault();
+			return;
+		}
+		setIsDragging(true);
+		e.dataTransfer.setData('application/json', JSON.stringify({ groupId: group.id }));
+		e.dataTransfer.effectAllowed = 'move';
+	};
+
+	const handleDragEnd = () => {
+		setIsDragging(false);
+	};
+
+	const handleDragOver = (e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		setIsDragOver(true);
+		e.dataTransfer.dropEffect = 'move';
+	};
+
+	const handleDragLeave = (e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		setIsDragOver(false);
+	};
+
+	const isGroupInHierarchy = (targetGroup: Group, potentialParent: Group): boolean => {
+		if (targetGroup.id === potentialParent.id) return true;
+		return potentialParent.groups.some(g => isGroupInHierarchy(targetGroup, g));
+	};
+
+	const handleDrop = (e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		setIsDragOver(false);
+
+		try {
+			const data = JSON.parse(e.dataTransfer.getData('application/json'));
+			const draggedGroupId = data.groupId;
+
+			// Don't allow dropping on itself or root
+			if (draggedGroupId === group.id || group.id === database.root.id) {
+				return;
+			}
+
+			// Find the dragged group
+			const findGroup = (searchGroup: Group): Group | null => {
+				if (searchGroup.id === draggedGroupId) {
+					return searchGroup;
+				}
+				for (const subgroup of searchGroup.groups) {
+					const found = findGroup(subgroup);
+					if (found) return found;
+				}
+				return null;
+			};
+
+			const draggedGroup = findGroup(database.root);
+			if (!draggedGroup) return;
+
+			// Don't allow dropping on a descendant
+			if (isGroupInHierarchy(group, draggedGroup)) {
+				return;
+			}
+
+			onMoveGroup?.(draggedGroup, group);
+		} catch (err) {
+			console.error('Error handling drop:', err);
+		}
+	};
+
 	return (
 		<div className="group-item">
 			<div
-				className={`group-header ${selectedGroup.id === group.id ? 'selected' : ''}`}
+				className={`group-header ${selectedGroup.id === group.id ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragging ? 'dragging' : ''}`}
 				style={{ paddingLeft: `${level * 1.25}rem` }}
 				onClick={() => !isEditing && onGroupSelect(group)}
+				draggable={!isEditing && group.id !== database.root.id}
+				onDragStart={handleDragStart}
+				onDragEnd={handleDragEnd}
+				onDragOver={handleDragOver}
+				onDragLeave={handleDragLeave}
+				onDrop={handleDrop}
 			>
 				{hasSubgroups && (
 					<button
@@ -189,6 +272,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 							onNewGroup={onNewGroup}
 							onRemoveGroup={onRemoveGroup}
 							onGroupNameChange={onGroupNameChange}
+							onMoveGroup={onMoveGroup}
 							database={database}
 						/>
 					))}
@@ -198,7 +282,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	);
 };
 
-export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange }: SidebarProps) => {
+export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup }: SidebarProps) => {
 	return (
 		<div className="sidebar">
 			<div className="sidebar-header">
@@ -213,6 +297,7 @@ export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, on
 					onNewGroup={onNewGroup}
 					onRemoveGroup={onRemoveGroup}
 					onGroupNameChange={onGroupNameChange}
+					onMoveGroup={onMoveGroup}
 					database={database}
 				/>
 			</div>

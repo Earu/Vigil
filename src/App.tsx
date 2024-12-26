@@ -208,6 +208,7 @@ function App() {
 
 			const convertedDb = convertKdbxToDatabase(db)
 			setDatabase(convertedDb)
+			setKdbxDb(db)  // Add this line to store the KeePass database reference
 			if (result.filePath) {
 				setDatabasePath(result.filePath);
 			}
@@ -279,7 +280,7 @@ function App() {
 				);
 
 				// Then update or create groups
-				group.groups.forEach((subgroup, index) => {
+				group.groups.forEach((subgroup, _) => {
 					let kdbxSubgroup = kdbxGroup.groups.find(kg => kg.uuid.toString() === subgroup.id);
 					if (!kdbxSubgroup) {
 						kdbxSubgroup = kdbxDb.createGroup(kdbxGroup, subgroup.name);

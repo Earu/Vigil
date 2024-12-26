@@ -207,6 +207,46 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 		onDatabaseChange?.(updatedDatabase);
 	};
 
+	const handleMoveGroup = (groupToMove: Group, newParent: Group) => {
+		const updatedDatabase: Database = deepCopyWithDates(database);
+
+		// Helper function to find and remove the group from its current parent
+		const removeFromCurrentParent = (searchGroup: Group): boolean => {
+			const index = searchGroup.groups.findIndex(g => g.id === groupToMove.id);
+			if (index !== -1) {
+				searchGroup.groups.splice(index, 1);
+				return true;
+			}
+			for (const subgroup of searchGroup.groups) {
+				if (removeFromCurrentParent(subgroup)) return true;
+			}
+			return false;
+		};
+
+		// Helper function to find the new parent group
+		const findNewParent = (searchGroup: Group): Group | null => {
+			if (searchGroup.id === newParent.id) {
+				return searchGroup;
+			}
+			for (const subgroup of searchGroup.groups) {
+				const found = findNewParent(subgroup);
+				if (found) return found;
+			}
+			return null;
+		};
+
+		// Remove the group from its current parent
+		removeFromCurrentParent(updatedDatabase.root);
+
+		// Find the new parent and add the group
+		const targetParent = findNewParent(updatedDatabase.root);
+		if (targetParent) {
+			targetParent.groups.push(groupToMove);
+		}
+
+		onDatabaseChange?.(updatedDatabase);
+	};
+
 	const handleRemoveEntry = (entryToRemove: Entry) => {
 		if (!window.confirm(`Are you sure you want to remove the entry "${entryToRemove.title}"?`)) return;
 
@@ -260,6 +300,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 					onNewGroup={handleNewGroup}
 					onRemoveGroup={handleRemoveGroup}
 					onGroupNameChange={handleGroupNameChange}
+					onMoveGroup={handleMoveGroup}
 				/>
 				<EntryList
 					group={selectedGroup}
