@@ -11,8 +11,8 @@ if (-not (Get-Command magick -ErrorAction SilentlyContinue)) {
 }
 
 # Define paths
-$svgPath = "logo.svg"
-$outputDir = "build/icons"
+$svgPath = "../logo.svg"
+$outputDir = "../build/icons"
 $iconPath = Join-Path $outputDir "icon.ico"
 
 # Create output directory if it doesn't exist

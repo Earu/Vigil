@@ -48,9 +48,9 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }:
 				>
 					<defs>
 						<linearGradient id="shieldGradient" x1="0" y1="0" x2="0" y2="1">
-							<stop offset="0%" stop-color="#ffffff" />
-							<stop offset="50%" stop-color="#bbbbbb" />
-							<stop offset="100%" stop-color="#888888" />
+							<stop offset="0%" stopColor="#ffffff" />
+							<stop offset="50%" stopColor="#bbbbbb" />
+							<stop offset="100%" stopColor="#888888" />
 						</linearGradient>
 					</defs>
 					<rect width="24" height="24" rx="4" ry="4" fill="#000000"/>
