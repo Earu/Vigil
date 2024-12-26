@@ -6,7 +6,6 @@ import { Database, Group } from './types/database';
 import './App.css';
 import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
-import 'argon2-browser/lib/argon2.js';
 import { hash } from 'argon2-browser';
 
 declare var argon2: { hash: typeof hash };
@@ -46,6 +45,13 @@ function App() {
 	const [databasePath, setDatabasePath] = useState<string | null>(null)
 	// Keep a reference to the loaded KeePass database
 	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
+
+	useEffect(() => {
+		const loadArgon2 = async () => {
+			await import('argon2-browser/lib/argon2.js');
+		};
+		loadArgon2();
+	}, []);
 
 	useEffect(() => {
 		if (selectedFile) {

@@ -1,32 +1,23 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { resolve } from 'path'
+import wasm from 'vite-plugin-wasm'
+import topLevelAwait from 'vite-plugin-top-level-await'
 
 export default defineConfig({
-	plugins: [react()],
-	base: './',
-	optimizeDeps: {
-		exclude: ['argon2-browser']
-	},
+	plugins: [
+		wasm(),
+		topLevelAwait(),
+		react()
+	],
 	build: {
 		outDir: 'dist',
-		emptyOutDir: true,
 		rollupOptions: {
-			input: {
-				main: resolve(__dirname, 'index.html')
-			}
+			external: [/\.wasm$/],
 		},
-		assetsDir: 'assets',
-		target: 'esnext'
+		assetsDir: 'assets'
 	},
-	server: {
-		fs: {
-			strict: false
-		}
+	optimizeDeps: {
+		exclude: ['@syntect/wasm', 'argon2-browser']
 	},
-	resolve: {
-		alias: {
-			'argon2-browser': resolve(__dirname, 'node_modules/argon2-browser')
-		}
-	}
+	base: './'
 })
