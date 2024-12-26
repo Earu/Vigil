@@ -9,7 +9,7 @@ const config = {
 	format: 'cjs',
 	target: 'node18',
 	sourcemap: true,
-	minify: process.env.NODE_ENV === 'production'
+	minify: process.env.NODE_ENV !== 'development'
 }
 
 try {

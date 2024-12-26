@@ -39,7 +39,7 @@ function createWindow() {
 		win.webContents.send('window-maximized', false)
 	})
 
-	if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+	if (process.env.NODE_ENV === 'development') {
 		win.loadURL('http://localhost:5173');
 		win.webContents.openDevTools();
 	} else {

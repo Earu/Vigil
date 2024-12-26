@@ -8,8 +8,8 @@
 		"dev": "vite",
 		"build": "tsc -b && vite build",
 		"preview": "vite preview",
-		"electron:dev": "cross-env NODE_ENV=development && concurrently \"vite\" \"node electron/build.mjs && electron dist-electron/main.js\"",
-		"electron:build": "cross-env NODE_ENV=production && tsc -b && vite build && node electron/build.mjs && electron-builder"
+		"electron:dev": "concurrently \"vite\" \"node electron/build.mjs && cross-env NODE_ENV=development electron dist-electron/main.js\"",
+		"electron:build": "tsc -b && vite build && node electron/build.mjs && electron-builder"
 	},
 	"dependencies": {
 		"argon2-browser": "^1.18.0",
