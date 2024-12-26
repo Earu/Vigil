@@ -8,6 +8,7 @@ interface EntryListProps {
 	database?: Database;
 	onNewEntry: () => void;
 	onRemoveEntry: (entry: Entry) => void;
+	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
 }
 
 export const EntryList = ({
@@ -18,6 +19,7 @@ export const EntryList = ({
 	database,
 	onNewEntry,
 	onRemoveEntry,
+	onMoveEntry,
 }: EntryListProps) => {
 	const getAllEntriesFromGroup = (group: Group): Entry[] => {
 		let entries = [...group.entries];
@@ -47,8 +49,49 @@ export const EntryList = ({
 		a.title.toLowerCase().localeCompare(b.title.toLowerCase())
 	);
 
+	const handleDragStart = (e: React.DragEvent, entry: Entry) => {
+		e.stopPropagation();
+		e.dataTransfer.setData('application/json', JSON.stringify({ entryId: entry.id }));
+		e.dataTransfer.effectAllowed = 'move';
+		const target = e.target as HTMLElement;
+		target.classList.add('dragging');
+	};
+
+	const handleDragEnd = (e: React.DragEvent) => {
+		const target = e.target as HTMLElement;
+		target.classList.remove('dragging');
+	};
+
+	const handleDrop = (e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+
+		try {
+			const data = JSON.parse(e.dataTransfer.getData('application/json'));
+			if (data.entryId) {
+				const draggedEntryId = data.entryId;
+				const draggedEntry = getAllEntriesFromGroup(database?.root || group).find(e => e.id === draggedEntryId);
+				if (draggedEntry) {
+					onMoveEntry?.(draggedEntry, group);
+				}
+			}
+		} catch (err) {
+			console.error('Error handling drop:', err);
+		}
+	};
+
+	const handleDragOver = (e: React.DragEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		e.dataTransfer.dropEffect = 'move';
+	};
+
 	return (
-		<div className="entry-list">
+		<div 
+			className="entry-list"
+			onDrop={handleDrop}
+			onDragOver={handleDragOver}
+		>
 			<div className="entry-list-header">
 				<div className="entry-list-header-content">
 					<h2>{searchQuery ? 'Search Results' : group.name}</h2>
@@ -81,6 +124,9 @@ export const EntryList = ({
 					<div
 						key={entry.id}
 						className={`entry-item ${selectedEntry?.id === entry.id ? 'selected' : ''}`}
+						draggable={true}
+						onDragStart={(e) => handleDragStart(e, entry)}
+						onDragEnd={handleDragEnd}
 					>
 						<div className="entry-content" onClick={() => onEntrySelect(entry)}>
 							<div className="entry-icon">
