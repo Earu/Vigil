@@ -14,8 +14,7 @@ export default defineConfig({
 		rollupOptions: {
 			input: {
 				main: resolve(__dirname, 'index.html')
-			},
-			external: [/\.wasm$/]
+			}
 		},
 		assetsDir: 'assets',
 		target: 'esnext'
@@ -23,6 +22,11 @@ export default defineConfig({
 	server: {
 		fs: {
 			strict: false
+		}
+	},
+	resolve: {
+		alias: {
+			'argon2-browser': resolve(__dirname, 'node_modules/argon2-browser')
 		}
 	}
 })

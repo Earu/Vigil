@@ -6,8 +6,10 @@ import { Database, Group } from './types/database';
 import './App.css';
 import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
+import 'argon2-browser/lib/argon2.js';
+import { hash } from 'argon2-browser';
 
-declare var argon2: any;
+declare var argon2: { hash: typeof hash };
 
 // Initialize Argon2 implementation for kdbxweb
 kdbxweb.CryptoEngine.argon2 = async (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, _version: number) => {
@@ -263,7 +265,7 @@ function App() {
 					}
 					kdbxEntry.fields.set('Title', entry.title);
 					kdbxEntry.fields.set('UserName', entry.username);
-					kdbxEntry.fields.set('Password', typeof entry.password === 'string' 
+					kdbxEntry.fields.set('Password', typeof entry.password === 'string'
 						? kdbxweb.ProtectedValue.fromString(entry.password)
 						: entry.password
 					);
@@ -276,7 +278,7 @@ function App() {
 				// Handle subgroups
 				// First, remove groups that no longer exist
 				const groupIds = new Set(group.groups.map(g => g.id));
-				kdbxGroup.groups = kdbxGroup.groups.filter(kg => 
+				kdbxGroup.groups = kdbxGroup.groups.filter(kg =>
 					groupIds.has(kg.uuid.toString())
 				);
 
@@ -300,7 +302,7 @@ function App() {
 
 			// Save the updated database
 			const arrayBuffer = await kdbxDb.save();
-			
+
 			let result;
 			if (databasePath) {
 				// If we have a path, save directly to it
