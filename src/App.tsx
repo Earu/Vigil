@@ -5,6 +5,7 @@ import * as kdbxweb from 'kdbxweb';
 import { Database, Group } from './types/database';
 import './App.css';
 import { TitleBar } from './components/TitleBar';
+import { ToastContainer } from './components/Toast/Toast';
 
 declare var argon2: any;
 
@@ -322,9 +323,20 @@ function App() {
 			if (!result?.success) {
 				throw new Error(result?.error || 'Failed to save database');
 			}
+
+			// Show success toast
+			(window as any).showToast?.({
+				message: 'Database saved successfully',
+				type: 'success'
+			});
 		} catch (err) {
 			console.error('Failed to save database:', err);
 			setError('Failed to save database changes');
+			// Show error toast
+			(window as any).showToast?.({
+				message: 'Failed to save database',
+				type: 'error'
+			});
 		}
 	};
 
@@ -342,221 +354,224 @@ function App() {
 					searchQuery={searchQuery}
 					onDatabaseChange={handleDatabaseChange}
 				/>
+				<ToastContainer />
 			</>
 		);
 	}
 
 	return (
-		<>
-			<TitleBar inPasswordView={false} />
-			<div
-				className="app"
-				onDragOver={handleDragOver}
-				onDragLeave={handleDragLeave}
-				onDrop={handleDrop}
-			>
-				<Background />
-
-				<div className={`drop-overlay ${isDragging ? 'visible' : ''}`}>
-					<div className="drop-message">
+		<div
+			className="app"
+			onDragOver={handleDragOver}
+			onDrop={handleDrop}
+			onDragLeave={handleDragLeave}
+		>
+			<Background />
+			<TitleBar />
+			<div className="main-content">
+				<div className="database-form">
+					<div className="form-icon">
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
 							viewBox="0 0 24 24"
 							fill="none"
 							stroke="currentColor"
 							strokeWidth="2"
+							className="lock-icon"
+						>
+							<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+							<path d="M7 11V7a5 5 0 0 1 10 0v4" />
+						</svg>
+					</div>
+					<h1>{isCreatingNew ? 'Create Database' : 'Open Database'}</h1>
+
+					{!selectedFile && !isCreatingNew ? (
+						<>
+							<p>Select or drop your KeePass database file to get started</p>
+							<div className="database-actions">
+								<button
+									className="file-input-label"
+									onClick={handleFileSelect}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										className="browse-icon"
+									>
+										<path d="M20 11.08V8l-6-6H6a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2v-3.08" />
+										<path d="M14 3v5h5M18 21v-6M15 18h6" />
+									</svg>
+									Browse Database
+								</button>
+								<button
+									className="create-new-button"
+									onClick={() => setIsCreatingNew(true)}
+								>
+									Create New Database
+								</button>
+							</div>
+						</>
+					) : (
+						<div className="password-form">
+							{selectedFile && (
+								<div className="selected-file">
+									<span>{selectedFile.name}</span>
+									<button
+										className="clear-file"
+										onClick={() => {
+											setSelectedFile(null)
+											setError(null)
+										}}
+										title="Clear selection"
+									>
+										×
+									</button>
+								</div>
+							)}
+							{isCreatingNew && (
+								<div className="input-container">
+									<input
+										type="text"
+										placeholder="Database name"
+										className="text-input"
+										value={databaseName}
+										onChange={(e) => setDatabaseName(e.target.value)}
+										onKeyPress={handleKeyPress}
+									/>
+								</div>
+							)}
+							<div className="password-input-container">
+								<input
+									type={showPassword ? 'text' : 'password'}
+									placeholder="Enter password"
+									className="password-input"
+									value={password}
+									onChange={(e) => setPassword(e.target.value)}
+									ref={passwordInputRef}
+									onKeyPress={handleKeyPress}
+								/>
+								<button
+									className="toggle-password"
+									onClick={() => setShowPassword(!showPassword)}
+									type="button"
+									title={showPassword ? 'Hide password' : 'Show password'}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+									>
+										{showPassword ? (
+											<>
+												<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+												<line x1="1" y1="1" x2="23" y2="23" />
+											</>
+										) : (
+											<>
+												<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+												<circle cx="12" cy="12" r="3" />
+											</>
+										)}
+									</svg>
+								</button>
+							</div>
+
+							{isCreatingNew && (
+								<div className="password-input-container">
+									<input
+										type={showPassword ? 'text' : 'password'}
+										placeholder="Confirm password"
+										className="password-input"
+										value={confirmPassword}
+										onChange={(e) => setConfirmPassword(e.target.value)}
+										onKeyPress={handleKeyPress}
+									/>
+								</div>
+							)}
+
+							{error && <div className="error-message">{error}</div>}
+
+							<div className="form-buttons">
+								<button
+									className="cancel-button"
+									onClick={() => {
+										setIsCreatingNew(false)
+										setSelectedFile(null)
+										setPassword('')
+										setConfirmPassword('')
+										setDatabaseName('New Database')
+										setError(null)
+									}}
+								>
+									Cancel
+								</button>
+								<button
+									className={`unlock-button ${isLoading ? 'loading' : ''}`}
+									onClick={isCreatingNew ? handleCreateNew : handleUnlock}
+									disabled={isLoading}
+								>
+									{isLoading ? (
+										<svg
+											className="spinner"
+											viewBox="0 0 24 24"
+											fill="none"
+											stroke="currentColor"
+											strokeWidth="2"
+										>
+											<circle className="spinner-circle" cx="12" cy="12" r="10" />
+										</svg>
+									) : (
+										<>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												strokeWidth="2"
+												className="unlock-icon"
+											>
+												<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+												<path d="M7 11V7a5 5 0 0 1 9.9-1" />
+											</svg>
+											Unlock Database
+										</>
+									)}
+								</button>
+							</div>
+						</div>
+					)}
+				</div>
+			</div>
+			<ToastContainer />
+			{isDragging && (
+				<div className={`drop-overlay ${isDragging ? 'visible' : ''}`}>
+					<div className="drop-message">
+						<svg
 							className="upload-icon"
+							xmlns="http://www.w3.org/2000/svg"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							strokeWidth="2"
+							strokeLinecap="round"
+							strokeLinejoin="round"
 						>
 							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
 							<polyline points="17 8 12 3 7 8" />
 							<line x1="12" y1="3" x2="12" y2="15" />
 						</svg>
-						Drop your KeePass database here
+						<span>Drop your database file here</span>
 					</div>
 				</div>
-
-				<main className="main-content">
-					<div className="database-form">
-						<div className="form-icon">
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								className="lock-icon"
-							>
-								<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-								<path d="M7 11V7a5 5 0 0 1 10 0v4" />
-							</svg>
-						</div>
-						<h1>{isCreatingNew ? 'Create Database' : 'Open Database'}</h1>
-
-						{!selectedFile && !isCreatingNew ? (
-							<>
-								<p>Select or drop your KeePass database file to get started</p>
-								<div className="database-actions">
-									<button
-										className="file-input-label"
-										onClick={handleFileSelect}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											strokeWidth="2"
-											className="browse-icon"
-										>
-											<path d="M20 11.08V8l-6-6H6a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2v-3.08" />
-											<path d="M14 3v5h5M18 21v-6M15 18h6" />
-										</svg>
-										Browse Database
-									</button>
-									<button
-										className="create-new-button"
-										onClick={() => setIsCreatingNew(true)}
-									>
-										Create New Database
-									</button>
-								</div>
-							</>
-						) : (
-							<div className="password-form">
-								{selectedFile && (
-									<div className="selected-file">
-										<span>{selectedFile.name}</span>
-										<button
-											className="clear-file"
-											onClick={() => {
-												setSelectedFile(null)
-												setError(null)
-											}}
-											title="Clear selection"
-										>
-											×
-										</button>
-									</div>
-								)}
-								{isCreatingNew && (
-									<div className="input-container">
-										<input
-											type="text"
-											placeholder="Database name"
-											className="text-input"
-											value={databaseName}
-											onChange={(e) => setDatabaseName(e.target.value)}
-											onKeyPress={handleKeyPress}
-										/>
-									</div>
-								)}
-								<div className="password-input-container">
-									<input
-										type={showPassword ? 'text' : 'password'}
-										placeholder="Enter password"
-										className="password-input"
-										value={password}
-										onChange={(e) => setPassword(e.target.value)}
-										ref={passwordInputRef}
-										onKeyPress={handleKeyPress}
-									/>
-									<button
-										className="toggle-password"
-										onClick={() => setShowPassword(!showPassword)}
-										type="button"
-										title={showPassword ? 'Hide password' : 'Show password'}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											strokeWidth="2"
-										>
-											{showPassword ? (
-												<>
-													<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-													<line x1="1" y1="1" x2="23" y2="23" />
-												</>
-											) : (
-												<>
-													<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-													<circle cx="12" cy="12" r="3" />
-												</>
-											)}
-										</svg>
-									</button>
-								</div>
-
-								{isCreatingNew && (
-									<div className="password-input-container">
-										<input
-											type={showPassword ? 'text' : 'password'}
-											placeholder="Confirm password"
-											className="password-input"
-											value={confirmPassword}
-											onChange={(e) => setConfirmPassword(e.target.value)}
-											onKeyPress={handleKeyPress}
-										/>
-									</div>
-								)}
-
-								{error && <div className="error-message">{error}</div>}
-
-								<div className="form-buttons">
-									<button
-										className="cancel-button"
-										onClick={() => {
-											setIsCreatingNew(false)
-											setSelectedFile(null)
-											setPassword('')
-											setConfirmPassword('')
-											setDatabaseName('New Database')
-											setError(null)
-										}}
-									>
-										Cancel
-									</button>
-									<button
-										className={`unlock-button ${isLoading ? 'loading' : ''}`}
-										onClick={isCreatingNew ? handleCreateNew : handleUnlock}
-										disabled={isLoading}
-									>
-										{isLoading ? (
-											<svg
-												className="spinner"
-												viewBox="0 0 24 24"
-												fill="none"
-												stroke="currentColor"
-												strokeWidth="2"
-											>
-												<circle className="spinner-circle" cx="12" cy="12" r="10" />
-											</svg>
-										) : (
-											<>
-												<svg
-													xmlns="http://www.w3.org/2000/svg"
-													viewBox="0 0 24 24"
-													fill="none"
-													stroke="currentColor"
-													strokeWidth="2"
-													className="unlock-icon"
-												>
-													<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-													<path d="M7 11V7a5 5 0 0 1 9.9-1" />
-												</svg>
-												Unlock Database
-											</>
-										)}
-									</button>
-								</div>
-							</div>
-						)}
-					</div>
-				</main>
-			</div>
-		</>
+			)}
+		</div>
 	)
 }
 
 export default App
+

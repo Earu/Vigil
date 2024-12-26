@@ -43,13 +43,42 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		}
 	}, [entry, isNew]);
 
+	// Add keyboard shortcut handler
+	useEffect(() => {
+		const handleKeyDown = (e: KeyboardEvent) => {
+			// Only handle shortcuts when not in editing mode
+			if (isEditing || isNew) return;
+
+			// Check for Ctrl/Cmd key
+			const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+			if (!isCmdOrCtrl) return;
+
+			if (e.key === 'c') {
+				e.preventDefault(); // Prevent default copy behavior
+				copyToClipboard(getPasswordString(), 'Password');
+			} else if (e.key === 'b') {
+				e.preventDefault();
+				copyToClipboard(editedEntry.username, 'Username');
+			}
+		};
+
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	}, [isEditing, isNew, editedEntry]);
+
 	const copyToClipboard = async (text: string, field: string) => {
 		try {
 			await navigator.clipboard.writeText(text);
-			// TODO: Show a toast notification
-			console.log(`${field} copied to clipboard`);
+			(window as any).showToast?.({
+				message: `${field} copied to clipboard`,
+				type: 'success'
+			});
 		} catch (err) {
 			console.error('Failed to copy to clipboard:', err);
+			(window as any).showToast?.({
+				message: 'Failed to copy to clipboard',
+				type: 'error'
+			});
 		}
 	};
 
