@@ -1,6 +1,6 @@
 .title-bar {
 	height: 48px;
-	background: rgba(0, 0, 0, 0.4);
+	background: black;
 	backdrop-filter: blur(12px);
 	display: flex;
 	align-items: center;
@@ -33,7 +33,7 @@
 }
 
 .title-bar-text {
-	color: #3b82f6;
+	color: #ffffff;
 	font-size: 2rem;
 	opacity: 0.9;
 	flex-shrink: 0;
@@ -111,6 +111,7 @@
 	width: 12px;
 	height: 12px;
 	flex-shrink: 0;
+	color: white;
 }
 
 .window-controls {
