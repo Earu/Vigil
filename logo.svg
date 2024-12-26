@@ -1,8 +1,16 @@
 <svg width="128" height="128" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Shield Shape -->
-  <path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6l7-4z" fill="#3b82f6"/>
+  <defs>
+    <!-- More Noticeable Gradient Definition -->
+    <linearGradient id="shieldGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="50%" stop-color="#bbbbbb" />
+      <stop offset="100%" stop-color="#888888" />
+    </linearGradient>
+  </defs>
+  <!-- Background with Rounded Corners -->
+  <rect width="24" height="24" rx="4" ry="4" fill="#000000"/>
+  <!-- Shield Shape with More Noticeable Gradient -->
+  <path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6l7-4z" fill="url(#shieldGradient)"/>
   <!-- Central Node -->
-  <circle cx="12" cy="12" r="3" fill="#ffffff"/>
-  <!-- Radiating Lines -->
-  <path d="M12 5v2M12 17v2M5 12h2M17 12h2" stroke="#2563eb" strokeWidth="1.5"/>
+  <circle cx="12" cy="12" r="3" fill="#000000"/>
 </svg>

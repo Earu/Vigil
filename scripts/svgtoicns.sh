@@ -13,7 +13,7 @@ if ! command -v iconutil &> /dev/null; then
 fi
 
 # Create iconset directory
-ICONSET_DIR="build/icons/icon.iconset"
+ICONSET_DIR="../build/icons/icon.iconset"
 mkdir -p "$ICONSET_DIR"
 
 # Define resolutions
@@ -21,11 +21,11 @@ RESOLUTIONS=(16 32 64 128 256 512 1024)
 
 # Convert SVG to PNGs at each resolution
 for RES in "${RESOLUTIONS[@]}"; do
-    svg2png -w $RES -h $RES logo.svg "$ICONSET_DIR/icon_${RES}x${RES}.png"
+    svg2png -w $RES -h $RES ../logo.svg "$ICONSET_DIR/icon_${RES}x${RES}.png"
 done
 
 # Convert to ICNS
-iconutil -c icns "$ICONSET_DIR" -o "build/icons/icon.icns"
+iconutil -c icns "$ICONSET_DIR" -o "../build/icons/icon.icns"
 
 # Clean up
 rm -r "$ICONSET_DIR"

@@ -46,9 +46,16 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }:
 					xmlns="http://www.w3.org/2000/svg"
 					className="title-bar-logo"
 				>
-					<path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6l7-4z" fill="#3b82f6"/>
-					<circle cx="12" cy="12" r="3" fill="#ffffff"/>
-					<path d="M12 5v2M12 17v2M5 12h2M17 12h2" stroke="#2563eb" strokeWidth="1.5"/>
+					<defs>
+						<linearGradient id="shieldGradient" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="0%" stop-color="#ffffff" />
+							<stop offset="50%" stop-color="#bbbbbb" />
+							<stop offset="100%" stop-color="#888888" />
+						</linearGradient>
+					</defs>
+					<rect width="24" height="24" rx="4" ry="4" fill="#000000"/>
+					<path d="M12 2l7 4v6c0 5-3.5 9-7 10-3.5-1-7-5-7-10V6l7-4z" fill="url(#shieldGradient)"/>
+					<circle cx="12" cy="12" r="3" fill="#000000"/>
 				</svg>
 				<span className="title-bar-text">Vigil</span>
 				{inPasswordView && (
