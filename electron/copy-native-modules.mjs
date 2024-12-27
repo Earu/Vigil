@@ -18,7 +18,7 @@ if (!fs.existsSync(destDir)) {
     fs.mkdirSync(destDir, { recursive: true })
 }
 
-// Copy each module
+// Copy node native modules
 for (const module of modulesToCopy) {
     try {
         const sourcePath = getModulePath(module)
@@ -29,4 +29,33 @@ for (const module of modulesToCopy) {
         console.error(`Failed to copy ${module}:`, err)
         process.exit(1)
     }
-} 
+}
+
+// Copy Windows Hello files if on Windows
+if (process.platform === 'win32') {
+    // Create windows_hello directory
+    const windowsHelloDir = path.join(destDir, 'windows_hello')
+    if (!fs.existsSync(windowsHelloDir)) {
+        fs.mkdirSync(windowsHelloDir, { recursive: true })
+    }
+
+    // Copy Windows Hello files
+    const windowsHelloSrcDir = path.join(process.cwd(), 'native', 'windows_hello')
+    const files = [
+        ['build/Release/windows_hello.node', 'windows_hello.node'],
+        ['binding.js', 'binding.js']
+    ]
+
+    files.forEach(([src, dest]) => {
+        const srcPath = path.join(windowsHelloSrcDir, src)
+        const destPath = path.join(windowsHelloDir, dest)
+
+        if (fs.existsSync(srcPath)) {
+            fs.copyFileSync(srcPath, destPath)
+            console.log(`Copied ${srcPath} to ${destPath}`)
+        } else {
+            console.error(`Source file not found: ${srcPath}`)
+            process.exit(1)
+        }
+    })
+}
