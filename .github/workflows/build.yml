@@ -10,7 +10,13 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+          - os: ubuntu-latest
+          - os: macos-latest
+            arch: x64
+          - os: macos-latest
+            arch: arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -37,6 +43,7 @@ jobs:
       env:
         NODE_ENV: production
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ARCH: ${{ matrix.arch }}
 
     # Windows artifacts
     - name: Upload Windows artifacts
@@ -53,7 +60,7 @@ jobs:
       if: runner.os == 'macOS'
       uses: actions/upload-artifact@v4
       with:
-        name: macos-installer
+        name: macos-${{ matrix.arch }}-installer
         path: |
           dist/*.dmg
         if-no-files-found: error
