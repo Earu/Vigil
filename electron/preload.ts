@@ -18,6 +18,7 @@ const api: IElectronAPI = {
 	isBiometricsAvailable: () => ipcRenderer.invoke('is-biometrics-available'),
 	enableBiometrics: (dbPath, password) => ipcRenderer.invoke('enable-biometrics', dbPath, password),
 	getBiometricPassword: (dbPath) => ipcRenderer.invoke('get-biometric-password', dbPath),
+	hasBiometricsEnabled: (dbPath) => ipcRenderer.invoke('has-biometrics-enabled', dbPath),
 	disableBiometrics: (dbPath) => ipcRenderer.invoke('disable-biometrics', dbPath)
 }
 

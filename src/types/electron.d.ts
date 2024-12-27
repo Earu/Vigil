@@ -13,6 +13,7 @@ export interface IElectronAPI {
 	isBiometricsAvailable: () => Promise<boolean>;
 	enableBiometrics: (dbPath: string, password: string) => Promise<{ success: boolean; error?: string }>;
 	getBiometricPassword: (dbPath: string) => Promise<{ success: boolean; password?: string; error?: string }>;
+	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled?: boolean; error?: string }>;
 	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
 }
 
