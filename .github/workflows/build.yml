@@ -35,11 +35,9 @@ jobs:
     - name: Setup Windows Hello Module
       if: runner.os == 'Windows'
       run: |
-        npm install --global windows-build-tools
         npm install --global node-gyp
         cd native/windows_hello
-        npm install
-        npm run build || node-gyp rebuild
+        node-gyp rebuild
         cd ../..
 
     # Install Linux dependencies
