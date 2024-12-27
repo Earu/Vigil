@@ -56,7 +56,6 @@ async function isBiometricsAvailable(): Promise<boolean> {
 		if (process.platform === 'darwin') {
 			// On macOS, use systemPreferences to check for Touch ID availability
 			const canPromptTouchID = systemPreferences.canPromptTouchID();
-			console.log('Touch ID availability:', canPromptTouchID);
 			biometricsAvailableCache = canPromptTouchID;
 		} else if (process.platform === 'win32') {
 			// On Windows, use a native module or Windows API to check for Windows Hello availability
@@ -81,10 +80,10 @@ async function checkWindowsHelloAvailability(): Promise<boolean> {
 }
 
 // Function to prompt for biometric authentication
-async function authenticateWithBiometrics(): Promise<boolean> {
+async function authenticateWithBiometrics(data: { dbName: string }): Promise<boolean> {
 	if (process.platform === 'darwin') {
 		try {
-			await systemPreferences.promptTouchID('Unlock database with biometrics');
+			await systemPreferences.promptTouchID(`unlock ${data.dbName} with biometrics`);
 			return true;
 		} catch (error) {
 			console.error('TouchID authentication failed:', error);
@@ -264,6 +263,17 @@ ipcMain.handle('save-last-database-path', async (_, dbPath: string) => {
 	return await saveLastDatabasePath(dbPath);
 });
 
+// Add new IPC handler to check if biometrics is enabled for a database
+ipcMain.handle('has-biometrics-enabled', async (_, dbPath: string) => {
+	try {
+		const hasPassword = await keytar.getPassword(SERVICE_NAME, dbPath);
+		return { success: true, enabled: !!hasPassword };
+	} catch (error) {
+		console.error('Failed to check biometrics status:', error);
+		return { success: false, error: 'Failed to check biometrics status' };
+	}
+});
+
 // Add new IPC handlers for biometric authentication
 ipcMain.handle('is-biometrics-available', async () => {
 	return await isBiometricsAvailable();
@@ -275,7 +285,7 @@ ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) 
 			return { success: false, error: 'Biometric authentication is not available on this device' };
 		}
 
-		if (!await authenticateWithBiometrics()) {
+		if (!await authenticateWithBiometrics({ dbName: dbPath.split('/').pop() as string})) {
 			return { success: false, error: 'Biometric authentication failed' };
 		}
 
@@ -293,7 +303,7 @@ ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
 			return { success: false, error: 'Biometric authentication is not available on this device' };
 		}
 
-		if (!await authenticateWithBiometrics()) {
+		if (!await authenticateWithBiometrics({ dbName: dbPath.split('/').pop() as string })) {
 			return { success: false, error: 'Biometric authentication failed' };
 		}
 
