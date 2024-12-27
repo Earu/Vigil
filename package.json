@@ -54,7 +54,8 @@
 			"icon": "build/icons/icon.icns"
 		},
 		"linux": {
-			"target": "AppImage"
+			"target": "AppImage",
+			"icon": "build/icons/icon.png"
 		},
 		"win": {
 			"target": "nsis",
