@@ -5,7 +5,11 @@ const config = {
 	entryPoints: ['electron/main.ts', 'electron/preload.ts'],
 	bundle: true,
 	outdir: 'dist-electron',
-	external: ['electron'],
+	external: [
+		'electron',
+		// Add native modules here
+		'keytar'
+	],
 	format: 'cjs',
 	target: 'node18',
 	sourcemap: true,
