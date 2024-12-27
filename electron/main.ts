@@ -2,6 +2,38 @@ import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
+// Add path for storing last database location
+const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
+
+// Function to save last database path
+async function saveLastDatabasePath(dbPath: string) {
+	try {
+		await fs.promises.writeFile(LAST_DB_PATH, JSON.stringify({ path: dbPath }));
+		return true;
+	} catch (error) {
+		console.error('Failed to save last database path:', error);
+		return false;
+	}
+}
+
+// Function to load last database path
+async function loadLastDatabasePath(): Promise<string | null> {
+	try {
+		if (fs.existsSync(LAST_DB_PATH)) {
+			const data = await fs.promises.readFile(LAST_DB_PATH, 'utf-8');
+			const { path: dbPath } = JSON.parse(data);
+			// Verify the file still exists
+			if (fs.existsSync(dbPath)) {
+				return dbPath;
+			}
+		}
+		return null;
+	} catch (error) {
+		console.error('Failed to load last database path:', error);
+		return null;
+	}
+}
+
 function createWindow() {
 	const win = new BrowserWindow({
 		width: 1200,
@@ -84,6 +116,7 @@ ipcMain.handle('save-file', async (_, data: Uint8Array) => {
 
 	try {
 		await fs.promises.writeFile(filePath, Buffer.from(data));
+		await saveLastDatabasePath(filePath); // Save the last used path
 		return { success: true, filePath };
 	} catch (error) {
 		console.error('Failed to save file:', error);
@@ -144,4 +177,13 @@ ipcMain.handle('read-file', async (_, filePath: string) => {
 		console.error('Failed to read file:', error);
 		return { success: false, error: 'Failed to read file' };
 	}
+});
+
+// Add new IPC handlers for last database path
+ipcMain.handle('get-last-database-path', async () => {
+	return await loadLastDatabasePath();
+});
+
+ipcMain.handle('save-last-database-path', async (_, dbPath: string) => {
+	return await saveLastDatabasePath(dbPath);
 });

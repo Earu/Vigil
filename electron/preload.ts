@@ -12,7 +12,9 @@ const api: IElectronAPI = {
 	saveToFile: (filePath, data) => ipcRenderer.invoke('save-to-file', filePath, data),
 	getFilePath: (path) => ipcRenderer.invoke('get-file-path', path),
 	openFile: () => ipcRenderer.invoke('open-file'),
-	readFile: (filePath) => ipcRenderer.invoke('read-file', filePath)
+	readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+	getLastDatabasePath: () => ipcRenderer.invoke('get-last-database-path'),
+	saveLastDatabasePath: (path) => ipcRenderer.invoke('save-last-database-path', path)
 }
 
 contextBridge.exposeInMainWorld('electron', api)

@@ -123,7 +123,7 @@
 
 .window-control {
 	width: 46px;
-	height: 100%;
+	height: calc(100% - 2px);
 	border: none;
 	background: transparent;
 	outline: none;
@@ -134,6 +134,8 @@
 	opacity: 0.8;
 	cursor: pointer;
 	padding: 0;
+	border-radius: 0;
+	margin-top: 1px;
 	-webkit-app-region: no-drag;
 }
 
