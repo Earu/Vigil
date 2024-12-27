@@ -1,9 +1,19 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, systemPreferences } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
+// Import keytar dynamically based on environment
+let keytar: typeof import('keytar');
+if (process.env.NODE_ENV === 'development') {
+	keytar = require('keytar');
+} else {
+	const keytarPath = path.join(__dirname, 'native_modules', 'keytar.node');
+	keytar = require(keytarPath);
+}
+
 // Add path for storing last database location
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
+const SERVICE_NAME = 'Vigil Password Manager';
 
 // Function to save last database path
 async function saveLastDatabasePath(dbPath: string) {
@@ -32,6 +42,72 @@ async function loadLastDatabasePath(): Promise<string | null> {
 		console.error('Failed to load last database path:', error);
 		return null;
 	}
+}
+
+// Function to check if biometrics is available
+let biometricsAvailableCache: boolean | null = null;
+
+async function isBiometricsAvailable(): Promise<boolean> {
+	if (biometricsAvailableCache !== null) {
+		return biometricsAvailableCache;
+	}
+
+	try {
+		if (process.platform === 'darwin') {
+			// On macOS, use systemPreferences to check for Touch ID availability
+			const canPromptTouchID = systemPreferences.canPromptTouchID();
+			console.log('Touch ID availability:', canPromptTouchID);
+			biometricsAvailableCache = canPromptTouchID;
+		} else if (process.platform === 'win32') {
+			// On Windows, use a native module or Windows API to check for Windows Hello availability
+			// This is a placeholder for actual implementation
+			biometricsAvailableCache = await checkWindowsHelloAvailability();
+		} else {
+			// For other platforms, return false as biometrics are not supported
+			biometricsAvailableCache = false;
+		}
+	} catch (error) {
+		console.error('Error checking biometrics availability:', error);
+		biometricsAvailableCache = false;
+	}
+
+	return biometricsAvailableCache;
+}
+
+// Placeholder function for Windows Hello availability check
+async function checkWindowsHelloAvailability(): Promise<boolean> {
+	// Implement Windows Hello check using a suitable library or API
+	return false; // Default to false until implemented
+}
+
+// Function to prompt for biometric authentication
+async function authenticateWithBiometrics(): Promise<boolean> {
+	if (process.platform === 'darwin') {
+		try {
+			await systemPreferences.promptTouchID('Unlock database with biometrics');
+			return true;
+		} catch (error) {
+			console.error('TouchID authentication failed:', error);
+			return false;
+		}
+	} else if (process.platform === 'win32') {
+		// For Windows Hello, we'll use a more generic approach
+		try {
+			const result = await dialog.showMessageBox({
+				type: 'info',
+				title: 'Windows Hello Authentication',
+				message: 'Authenticate with Windows Hello',
+				buttons: ['Cancel'],
+				defaultId: 0,
+				noLink: true
+			});
+			return result.response === 0;
+		} catch (error) {
+			console.error('Windows Hello authentication failed:', error);
+			return false;
+		}
+	}
+	return false;
 }
 
 function createWindow() {
@@ -186,4 +262,59 @@ ipcMain.handle('get-last-database-path', async () => {
 
 ipcMain.handle('save-last-database-path', async (_, dbPath: string) => {
 	return await saveLastDatabasePath(dbPath);
+});
+
+// Add new IPC handlers for biometric authentication
+ipcMain.handle('is-biometrics-available', async () => {
+	return await isBiometricsAvailable();
+});
+
+ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) => {
+	try {
+		if (!await isBiometricsAvailable()) {
+			return { success: false, error: 'Biometric authentication is not available on this device' };
+		}
+
+		if (!await authenticateWithBiometrics()) {
+			return { success: false, error: 'Biometric authentication failed' };
+		}
+
+		await keytar.setPassword(SERVICE_NAME, dbPath, password);
+		return { success: true };
+	} catch (error) {
+		console.error('Failed to enable biometrics:', error);
+		return { success: false, error: 'Failed to enable biometric authentication' };
+	}
+});
+
+ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
+	try {
+		if (!await isBiometricsAvailable()) {
+			return { success: false, error: 'Biometric authentication is not available on this device' };
+		}
+
+		if (!await authenticateWithBiometrics()) {
+			return { success: false, error: 'Biometric authentication failed' };
+		}
+
+		const password = await keytar.getPassword(SERVICE_NAME, dbPath);
+		if (!password) {
+			return { success: false, error: 'No password found for this database' };
+		}
+
+		return { success: true, password };
+	} catch (error) {
+		console.error('Failed to get password with biometrics:', error);
+		return { success: false, error: 'Failed to authenticate with biometrics' };
+	}
+});
+
+ipcMain.handle('disable-biometrics', async (_, dbPath: string) => {
+	try {
+		await keytar.deletePassword(SERVICE_NAME, dbPath);
+		return { success: true };
+	} catch (error) {
+		console.error('Failed to disable biometrics:', error);
+		return { success: false, error: 'Failed to disable biometric authentication' };
+	}
 });

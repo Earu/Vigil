@@ -14,7 +14,11 @@ const api: IElectronAPI = {
 	openFile: () => ipcRenderer.invoke('open-file'),
 	readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
 	getLastDatabasePath: () => ipcRenderer.invoke('get-last-database-path'),
-	saveLastDatabasePath: (path) => ipcRenderer.invoke('save-last-database-path', path)
+	saveLastDatabasePath: (path) => ipcRenderer.invoke('save-last-database-path', path),
+	isBiometricsAvailable: () => ipcRenderer.invoke('is-biometrics-available'),
+	enableBiometrics: (dbPath, password) => ipcRenderer.invoke('enable-biometrics', dbPath, password),
+	getBiometricPassword: (dbPath) => ipcRenderer.invoke('get-biometric-password', dbPath),
+	disableBiometrics: (dbPath) => ipcRenderer.invoke('disable-biometrics', dbPath)
 }
 
 contextBridge.exposeInMainWorld('electron', api)
