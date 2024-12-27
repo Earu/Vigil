@@ -25,3 +25,18 @@ dist-ssr
 
 # Electron
 dist-electron
+
+# Native modules
+native/**/build/
+native/**/-p/
+native/**/prebuilds/
+native/**/*.node
+native/**/CMakeFiles/
+native/**/CMakeCache.txt
+native/**/cmake_install.cmake
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.lib
+*.exp
+*.pdb
