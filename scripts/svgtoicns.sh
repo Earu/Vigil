@@ -16,13 +16,18 @@ fi
 ICONSET_DIR="../build/icons/icon.iconset"
 mkdir -p "$ICONSET_DIR"
 
-# Define resolutions
-RESOLUTIONS=(16 32 64 128 256 512 1024)
-
-# Convert SVG to PNGs at each resolution
-for RES in "${RESOLUTIONS[@]}"; do
-    svg2png -w $RES -h $RES ../logo.svg "$ICONSET_DIR/icon_${RES}x${RES}.png"
-done
+# Define standard macOS icon sizes
+# Format: icon_<size>x<size>.png and icon_<size>x<size>@2x.png
+svg2png -w 16 -h 16 ../logo.svg "$ICONSET_DIR/icon_16x16.png"
+svg2png -w 32 -h 32 ../logo.svg "$ICONSET_DIR/icon_16x16@2x.png"
+svg2png -w 32 -h 32 ../logo.svg "$ICONSET_DIR/icon_32x32.png"
+svg2png -w 64 -h 64 ../logo.svg "$ICONSET_DIR/icon_32x32@2x.png"
+svg2png -w 128 -h 128 ../logo.svg "$ICONSET_DIR/icon_128x128.png"
+svg2png -w 256 -h 256 ../logo.svg "$ICONSET_DIR/icon_128x128@2x.png"
+svg2png -w 256 -h 256 ../logo.svg "$ICONSET_DIR/icon_256x256.png"
+svg2png -w 512 -h 512 ../logo.svg "$ICONSET_DIR/icon_256x256@2x.png"
+svg2png -w 512 -h 512 ../logo.svg "$ICONSET_DIR/icon_512x512.png"
+svg2png -w 1024 -h 1024 ../logo.svg "$ICONSET_DIR/icon_512x512@2x.png"
 
 # Convert to ICNS
 iconutil -c icns "$ICONSET_DIR" -o "../build/icons/icon.icns"
