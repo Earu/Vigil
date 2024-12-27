@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild'
+import path from 'path'
 
 const config = {
 	platform: 'node',
@@ -7,8 +8,11 @@ const config = {
 	outdir: 'dist-electron',
 	external: [
 		'electron',
-		// Add native modules here
-		'keytar'
+		'keytar',
+		// Exclude all .node files
+		'*.node',
+		// Exclude the windows_hello binding
+		'../native/windows_hello/*'
 	],
 	format: 'cjs',
 	target: 'node18',

@@ -2,13 +2,26 @@ import { app, BrowserWindow, ipcMain, dialog, systemPreferences } from 'electron
 import path from 'path'
 import fs from 'fs'
 
-// Import keytar dynamically based on environment
+// Import keytar and Windows Hello dynamically based on environment
 let keytar: typeof import('keytar');
-if (process.env.NODE_ENV === 'development') {
-	keytar = require('keytar');
-} else {
-	const keytarPath = path.join(__dirname, 'native_modules', 'keytar.node');
-	keytar = require(keytarPath);
+let windowsHello: { isAvailable: () => boolean; authenticate: (message: string) => Promise<boolean> } | null = null;
+
+try {
+	if (process.env.NODE_ENV === 'development') {
+		keytar = require('keytar');
+		if (process.platform === 'win32') {
+			windowsHello = require('../native/windows_hello/binding');
+		}
+	} else {
+		const keytarPath = path.join(__dirname, 'native_modules', 'keytar.node');
+		keytar = require(keytarPath);
+		if (process.platform === 'win32') {
+			const windowsHelloPath = path.join(__dirname, 'native_modules', 'windows_hello', 'binding.js');
+			windowsHello = require(windowsHelloPath);
+		}
+	}
+} catch (error) {
+	console.error('Failed to load native modules:', error);
 }
 
 // Add path for storing last database location
@@ -57,10 +70,9 @@ async function isBiometricsAvailable(): Promise<boolean> {
 			// On macOS, use systemPreferences to check for Touch ID availability
 			const canPromptTouchID = systemPreferences.canPromptTouchID();
 			biometricsAvailableCache = canPromptTouchID;
-		} else if (process.platform === 'win32') {
-			// On Windows, use a native module or Windows API to check for Windows Hello availability
-			// This is a placeholder for actual implementation
-			biometricsAvailableCache = await checkWindowsHelloAvailability();
+		} else if (process.platform === 'win32' && windowsHello) {
+			// On Windows, use our native module to check Windows Hello availability
+			biometricsAvailableCache = windowsHello.isAvailable();
 		} else {
 			// For other platforms, return false as biometrics are not supported
 			biometricsAvailableCache = false;
@@ -70,13 +82,7 @@ async function isBiometricsAvailable(): Promise<boolean> {
 		biometricsAvailableCache = false;
 	}
 
-	return biometricsAvailableCache;
-}
-
-// Placeholder function for Windows Hello availability check
-async function checkWindowsHelloAvailability(): Promise<boolean> {
-	// Implement Windows Hello check using a suitable library or API
-	return false; // Default to false until implemented
+	return biometricsAvailableCache || false;
 }
 
 // Function to prompt for biometric authentication
@@ -89,18 +95,9 @@ async function authenticateWithBiometrics(data: { dbName: string }): Promise<boo
 			console.error('TouchID authentication failed:', error);
 			return false;
 		}
-	} else if (process.platform === 'win32') {
-		// For Windows Hello, we'll use a more generic approach
+	} else if (process.platform === 'win32' && windowsHello) {
 		try {
-			const result = await dialog.showMessageBox({
-				type: 'info',
-				title: 'Windows Hello Authentication',
-				message: 'Authenticate with Windows Hello',
-				buttons: ['Cancel'],
-				defaultId: 0,
-				noLink: true
-			});
-			return result.response === 0;
+			return windowsHello.authenticate(`Unlock ${data.dbName} with Windows Hello`);
 		} catch (error) {
 			console.error('Windows Hello authentication failed:', error);
 			return false;
