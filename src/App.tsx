@@ -68,6 +68,24 @@ function App() {
 					if (result.success && result.data) {
 						setSelectedFile(new File([result.data], lastPath.split('/').pop() || 'database.kdbx'));
 						setDatabasePath(lastPath);
+
+						// Check for biometrics immediately
+						const available = await window.electron.isBiometricsAvailable();
+						if (available) {
+							const biometricsResult = await window.electron.hasBiometricsEnabled(lastPath);
+							if (biometricsResult.success && biometricsResult.enabled) {
+								setIsBiometricsEnabled(true);
+								setShowPasswordInput(false);
+								// Small delay to ensure state is updated
+								setTimeout(() => {
+									handleBiometricUnlock();
+								}, 100);
+							} else {
+								setShowPasswordInput(true);
+							}
+						} else {
+							setShowPasswordInput(true);
+						}
 					}
 				}
 			} catch (err) {
@@ -109,6 +127,23 @@ function App() {
 				const fullPath = await window.electron.getFilePath(file.name);
 				if (fullPath) {
 					setDatabasePath(fullPath);
+					// Check for biometrics immediately after setting the path
+					const available = await window.electron.isBiometricsAvailable();
+					if (available) {
+						const result = await window.electron.hasBiometricsEnabled(fullPath);
+						if (result.success && result.enabled) {
+							setIsBiometricsEnabled(true);
+							setShowPasswordInput(false);
+							// Small delay to ensure state is updated
+							setTimeout(() => {
+								handleBiometricUnlock();
+							}, 100);
+						} else {
+							setShowPasswordInput(true);
+						}
+					} else {
+						setShowPasswordInput(true);
+					}
 				}
 			}
 		}
@@ -130,6 +165,24 @@ function App() {
 			setSelectedFile(new File([fileResult.data], result.filePath.split('/').pop() || 'database.kdbx'));
 			setDatabasePath(result.filePath);
 			setError(null);
+
+			// Check for biometrics immediately after setting the path
+			const available = await window.electron.isBiometricsAvailable();
+			if (available) {
+				const biometricsResult = await window.electron.hasBiometricsEnabled(result.filePath);
+				if (biometricsResult.success && biometricsResult.enabled) {
+					setIsBiometricsEnabled(true);
+					setShowPasswordInput(false);
+					// Small delay to ensure state is updated
+					setTimeout(() => {
+						handleBiometricUnlock();
+					}, 100);
+				} else {
+					setShowPasswordInput(true);
+				}
+			} else {
+				setShowPasswordInput(true);
+			}
 		} catch (err) {
 			console.error('Failed to read file:', err);
 			setError('Failed to read file');
@@ -178,30 +231,14 @@ function App() {
 
 	// Update the useEffect for database path
 	useEffect(() => {
-		const checkBiometricsEnabled = async () => {
+		const updateBiometricsState = async () => {
 			if (!window.electron || !databasePath) return;
 			
-			// Check if biometrics are available and enabled
+			// Only update the state of biometrics availability
 			const available = await window.electron.isBiometricsAvailable();
-			if (!available) {
-				setIsBiometricsEnabled(false);
-				setShowPasswordInput(true);
-				return;
-			}
-
-			const result = await window.electron.getBiometricPassword(databasePath);
-			setIsBiometricsEnabled(result.success);
-			setShowPasswordInput(!result.success);
-
-			// Only auto-prompt if biometrics are enabled
-			if (result.success) {
-				// Small delay to ensure UI state is updated
-				setTimeout(() => {
-					handleBiometricUnlock();
-				}, 100);
-			}
+			setIsBiometricsAvailable(available);
 		};
-		checkBiometricsEnabled();
+		updateBiometricsState();
 	}, [databasePath]);
 
 	// Add a separate function for biometric unlock
@@ -308,6 +345,8 @@ function App() {
 						message: 'Biometric authentication enabled',
 						type: 'success'
 					});
+					// Automatically unlock the database after enabling biometrics
+					handleUnlock();
 				} else {
 					(window as any).showToast?.({
 						message: result.error || 'Failed to enable biometric authentication',
@@ -434,7 +473,6 @@ function App() {
 	};
 
 	const handleDatabaseChange = async (updatedDatabase: Database) => {
-		console.log('handleDatabaseChange', updatedDatabase);
 		setDatabase(updatedDatabase);
 
 		try {
@@ -619,90 +657,92 @@ function App() {
 							)}
 
 							{selectedFile && !isCreatingNew && isBiometricsAvailable && (
-								<div className="auth-toggle">
-									<button
-										className={`auth-option ${!isBiometricsEnabled || showPasswordInput ? 'active' : ''}`}
-										onClick={async () => {
-											if (isBiometricsEnabled) {
-												// When switching to password, disable biometrics
-												const result = await window.electron?.disableBiometrics(databasePath!);
-												if (result?.success) {
-													setIsBiometricsEnabled(false);
-													setShowPasswordInput(true);
-													(window as any).showToast?.({
-														message: 'Switched to password authentication',
-														type: 'success'
-													});
+								<>
+									<div className="auth-toggle">
+										<button
+											className={`auth-option ${!isBiometricsEnabled || showPasswordInput ? 'active' : ''}`}
+											onClick={async () => {
+												if (isBiometricsEnabled) {
+													// When switching to password, disable biometrics
+													const result = await window.electron?.disableBiometrics(databasePath!);
+													if (result?.success) {
+														setIsBiometricsEnabled(false);
+														setShowPasswordInput(true);
+														(window as any).showToast?.({
+															message: 'Switched to password authentication',
+															type: 'success'
+														});
+													}
 												}
-											}
-											setShowPasswordInput(true);
-										}}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											viewBox="0 0 24 24"
-											fill="none"
-											stroke="currentColor"
-											strokeWidth="2"
-											className="auth-icon"
-										>
-											<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-											<path d="M7 11V7a5 5 0 0 1 10 0v4" />
-										</svg>
-										Password
-									</button>
-									<button
-										className={`auth-option ${isBiometricsEnabled && !showPasswordInput ? 'active' : ''}`}
-										onClick={() => {
-											if (!isBiometricsEnabled) {
 												setShowPasswordInput(true);
-												handleBiometricsToggle();
-											} else {
-												setShowPasswordInput(false);
-												handleBiometricUnlock();
-											}
-										}}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
+											}}
+										>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
 												viewBox="0 0 24 24"
 												fill="none"
 												stroke="currentColor"
 												strokeWidth="2"
 												className="auth-icon"
 											>
+												<rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+												<path d="M7 11V7a5 5 0 0 1 10 0v4" />
+											</svg>
+											Password
+										</button>
+										<button
+											className={`auth-option ${isBiometricsEnabled && !showPasswordInput ? 'active' : ''}`}
+											onClick={() => {
+												if (!isBiometricsEnabled) {
+													setShowPasswordInput(true);
+													handleBiometricsToggle();
+												} else {
+													setShowPasswordInput(false);
+													handleBiometricUnlock();
+												}
+											}}
+										>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													strokeWidth="2"
+													className="auth-icon"
+												>
+													<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/>
+													<path d="M12 6c-1.7 0-3 1.3-3 3v1c0 1.7 1.3 3 3 3s3-1.3 3-3V9c0-1.7-1.3-3-3-3z"/>
+													<path d="M18 12c0 3.3-2.7 6-6 6s-6-2.7-6-6"/>
+												</svg>
+												{window.electron?.isBiometricsAvailable().then(available => available && navigator.userAgent.includes('Mac')) ? 'Touch ID' : 'Windows Hello'}
+											</button>
+									</div>
+
+									{isBiometricsEnabled && !showPasswordInput && (
+										<button 
+											className="biometric-unlock-button"
+											onClick={handleBiometricUnlock}
+											disabled={isLoading}
+										>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												strokeWidth="2"
+												className="biometric-icon"
+											>
 												<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/>
 												<path d="M12 6c-1.7 0-3 1.3-3 3v1c0 1.7 1.3 3 3 3s3-1.3 3-3V9c0-1.7-1.3-3-3-3z"/>
 												<path d="M18 12c0 3.3-2.7 6-6 6s-6-2.7-6-6"/>
 											</svg>
-											{window.electron?.isBiometricsAvailable().then(available => available && navigator.userAgent.includes('Mac')) ? 'Touch ID' : 'Windows Hello'}
+											{window.electron?.isBiometricsAvailable().then(available => available && navigator.userAgent.includes('Mac')) ? 'Unlock with Touch ID' : 'Unlock with Windows Hello'}
 										</button>
-								</div>
+									)}
+								</>
 							)}
 
-							{selectedFile && !isCreatingNew && isBiometricsAvailable && isBiometricsEnabled && !showPasswordInput && (
-								<button 
-									className="biometric-unlock-button"
-									onClick={handleBiometricUnlock}
-									disabled={isLoading}
-								>
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										className="biometric-icon"
-									>
-										<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/>
-										<path d="M12 6c-1.7 0-3 1.3-3 3v1c0 1.7 1.3 3 3 3s3-1.3 3-3V9c0-1.7-1.3-3-3-3z"/>
-										<path d="M18 12c0 3.3-2.7 6-6 6s-6-2.7-6-6"/>
-									</svg>
-									{window.electron?.isBiometricsAvailable().then(available => available && navigator.userAgent.includes('Mac')) ? 'Unlock with Touch ID' : 'Unlock with Windows Hello'}
-								</button>
-							)}
-
-							{(showPasswordInput || !isBiometricsEnabled || isCreatingNew) && (
+							{(!isBiometricsAvailable || showPasswordInput || !isBiometricsEnabled || isCreatingNew) && (
 								<>
 									<div className="password-input-container">
 										<input
