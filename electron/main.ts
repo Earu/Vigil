@@ -4,7 +4,10 @@ import fs from 'fs'
 
 // Import keytar and Windows Hello dynamically based on environment
 let keytar: typeof import('keytar');
-let windowsHello: { isAvailable: () => boolean; authenticate: (message: string) => Promise<boolean> } | null = null;
+let windowsHello: {
+	isAvailable: () => boolean;
+	authenticate: (message: string, callback: (error: Error | null, result: boolean) => void) => void;
+} | null = null;
 
 try {
 	if (process.env.NODE_ENV === 'development') {
@@ -97,7 +100,16 @@ async function authenticateWithBiometrics(data: { dbName: string }): Promise<boo
 		}
 	} else if (process.platform === 'win32' && windowsHello) {
 		try {
-			return windowsHello.authenticate(`Unlock ${data.dbName} with Windows Hello`);
+			return new Promise((resolve) => {
+				windowsHello!.authenticate(`Unlock ${data.dbName} with Windows Hello`, (error, result) => {
+					if (error) {
+						console.error('Windows Hello authentication failed:', error);
+						resolve(false);
+					} else {
+						resolve(result);
+					}
+				});
+			});
 		} catch (error) {
 			console.error('Windows Hello authentication failed:', error);
 			return false;

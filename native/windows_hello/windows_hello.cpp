@@ -71,61 +71,91 @@ Napi::Boolean IsWindowsHelloAvailable(const Napi::CallbackInfo& info) {
     }
 }
 
-Napi::Boolean AuthenticateWithWindowsHello(const Napi::CallbackInfo& info) {
+class AuthenticateWorker : public Napi::AsyncWorker {
+private:
+    std::string message;
+    bool result;
+    HWND windowHandle;
+
+public:
+    AuthenticateWorker(const std::string& msg, HWND hWnd, Napi::Function& callback)
+        : Napi::AsyncWorker(callback), message(msg), result(false), windowHandle(hWnd) {}
+
+    void Execute() override {
+        try {
+            if (!windowHandle) {
+                SetError("Invalid window handle");
+                return;
+            }
+
+            // Generate a random challenge
+            auto challenge = GenerateChallenge(32);
+
+            // Create client data
+            WEBAUTHN_CLIENT_DATA clientData = {};
+            clientData.dwVersion = WEBAUTHN_CLIENT_DATA_CURRENT_VERSION;
+            clientData.pwszHashAlgId = WEBAUTHN_HASH_ALGORITHM_SHA_256;
+            clientData.cbClientDataJSON = static_cast<DWORD>(challenge.size());
+            clientData.pbClientDataJSON = challenge.data();
+
+            // Set up assertion options
+            WEBAUTHN_AUTHENTICATOR_GET_ASSERTION_OPTIONS assertionOptions = {};
+            assertionOptions.dwVersion = WEBAUTHN_AUTHENTICATOR_GET_ASSERTION_OPTIONS_CURRENT_VERSION;
+            assertionOptions.dwTimeoutMilliseconds = 30000;  // 30 seconds timeout
+            assertionOptions.dwUserVerificationRequirement = WEBAUTHN_USER_VERIFICATION_REQUIREMENT_REQUIRED;
+            assertionOptions.dwAuthenticatorAttachment = WEBAUTHN_AUTHENTICATOR_ATTACHMENT_PLATFORM;
+
+            // Make the authentication request
+            ScopedAssertion assertion(nullptr);
+            HRESULT hr = WebAuthNAuthenticatorGetAssertion(
+                windowHandle,
+                L"vigil",
+                &clientData,
+                &assertionOptions,
+                assertion.put()
+            );
+
+            if (FAILED(hr)) {
+                if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+                    result = false;
+                    return;
+                }
+                SetError("Windows Hello authentication failed: " + std::to_string(hr));
+                return;
+            }
+
+            result = true;
+        }
+        catch (const std::exception& e) {
+            SetError(e.what());
+        }
+    }
+
+    void OnOK() override {
+        Napi::HandleScope scope(Env());
+        Callback().Call({Env().Null(), Napi::Boolean::New(Env(), result)});
+    }
+};
+
+Napi::Value AuthenticateWithWindowsHello(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
-    try {
-        if (info.Length() < 1 || !info[0].IsString()) {
-            throw Napi::Error::New(env, "String argument expected");
-        }
-
-        std::string message = info[0].As<Napi::String>().Utf8Value();
-        std::wstring wmessage = ToWideString(message);
-
-        // Get the foreground window handle
-        HWND hWnd = GetForegroundWindow();
-        if (!hWnd) {
-            throw Napi::Error::New(env, "Failed to get foreground window");
-        }
-
-        // Generate a random challenge
-        auto challenge = GenerateChallenge(32);
-
-        // Create client data
-        WEBAUTHN_CLIENT_DATA clientData = {};
-        clientData.dwVersion = WEBAUTHN_CLIENT_DATA_CURRENT_VERSION;
-        clientData.pwszHashAlgId = WEBAUTHN_HASH_ALGORITHM_SHA_256;
-        clientData.cbClientDataJSON = static_cast<DWORD>(message.size());
-        clientData.pbClientDataJSON = reinterpret_cast<BYTE*>(const_cast<char*>(message.c_str()));
-
-        // Set up assertion options
-        WEBAUTHN_AUTHENTICATOR_GET_ASSERTION_OPTIONS assertionOptions = {};
-        assertionOptions.dwVersion = WEBAUTHN_AUTHENTICATOR_GET_ASSERTION_OPTIONS_CURRENT_VERSION;
-        assertionOptions.dwTimeoutMilliseconds = 30000;  // 30 seconds timeout
-        assertionOptions.dwUserVerificationRequirement = WEBAUTHN_USER_VERIFICATION_REQUIREMENT_REQUIRED;
-
-        // Make the authentication request
-        ScopedAssertion assertion(nullptr);
-        HRESULT hr = WebAuthNAuthenticatorGetAssertion(
-            hWnd,                    // Window handle
-            L"vigil",               // RP ID
-            &clientData,            // Client data
-            &assertionOptions,      // Assertion options
-            assertion.put()         // Output assertion
-        );
-
-        if (FAILED(hr)) {
-            if (hr == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
-                return Napi::Boolean::New(env, false);  // User cancelled
-            }
-            throw Napi::Error::New(env, "Windows Hello authentication failed");
-        }
-
-        return Napi::Boolean::New(env, true);
+    if (info.Length() < 2 || !info[0].IsString() || !info[1].IsFunction()) {
+        throw Napi::Error::New(env, "Expected string and callback arguments");
     }
-    catch (const std::exception& e) {
-        throw Napi::Error::New(env, e.what());
+
+    std::string message = info[0].As<Napi::String>().Utf8Value();
+    Napi::Function callback = info[1].As<Napi::Function>();
+
+    // Get the window handle on the main thread
+    HWND hWnd = GetForegroundWindow();
+    if (!hWnd) {
+        throw Napi::Error::New(env, "Failed to get foreground window");
     }
+
+    AuthenticateWorker* worker = new AuthenticateWorker(message, hWnd, callback);
+    worker->Queue();
+    return env.Undefined();
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
