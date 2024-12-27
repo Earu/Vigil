@@ -53,6 +53,28 @@ function App() {
 		loadArgon2();
 	}, []);
 
+	// Add effect to load last database path
+	useEffect(() => {
+		const loadLastDatabase = async () => {
+			if (!window.electron) return;
+			
+			try {
+				const lastPath = await window.electron.getLastDatabasePath();
+				if (lastPath) {
+					const result = await window.electron.readFile(lastPath);
+					if (result.success && result.data) {
+						setSelectedFile(new File([result.data], lastPath.split('/').pop() || 'database.kdbx'));
+						setDatabasePath(lastPath);
+					}
+				}
+			} catch (err) {
+				console.error('Failed to load last database:', err);
+			}
+		};
+
+		loadLastDatabase();
+	}, []);
+
 	useEffect(() => {
 		if (selectedFile) {
 			passwordInputRef.current?.focus();
@@ -155,6 +177,8 @@ function App() {
 					throw new Error(result.error || 'Failed to read file');
 				}
 				fileBuffer = result.data.buffer;
+				// Save the database path when successfully unlocked
+				await window.electron.saveLastDatabasePath(databasePath);
 			} else {
 				fileBuffer = await selectedFile.arrayBuffer();
 			}
@@ -168,7 +192,7 @@ function App() {
 
 			const convertedDb = convertKdbxToDatabase(db);
 			setDatabase(convertedDb);
-			setKdbxDb(db);  // Store the KeePass database
+			setKdbxDb(db);
 		} catch (err) {
 			console.error('Failed to unlock database:', err);
 			setError('Invalid password or corrupted database file');
