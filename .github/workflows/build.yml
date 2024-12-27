@@ -31,15 +31,6 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
-    # Install Windows build tools and build native module
-    - name: Setup Windows Hello Module
-      if: runner.os == 'Windows'
-      run: |
-        npm install --global node-gyp
-        cd native/windows_hello
-        node-gyp rebuild
-        cd ../..
-
     # Install Linux dependencies
     - name: Install Linux dependencies
       if: runner.os == 'Linux'
