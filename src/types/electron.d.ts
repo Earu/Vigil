@@ -10,6 +10,10 @@ export interface IElectronAPI {
 	readFile: (filePath: string) => Promise<{ success: boolean; data?: Uint8Array; error?: string }>;
 	getLastDatabasePath: () => Promise<string | null>;
 	saveLastDatabasePath: (path: string) => Promise<boolean>;
+	isBiometricsAvailable: () => Promise<boolean>;
+	enableBiometrics: (dbPath: string, password: string) => Promise<{ success: boolean; error?: string }>;
+	getBiometricPassword: (dbPath: string) => Promise<{ success: boolean; password?: string; error?: string }>;
+	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {
