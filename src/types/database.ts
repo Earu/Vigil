@@ -24,4 +24,5 @@ export interface Database {
 	name: string;
 	groups: Group[];
 	root: Group;
+	path?: string;
 }
