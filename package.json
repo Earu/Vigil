@@ -12,7 +12,7 @@
 		"electron:dev": "concurrently \"vite\" \"node electron/build.mjs && node electron/copy-native-modules.mjs && cross-env NODE_ENV=development electron dist-electron/main.js\"",
 		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder",
 		"build:native": "cd native/windows_hello && node-gyp configure build",
-		"postinstall": "npm run build:native"
+		"postinstall": "node -e \"if (process.platform === 'win32') { require('child_process').execSync('npm run build:native', {stdio: 'inherit'}) }\""
 	},
 	"dependencies": {
 		"argon2-browser": "^1.18.0",
