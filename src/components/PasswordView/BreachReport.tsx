@@ -1,22 +1,27 @@
 import { Database, Entry, Group } from '../../types/database';
+import { useState } from 'react';
 import './BreachReport.css';
+
+type EntryInfo = {
+    entry: Entry;
+    group: Group;
+    count: number;
+    strength?: {
+        score: number;
+        feedback: {
+            warning: string;
+            suggestions: string[];
+        };
+    };
+};
 
 interface BreachReportProps {
     database: Database;
     onClose: () => void;
-    breachedEntries: Array<{
-        entry: Entry;
-        group: Group;
-        count: number;
-        strength?: {
-            score: number;
-            feedback: {
-                warning: string;
-                suggestions: string[];
-            };
-        };
-    }>;
+    breachedEntries: Array<EntryInfo>;
 }
+
+type TabType = 'breached' | 'weak';
 
 const getStrengthColor = (score: number) => {
     switch (score) {
@@ -41,8 +46,45 @@ const getStrengthLabel = (score: number) => {
 };
 
 export const BreachReport = ({ breachedEntries, onClose }: BreachReportProps) => {
+    const [activeTab, setActiveTab] = useState<TabType>('breached');
     const weakPasswords = breachedEntries.filter(entry => entry.strength && entry.strength.score < 3);
     const hasWeakPasswords = weakPasswords.length > 0;
+    const hasBreachedPasswords = breachedEntries.length > 0;
+
+    const renderBreachedEntry = ({ entry, group, count }: EntryInfo) => (
+        <div key={entry.id} className="breached-entry">
+            <div className="entry-info">
+                <h3>{entry.title}</h3>
+                <p className="username">{entry.username}</p>
+                <p className="group-path">Group: {group.name}</p>
+            </div>
+            <div className="breach-info">
+                <span className="breach-count">
+                    Found in {count.toLocaleString()} {count === 1 ? 'breach' : 'breaches'}
+                </span>
+            </div>
+        </div>
+    );
+
+    const renderWeakEntry = ({ entry, group, strength }: EntryInfo) => (
+        <div key={entry.id} className="breached-entry">
+            <div className="entry-info">
+                <h3>{entry.title}</h3>
+                <p className="username">{entry.username}</p>
+                <p className="group-path">Group: {group.name}</p>
+            </div>
+            <div className="breach-info">
+                {strength && (
+                    <span
+                        className="strength-indicator"
+                        style={{ color: getStrengthColor(strength.score) }}
+                    >
+                        {getStrengthLabel(strength.score)}
+                    </span>
+                )}
+            </div>
+        </div>
+    );
 
     return (
         <div className="breach-report-overlay">
@@ -64,58 +106,63 @@ export const BreachReport = ({ breachedEntries, onClose }: BreachReportProps) =>
                         </svg>
                     </button>
                 </div>
+                <div className="breach-report-tabs">
+                    <button
+                        className={`tab-button ${activeTab === 'breached' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('breached')}
+                    >
+                        Compromised ({breachedEntries.length})
+                    </button>
+                    <button
+                        className={`tab-button ${activeTab === 'weak' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('weak')}
+                    >
+                        Weak ({weakPasswords.length})
+                    </button>
+                </div>
                 <div className="breach-report-content">
-                    <div className="breach-summary">
-                        <div className="breach-count">
-                            <span className="count">{breachedEntries.length}</span>
-                            <span className="label">Compromised {breachedEntries.length === 1 ? 'Password' : 'Passwords'}</span>
-                        </div>
-                        <p className="breach-warning">
-                            These passwords have appeared in known data breaches. It's recommended to change them as soon as possible.
-                        </p>
-                    </div>
-
-                    {hasWeakPasswords && (
-                        <div className="weak-passwords-summary">
-                            <div className="weak-count">
-                                <span className="count">{weakPasswords.length}</span>
-                                <span className="label">Weak {weakPasswords.length === 1 ? 'Password' : 'Passwords'}</span>
+                    {activeTab === 'breached' && hasBreachedPasswords && (
+                        <>
+                            <div className="breach-summary">
+                                <div className="breach-count">
+                                    <span className="count">{breachedEntries.length}</span>
+                                    <span className="label">Compromised {breachedEntries.length === 1 ? 'Password' : 'Passwords'}</span>
+                                </div>
+                                <p className="breach-warning">
+                                    These passwords have appeared in known data breaches. It's recommended to change them as soon as possible.
+                                </p>
                             </div>
-                            <p className="weak-warning">
-                                Some passwords are considered weak and should be strengthened to improve security.
+                            <div className="breached-entries">
+                                {breachedEntries.map(entry => renderBreachedEntry(entry))}
+                            </div>
+                        </>
+                    )}
+
+                    {activeTab === 'weak' && hasWeakPasswords && (
+                        <>
+                            <div className="weak-passwords-summary">
+                                <div className="weak-count">
+                                    <span className="count">{weakPasswords.length}</span>
+                                    <span className="label">Weak {weakPasswords.length === 1 ? 'Password' : 'Passwords'}</span>
+                                </div>
+                                <p className="weak-warning">
+                                    These passwords are considered weak and should be strengthened to improve security.
+                                </p>
+                            </div>
+                            <div className="breached-entries">
+                                {weakPasswords.map(entry => renderWeakEntry(entry))}
+                            </div>
+                        </>
+                    )}
+
+                    {((activeTab === 'breached' && !hasBreachedPasswords) ||
+                      (activeTab === 'weak' && !hasWeakPasswords)) && (
+                        <div className="breach-summary">
+                            <p className="breach-warning">
+                                No {activeTab === 'breached' ? 'compromised' : 'weak'} passwords found.
                             </p>
                         </div>
                     )}
-
-                    <div className="breached-entries">
-                        {breachedEntries.map(({ entry, group, count, strength }) => (
-                            <div key={entry.id} className="breached-entry">
-                                <div className="entry-info">
-                                    <h3>{entry.title}</h3>
-                                    <p className="username">{entry.username}</p>
-                                    <p className="group-path">Group: {group.name}</p>
-                                </div>
-                                <div className="breach-info">
-                                    <span className="breach-count">
-                                        Found in {count.toLocaleString()} {count === 1 ? 'breach' : 'breaches'}
-                                    </span>
-                                    {strength && (
-                                        <span
-                                            className="strength-indicator"
-                                            style={{ color: getStrengthColor(strength.score) }}
-                                        >
-                                            {getStrengthLabel(strength.score)}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-                <div className="breach-report-footer">
-                    <button className="primary-button" onClick={onClose}>
-                        Close
-                    </button>
                 </div>
             </div>
         </div>
