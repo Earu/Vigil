@@ -5,6 +5,7 @@ import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import './EntryDetails.css';
+import { PasswordGenerator } from './PasswordGenerator';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -81,6 +82,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 			suggestions: string[];
 		};
 	} | null>(null);
+	const [showPasswordGenerator, setShowPasswordGenerator] = useState(false);
 	const timerRef = useRef<NodeJS.Timeout>();
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
@@ -433,19 +435,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 								className="generate-button"
 								onClick={(e) => {
 									e.preventDefault();
-									const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=[]{}|;:,.<>?';
-									const password = Array.from(crypto.getRandomValues(new Uint8Array(20)))
-										.map(byte => chars[byte % chars.length])
-										.join('');
-									setEditedEntry({
-										...editedEntry,
-										password: kdbxweb.ProtectedValue.fromString(password)
-									});
-									setShowPassword(true);
-									// Check strength of generated password
-									HaveIBeenPwnedService.checkPassword(password).then(result => {
-										setPasswordStrength(result.strength);
-									});
+									setShowPasswordGenerator(true);
 								}}
 								title="Generate password"
 								type="button"
@@ -459,10 +449,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 									strokeLinecap="round"
 									strokeLinejoin="round"
 								>
-									<path d="M21 2v6h-6" />
-									<path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-									<path d="M3 12a9 9 0 0 0 15 6.7L21 16" />
-									<path d="M21 22v-6h-6" />
+									<path d="M23 4v6h-6" />
+									<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
 								</svg>
 							</button>
 						)}
@@ -563,6 +551,25 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							<span>{editedEntry.modified.toLocaleString()}</span>
 						</div>
 					</div>
+				)}
+
+				{showPasswordGenerator && (
+					<PasswordGenerator
+						onClose={() => setShowPasswordGenerator(false)}
+						onSave={(password) => {
+							setEditedEntry({
+								...editedEntry,
+								password
+							});
+							setShowPassword(true);
+							// Check strength of generated password
+							HaveIBeenPwnedService.checkPassword(password.getText()).then(result => {
+								setPasswordStrength(result.strength);
+							});
+							setShowPasswordGenerator(false);
+						}}
+						currentPassword={getPasswordString()}
+					/>
 				)}
 			</div>
 		</div>
