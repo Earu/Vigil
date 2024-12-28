@@ -19,6 +19,7 @@ interface BreachReportProps {
     database: Database;
     onClose: () => void;
     breachedEntries: Array<EntryInfo>;
+    weakEntries: Array<EntryInfo>;
 }
 
 type TabType = 'breached' | 'weak';
@@ -45,10 +46,9 @@ const getStrengthLabel = (score: number) => {
     }
 };
 
-export const BreachReport = ({ breachedEntries, onClose }: BreachReportProps) => {
+export const BreachReport = ({ breachedEntries, weakEntries, onClose }: BreachReportProps) => {
     const [activeTab, setActiveTab] = useState<TabType>('breached');
-    const weakPasswords = breachedEntries.filter(entry => entry.strength && entry.strength.score < 3);
-    const hasWeakPasswords = weakPasswords.length > 0;
+    const hasWeakPasswords = weakEntries.length > 0;
     const hasBreachedPasswords = breachedEntries.length > 0;
 
     const renderBreachedEntry = ({ entry, group, count }: EntryInfo) => (
@@ -117,7 +117,7 @@ export const BreachReport = ({ breachedEntries, onClose }: BreachReportProps) =>
                         className={`tab-button ${activeTab === 'weak' ? 'active' : ''}`}
                         onClick={() => setActiveTab('weak')}
                     >
-                        Weak ({weakPasswords.length})
+                        Weak ({weakEntries.length})
                     </button>
                 </div>
                 <div className="breach-report-content">
@@ -142,15 +142,15 @@ export const BreachReport = ({ breachedEntries, onClose }: BreachReportProps) =>
                         <>
                             <div className="weak-passwords-summary">
                                 <div className="weak-count">
-                                    <span className="count">{weakPasswords.length}</span>
-                                    <span className="label">Weak {weakPasswords.length === 1 ? 'Password' : 'Passwords'}</span>
+                                    <span className="count">{weakEntries.length}</span>
+                                    <span className="label">Weak {weakEntries.length === 1 ? 'Password' : 'Passwords'}</span>
                                 </div>
                                 <p className="weak-warning">
                                     These passwords are considered weak and should be strengthened to improve security.
                                 </p>
                             </div>
                             <div className="breached-entries">
-                                {weakPasswords.map(entry => renderWeakEntry(entry))}
+                                {weakEntries.map(entry => renderWeakEntry(entry))}
                             </div>
                         </>
                     )}
