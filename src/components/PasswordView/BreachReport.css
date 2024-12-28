@@ -245,3 +245,40 @@
     white-space: nowrap;
     font-weight: 500;
 }
+
+.breach-report-tabs {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0 1.25rem;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.tab-button {
+    padding: 0.75rem 1rem;
+    background: none;
+    border: none;
+    color: #94a3b8;
+    font-size: 0.875rem;
+    cursor: pointer;
+    position: relative;
+    transition: color 0.2s ease;
+}
+
+.tab-button:hover {
+    color: #e5e7eb;
+}
+
+.tab-button.active {
+    color: #e5e7eb;
+}
+
+.tab-button.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: #e5e7eb;
+}
