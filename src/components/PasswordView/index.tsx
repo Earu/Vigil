@@ -11,7 +11,7 @@ const deepCopyWithDates = (obj: any): any => {
 	if (obj === null || typeof obj !== 'object') return obj;
 	if (obj instanceof Date) return new Date(obj);
 	if (obj instanceof kdbxweb.ProtectedValue) return obj;
-	
+
 	const copy: any = Array.isArray(obj) ? [] : {};
 	for (const key in obj) {
 		copy[key] = deepCopyWithDates(obj[key]);

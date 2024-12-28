@@ -1,4 +1,6 @@
 import { Entry, Group, Database } from '../../types/database';
+import { BreachCheckService } from '../../services/BreachCheckService';
+import { DatabasePathService } from '../../services/DatabasePathService';
 
 interface EntryListProps {
 	group: Group;
@@ -86,8 +88,14 @@ export const EntryList = ({
 		e.dataTransfer.dropEffect = 'move';
 	};
 
+	const getBreachStatus = (entry: Entry) => {
+		const path = DatabasePathService.getPath();
+		if (!path) return null;
+		return BreachCheckService.getEntryBreachStatus(path, entry.id);
+	};
+
 	return (
-		<div 
+		<div
 			className="entry-list"
 			onDrop={handleDrop}
 			onDragOver={handleDragOver}
@@ -127,8 +135,9 @@ export const EntryList = ({
 						draggable={true}
 						onDragStart={(e) => handleDragStart(e, entry)}
 						onDragEnd={handleDragEnd}
+						onClick={() => onEntrySelect(entry)}
 					>
-						<div className="entry-content" onClick={() => onEntrySelect(entry)}>
+						<div className="entry-content">
 							<div className="entry-icon">
 								{entry.url ? (
 									<img
@@ -161,7 +170,28 @@ export const EntryList = ({
 								)}
 							</div>
 							<div className="entry-info">
-								<div className="entry-title">{entry.title}</div>
+								<div className="entry-title">
+									{entry.title}
+									{(() => {
+										const status = getBreachStatus(entry);
+										return status?.isPwned && (
+											<span className="breach-indicator" title={`Password found in ${status.count} data breaches`}>
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													strokeWidth="2"
+													strokeLinecap="round"
+													strokeLinejoin="round"
+													className="breach-icon"
+												>
+													<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+												</svg>
+											</span>
+										);
+									})()}
+								</div>
 								<div className="entry-username">{entry.username}</div>
 							</div>
 							{entry.url && (

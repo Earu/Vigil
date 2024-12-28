@@ -1,0 +1,76 @@
+export class HaveIBeenPwnedService {
+    private static readonly HIBP_API_URL = 'https://api.pwnedpasswords.com';
+    private static readonly HIBP_BREACH_API_URL = 'https://haveibeenpwned.com/api/v3';
+
+    /**
+     * Checks if a password has been exposed in known data breaches
+     * Uses k-Anonymity model to safely check passwords
+     */
+    public static async isPasswordPwned(password: string): Promise<{ isPwned: boolean; count: number }> {
+        // Convert password string to ArrayBuffer
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password);
+
+        // Create SHA-1 hash using Web Crypto API
+        const hashBuffer = await window.crypto.subtle.digest('SHA-1', data);
+
+        // Convert ArrayBuffer to hex string
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+        const prefix = hash.substring(0, 5).toUpperCase();
+        const suffix = hash.substring(5).toUpperCase();
+
+        try {
+            const response = await fetch(`${this.HIBP_API_URL}/range/${prefix}`);
+
+            if (!response.ok) {
+                throw new Error('Failed to check password breach status');
+            }
+
+            const hashes = await response.text();
+            const hashList = hashes.split('\n');
+
+            for (const hashLine of hashList) {
+                const [hashSuffix, countStr] = hashLine.split(':');
+                if (hashSuffix.trim() === suffix) {
+                    const count = parseInt(countStr);
+                    return { isPwned: true, count };
+                }
+            }
+
+            return { isPwned: false, count: 0 };
+        } catch (error) {
+            console.error('Error checking password breach status:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Checks if an email address has been exposed in known data breaches
+     * Requires a HIBP API key
+     */
+    public static async checkEmailBreaches(email: string, apiKey: string): Promise<any[]> {
+        try {
+            const response = await fetch(`${this.HIBP_BREACH_API_URL}/breachedaccount/${encodeURIComponent(email)}`, {
+                headers: {
+                    'hibp-api-key': apiKey,
+                    'User-Agent': 'Vigil Password Manager'
+                }
+            });
+
+            if (response.status === 404) {
+                return []; // No breaches found
+            }
+
+            if (!response.ok) {
+                throw new Error('Failed to check email breach status');
+            }
+
+            return await response.json();
+        } catch (error) {
+            console.error('Error checking email breach status:', error);
+            throw error;
+        }
+    }
+}

@@ -19,7 +19,8 @@ const api: IElectronAPI = {
 	enableBiometrics: (dbPath, password) => ipcRenderer.invoke('enable-biometrics', dbPath, password),
 	getBiometricPassword: (dbPath) => ipcRenderer.invoke('get-biometric-password', dbPath),
 	hasBiometricsEnabled: (dbPath) => ipcRenderer.invoke('has-biometrics-enabled', dbPath),
-	disableBiometrics: (dbPath) => ipcRenderer.invoke('disable-biometrics', dbPath)
+	disableBiometrics: (dbPath) => ipcRenderer.invoke('disable-biometrics', dbPath),
+	clearClipboard: () => ipcRenderer.invoke('clear-clipboard'),
 }
 
 contextBridge.exposeInMainWorld('electron', api)
