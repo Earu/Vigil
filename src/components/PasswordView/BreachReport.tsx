@@ -8,10 +8,42 @@ interface BreachReportProps {
         entry: Entry;
         group: Group;
         count: number;
+        strength?: {
+            score: number;
+            feedback: {
+                warning: string;
+                suggestions: string[];
+            };
+        };
     }>;
 }
 
+const getStrengthColor = (score: number) => {
+    switch (score) {
+        case 0: return '#dc2626'; // red-600
+        case 1: return '#dc2626'; // red-600
+        case 2: return '#f59e0b'; // amber-500
+        case 3: return '#10b981'; // emerald-500
+        case 4: return '#10b981'; // emerald-500
+        default: return '#94a3b8'; // gray-400
+    }
+};
+
+const getStrengthLabel = (score: number) => {
+    switch (score) {
+        case 0: return 'Very Weak';
+        case 1: return 'Weak';
+        case 2: return 'Fair';
+        case 3: return 'Strong';
+        case 4: return 'Very Strong';
+        default: return 'Unknown';
+    }
+};
+
 export const BreachReport = ({ breachedEntries, onClose }: BreachReportProps) => {
+    const weakPasswords = breachedEntries.filter(entry => entry.strength && entry.strength.score < 3);
+    const hasWeakPasswords = weakPasswords.length > 0;
+
     return (
         <div className="breach-report-overlay">
             <div className="breach-report">
@@ -42,8 +74,21 @@ export const BreachReport = ({ breachedEntries, onClose }: BreachReportProps) =>
                             These passwords have appeared in known data breaches. It's recommended to change them as soon as possible.
                         </p>
                     </div>
+
+                    {hasWeakPasswords && (
+                        <div className="weak-passwords-summary">
+                            <div className="weak-count">
+                                <span className="count">{weakPasswords.length}</span>
+                                <span className="label">Weak {weakPasswords.length === 1 ? 'Password' : 'Passwords'}</span>
+                            </div>
+                            <p className="weak-warning">
+                                Some passwords are considered weak and should be strengthened to improve security.
+                            </p>
+                        </div>
+                    )}
+
                     <div className="breached-entries">
-                        {breachedEntries.map(({ entry, group, count }) => (
+                        {breachedEntries.map(({ entry, group, count, strength }) => (
                             <div key={entry.id} className="breached-entry">
                                 <div className="entry-info">
                                     <h3>{entry.title}</h3>
@@ -54,6 +99,14 @@ export const BreachReport = ({ breachedEntries, onClose }: BreachReportProps) =>
                                     <span className="breach-count">
                                         Found in {count.toLocaleString()} {count === 1 ? 'breach' : 'breaches'}
                                     </span>
+                                    {strength && (
+                                        <span
+                                            className="strength-indicator"
+                                            style={{ color: getStrengthColor(strength.score) }}
+                                        >
+                                            {getStrengthLabel(strength.score)}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         ))}

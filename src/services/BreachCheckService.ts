@@ -3,6 +3,18 @@ import { Entry, Group } from '../types/database';
 import { BreachStatusStore } from './BreachStatusStore';
 import * as kdbxweb from 'kdbxweb';
 
+export interface PasswordStatus {
+    isPwned: boolean;
+    pwnedCount: number;
+    strength: {
+        score: number;
+        feedback: {
+            warning: string;
+            suggestions: string[];
+        };
+    };
+}
+
 export class BreachCheckService {
     // Rate limiting: max 1 request per 1.5 seconds
     private static readonly REQUEST_DELAY = 1500;
@@ -11,7 +23,7 @@ export class BreachCheckService {
     private static countedEntries: Set<string> = new Set();
     private static progress = { checked: 0, total: 0 };
 
-    private static async checkPassword(password: string | kdbxweb.ProtectedValue): Promise<{ isPwned: boolean; count: number }> {
+    private static async checkPassword(password: string | kdbxweb.ProtectedValue): Promise<PasswordStatus> {
         // Ensure we don't exceed rate limits
         const now = Date.now();
         const timeSinceLastRequest = now - this.lastRequestTime;
@@ -21,7 +33,7 @@ export class BreachCheckService {
 
         const passwordString = typeof password === 'string' ? password : password.getText();
 
-        const result = await HaveIBeenPwnedService.isPasswordPwned(passwordString);
+        const result = await HaveIBeenPwnedService.checkPassword(passwordString);
         this.lastRequestTime = Date.now();
         return result;
     }
@@ -73,8 +85,13 @@ export class BreachCheckService {
         // If not in cache or expired, check the password
         try {
             const result = await this.checkPassword(entry.password);
-            BreachStatusStore.setEntryStatus(databasePath, entry.id, result);
+            BreachStatusStore.setEntryStatus(databasePath, entry.id, {
+                isPwned: result.isPwned,
+                count: result.pwnedCount,
+                strength: result.strength
+            });
             this.incrementProgress(entry.id);
+
             return result.isPwned;
         } catch (error) {
             // Don't cache errors - we want to retry later

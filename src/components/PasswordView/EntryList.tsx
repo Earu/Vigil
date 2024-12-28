@@ -1,6 +1,6 @@
 import { Entry, Group, Database } from '../../types/database';
-import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
+import { BreachStatusStore } from '../../services/BreachStatusStore';
 
 interface EntryListProps {
 	group: Group;
@@ -88,10 +88,10 @@ export const EntryList = ({
 		e.dataTransfer.dropEffect = 'move';
 	};
 
-	const getBreachStatus = (entry: Entry) => {
+	const getEntryStatus = (entry: Entry) => {
 		const path = DatabasePathService.getPath();
 		if (!path) return null;
-		return BreachCheckService.getEntryBreachStatus(path, entry.id);
+		return BreachStatusStore.getEntryStatus(path, entry.id);
 	};
 
 	return (
@@ -173,22 +173,44 @@ export const EntryList = ({
 								<div className="entry-title">
 									{entry.title}
 									{(() => {
-										const status = getBreachStatus(entry);
-										return status?.isPwned && (
-											<span className="breach-indicator" title={`Password found in ${status.count} data breaches`}>
-												<svg
-													xmlns="http://www.w3.org/2000/svg"
-													viewBox="0 0 24 24"
-													fill="none"
-													stroke="currentColor"
-													strokeWidth="2"
-													strokeLinecap="round"
-													strokeLinejoin="round"
-													className="breach-icon"
-												>
-													<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-												</svg>
-											</span>
+										const status = getEntryStatus(entry);
+										return (
+											<>
+												{status?.isPwned && (
+													<span className="breach-indicator" title={`Password found in ${status.count} data breaches`}>
+														<svg
+															xmlns="http://www.w3.org/2000/svg"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															strokeWidth="2"
+															strokeLinecap="round"
+															strokeLinejoin="round"
+															className="breach-icon"
+														>
+															<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+														</svg>
+													</span>
+												)}
+												{!status?.isPwned && status?.strength && status.strength.score < 3 && (
+													<span className="weak-password-indicator" title={status.strength.feedback.warning || 'Weak password detected'}>
+														<svg
+															xmlns="http://www.w3.org/2000/svg"
+															viewBox="0 0 24 24"
+															fill="none"
+															stroke="currentColor"
+															strokeWidth="2"
+															strokeLinecap="round"
+															strokeLinejoin="round"
+															className="weak-password-icon"
+														>
+															<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+															<line x1="12" y1="8" x2="12" y2="12" />
+															<line x1="12" y1="16" x2="12.01" y2="16" />
+														</svg>
+													</span>
+												)}
+											</>
 										);
 									})()}
 								</div>
