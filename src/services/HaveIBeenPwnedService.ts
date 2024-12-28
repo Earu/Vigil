@@ -1,3 +1,5 @@
+import zxcvbn from 'zxcvbn';
+
 export class HaveIBeenPwnedService {
     private static readonly HIBP_API_URL = 'https://api.pwnedpasswords.com';
     private static readonly HIBP_BREACH_API_URL = 'https://haveibeenpwned.com/api/v3';
@@ -72,5 +74,52 @@ export class HaveIBeenPwnedService {
             console.error('Error checking email breach status:', error);
             throw error;
         }
+    }
+
+    /**
+     * Checks the strength of a password using zxcvbn
+     */
+    private static checkPasswordStrength(password: string): {
+        score: number;
+        feedback: {
+            warning: string;
+            suggestions: string[];
+        };
+    } {
+        const result = zxcvbn(password);
+        return {
+            score: result.score, // 0-4 (0 = weak, 4 = strong)
+            feedback: {
+                warning: result.feedback.warning || '',
+                suggestions: result.feedback.suggestions || []
+            }
+        };
+    }
+
+    /**
+     * Checks if a password has been exposed in known data breaches and evaluates its strength
+     * Uses k-Anonymity model to safely check passwords and zxcvbn for strength evaluation
+     */
+    public static async checkPassword(password: string): Promise<{
+        isPwned: boolean;
+        pwnedCount: number;
+        strength: {
+            score: number;
+            feedback: {
+                warning: string;
+                suggestions: string[];
+            };
+        };
+    }> {
+        const [pwnedResult, strengthResult] = await Promise.all([
+            this.isPasswordPwned(password),
+            Promise.resolve(this.checkPasswordStrength(password))
+        ]);
+
+        return {
+            isPwned: pwnedResult.isPwned,
+            pwnedCount: pwnedResult.count,
+            strength: strengthResult
+        };
     }
 }

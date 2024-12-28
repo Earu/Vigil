@@ -29,15 +29,24 @@ interface PasswordViewProps {
 	onDatabaseChange?: (database: Database) => void;
 }
 
+interface BreachedEntry {
+	entry: Entry;
+	group: Group;
+	count: number;
+	strength?: {
+		score: number;
+		feedback: {
+			warning: string;
+			suggestions: string[];
+		};
+	};
+}
+
 export const PasswordView = ({ database, searchQuery, onDatabaseChange }: PasswordViewProps) => {
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
-	const [breachedEntries, setBreachedEntries] = useState<Array<{
-		entry: Entry;
-		group: Group;
-		count: number;
-	}>>([]);
+	const [breachedEntries, setBreachedEntries] = useState<BreachedEntry[]>([]);
 	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
 
 	// Check for breaches when database changes
@@ -46,7 +55,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 			const databasePath = DatabasePathService.getPath();
 			if (!databasePath) return [];
 
-			const breached: typeof breachedEntries = [];
+			const breached: BreachedEntry[] = [];
 
 			// Check entries in current group
 			group.entries.forEach(entry => {
@@ -55,7 +64,8 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 					breached.push({
 						entry,
 						group: parentGroup,
-						count: status.count
+						count: status.count,
+						strength: status.strength
 					});
 				}
 			});
