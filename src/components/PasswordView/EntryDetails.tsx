@@ -112,6 +112,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	useEffect(() => {
 		if (!isNew && entry) {
 			setEditedEntry(entry);
+			setIsEditing(false);
 			// Check breach status when entry changes
 			const databasePath = DatabasePathService.getPath();
 			if (databasePath) {
@@ -124,6 +125,21 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					setPasswordStrength(result.strength);
 				});
 			}
+		} else if (isNew) {
+			// Reset the edited entry when creating a new one
+			setEditedEntry({
+				id: '',
+				title: '',
+				username: '',
+				password: '',
+				url: '',
+				notes: '',
+				created: new Date(),
+				modified: new Date(),
+			});
+			setIsEditing(true);
+			setBreachStatus(null);
+			setPasswordStrength(null);
 		}
 	}, [entry, isNew]);
 
