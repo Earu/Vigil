@@ -204,7 +204,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 		<div className="group-item">
 			<div
 				className={`group-header ${selectedGroup.id === group.id ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragging ? 'dragging' : ''}`}
-				style={{ paddingLeft: `${level * 1.25}rem` }}
+				style={{ '--level': level } as React.CSSProperties}
 				onClick={() => !isEditing && onGroupSelect(group)}
 				draggable={!isEditing && group.id !== database.root.id}
 				onDragStart={handleDragStart}
@@ -235,28 +235,29 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 						</svg>
 					</button>
 				)}
-				{isEditing ? (
-					<input
-						ref={inputRef}
-						className="group-name-input"
-						value={editedName}
-						onChange={(e) => setEditedName(e.target.value)}
-						onBlur={handleNameSubmit}
-						onKeyDown={handleKeyDown}
-						onClick={(e) => e.stopPropagation()}
-					/>
-				) : (
-					<span
-						className="group-name"
-						onDoubleClick={(e) => {
-							e.stopPropagation();
-							setIsEditing(true);
-						}}
-					>
-						{group.name}
-						{hasBreachedEntries && (
-							<span className="group-breach-indicator" title="Contains breached passwords">
-								<svg
+				<div className="content-wrapper">
+					{isEditing ? (
+						<input
+							ref={inputRef}
+							className="group-name-input"
+							value={editedName}
+							onChange={(e) => setEditedName(e.target.value)}
+							onBlur={handleNameSubmit}
+							onKeyDown={handleKeyDown}
+							onClick={(e) => e.stopPropagation()}
+						/>
+					) : (
+						<span
+							className="group-name"
+							onDoubleClick={(e) => {
+								e.stopPropagation();
+								setIsEditing(true);
+							}}
+						>
+							{group.name}
+							{hasBreachedEntries && (
+								<span className="group-breach-indicator" title="Contains breached passwords">
+									<svg
 										xmlns="http://www.w3.org/2000/svg"
 										viewBox="0 0 24 24"
 										fill="none"
@@ -268,11 +269,11 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 									>
 										<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
 									</svg>
-							</span>
-						)}
-						{!hasBreachedEntries && hasWeakPasswords && (
-							<span className="group-weak-password-indicator" title="Contains weak passwords">
-								<svg
+								</span>
+							)}
+							{!hasBreachedEntries && hasWeakPasswords && (
+								<span className="group-weak-password-indicator" title="Contains weak passwords">
+									<svg
 										xmlns="http://www.w3.org/2000/svg"
 										viewBox="0 0 24 24"
 										fill="none"
@@ -286,37 +287,18 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 										<line x1="12" y1="8" x2="12" y2="12" />
 										<line x1="12" y1="16" x2="12.01" y2="16" />
 									</svg>
-							</span>
-						)}
+								</span>
+							)}
+						</span>
+					)}
+					<span className="entry-count">
+						{getAllEntriesCount(group)}
 					</span>
-				)}
-				<span className="entry-count">
-					{getAllEntriesCount(group)}
-				</span>
-				<div className="group-actions" onClick={(e) => e.stopPropagation()}>
-					<button
-						className="group-action-button"
-						onClick={() => onNewGroup(group)}
-						title="Add subgroup"
-					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						>
-							<line x1="12" y1="5" x2="12" y2="19" />
-							<line x1="5" y1="12" x2="19" y2="12" />
-						</svg>
-					</button>
-					{!isEditing && (
+					<div className="group-actions" onClick={(e) => e.stopPropagation()}>
 						<button
 							className="group-action-button"
-							onClick={() => setIsEditing(true)}
-							title="Edit group name"
+							onClick={() => onNewGroup(group)}
+							title="Add subgroup"
 						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
@@ -327,31 +309,51 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 								strokeLinecap="round"
 								strokeLinejoin="round"
 							>
-								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-								<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+								<line x1="12" y1="5" x2="12" y2="19" />
+								<line x1="5" y1="12" x2="19" y2="12" />
 							</svg>
 						</button>
-					)}
-					{group.id !== database.root.id && (
-						<button
-							className="group-action-button"
-							onClick={() => onRemoveGroup(group)}
-							title="Remove group"
-						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
+						{!isEditing && (
+							<button
+								className="group-action-button"
+								onClick={() => setIsEditing(true)}
+								title="Edit group name"
 							>
-								<line x1="18" y1="6" x2="6" y2="18" />
-								<line x1="6" y1="6" x2="18" y2="18" />
-							</svg>
-						</button>
-					)}
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+									<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+								</svg>
+							</button>
+						)}
+						{group.id !== database.root.id && (
+							<button
+								className="group-action-button"
+								onClick={() => onRemoveGroup(group)}
+								title="Remove group"
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<line x1="18" y1="6" x2="6" y2="18" />
+									<line x1="6" y1="6" x2="18" y2="18" />
+								</svg>
+							</button>
+						)}
+					</div>
 				</div>
 			</div>
 			{isExpanded && hasSubgroups && (
