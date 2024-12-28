@@ -3,6 +3,10 @@ import { Database, Entry, Group } from '../../types/database';
 import { Sidebar } from './Sidebar';
 import { EntryList } from './EntryList';
 import { EntryDetails } from './EntryDetails';
+import { BreachReport } from './BreachReport';
+import { BreachCheckService } from '../../services/BreachCheckService';
+import { BreachStatusStore } from '../../services/BreachStatusStore';
+import { DatabasePathService } from '../../services/DatabasePathService';
 import './PasswordView.css';
 import * as kdbxweb from 'kdbxweb';
 
@@ -29,6 +33,55 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
+	const [breachedEntries, setBreachedEntries] = useState<Array<{
+		entry: Entry;
+		group: Group;
+		count: number;
+	}>>([]);
+	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
+
+	// Check for breaches when database changes
+	useEffect(() => {
+		const findBreachedEntries = (group: Group, parentGroup: Group = group) => {
+			const databasePath = DatabasePathService.getPath();
+			if (!databasePath) return [];
+
+			const breached: typeof breachedEntries = [];
+
+			// Check entries in current group
+			group.entries.forEach(entry => {
+				const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+				if (status?.isPwned) {
+					breached.push({
+						entry,
+						group: parentGroup,
+						count: status.count
+					});
+				}
+			});
+
+			// Check subgroups
+			group.groups.forEach(subgroup => {
+				breached.push(...findBreachedEntries(subgroup, subgroup));
+			});
+
+			return breached;
+		};
+
+		const checkBreaches = async () => {
+			setIsCheckingBreaches(true);
+			const databasePath = DatabasePathService.getPath();
+			if (databasePath) {
+				// Wait for breach checks to complete
+				await BreachCheckService.checkGroup(databasePath, database.root);
+				const entries = findBreachedEntries(database.root);
+				setBreachedEntries(entries);
+			}
+			setIsCheckingBreaches(false);
+		};
+
+		checkBreaches();
+	}, [database]);
 
 	// Update selected group when database changes
 	useEffect(() => {
@@ -335,13 +388,13 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 			<div className="password-view-content">
 				<Sidebar
 					database={database}
-					selectedGroup={selectedGroup}
-					onGroupSelect={handleGroupSelect}
-					onNewGroup={handleNewGroup}
-					onRemoveGroup={handleRemoveGroup}
-					onGroupNameChange={handleGroupNameChange}
-					onMoveGroup={handleMoveGroup}
-					onMoveEntry={handleMoveEntry}
+						selectedGroup={selectedGroup}
+						onGroupSelect={handleGroupSelect}
+						onNewGroup={handleNewGroup}
+						onRemoveGroup={handleRemoveGroup}
+						onGroupNameChange={handleGroupNameChange}
+						onMoveGroup={handleMoveGroup}
+						onMoveEntry={handleMoveEntry}
 				/>
 				<EntryList
 					group={selectedGroup}
@@ -363,6 +416,13 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 					/>
 				)}
 			</div>
+			{!isCheckingBreaches && breachedEntries.length > 0 && (
+				<BreachReport
+					database={database}
+					breachedEntries={breachedEntries}
+					onClose={() => setBreachedEntries([])}
+				/>
+			)}
 		</div>
 	);
 };
