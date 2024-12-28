@@ -349,12 +349,12 @@ export const PasswordForm = ({
                                 <path d="M12 6c-1.7 0-3 1.3-3 3v1c0 1.7 1.3 3 3 3s3-1.3 3-3V9c0-1.7-1.3-3-3-3z"/>
                                 <path d="M18 12c0 3.3-2.7 6-6 6s-6-2.7-6-6"/>
                             </svg>
-                            {window.electron?.isBiometricsAvailable().then(available => available && navigator.userAgent.includes('Mac')) ? 'Touch ID' : 'Windows Hello'}
+                            {navigator.userAgent.includes('Mac') ? 'Touch ID' : 'Windows Hello'}
                         </button>
                     </div>
 
                     {isBiometricsEnabled && !showPasswordInput && (
-                        <button 
+                        <button
                             className="biometric-unlock-button"
                             onClick={handleBiometricUnlock}
                             disabled={isLoading}
@@ -371,7 +371,7 @@ export const PasswordForm = ({
                                 <path d="M12 6c-1.7 0-3 1.3-3 3v1c0 1.7 1.3 3 3 3s3-1.3 3-3V9c0-1.7-1.3-3-3-3z"/>
                                 <path d="M18 12c0 3.3-2.7 6-6 6s-6-2.7-6-6"/>
                             </svg>
-                            {window.electron?.isBiometricsAvailable().then(available => available && navigator.userAgent.includes('Mac')) ? 'Unlock with Touch ID' : 'Unlock with Windows Hello'}
+                            {navigator.userAgent.includes('Mac') ? 'Unlock with Touch ID' : 'Unlock with Windows Hello'}
                         </button>
                     )}
                 </>
@@ -485,4 +485,4 @@ export const PasswordForm = ({
             )}
         </div>
     );
-}; 
+};
