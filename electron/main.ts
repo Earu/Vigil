@@ -6,7 +6,8 @@ import fs from 'fs'
 let keytar: typeof import('keytar');
 let windowsHello: {
 	isAvailable: () => boolean;
-	authenticate: (message: string, callback: (error: Error | null, result: boolean) => void) => void;
+	register: (message: string) => Promise<boolean>;
+	authenticate: (message: string) => Promise<boolean>;
 } | null = null;
 
 try {
@@ -73,9 +74,9 @@ async function isBiometricsAvailable(): Promise<boolean> {
 			// On macOS, use systemPreferences to check for Touch ID availability
 			const canPromptTouchID = systemPreferences.canPromptTouchID();
 			biometricsAvailableCache = canPromptTouchID;
-		} else if (process.platform === 'win32' && windowsHello) {
+		} else if (process.platform === 'win32' /*&& windowsHello*/) {
 			// On Windows, use our native module to check Windows Hello availability
-			biometricsAvailableCache = windowsHello.isAvailable();
+			biometricsAvailableCache = false; //windowsHello.isAvailable();
 		} else {
 			// For other platforms, return false as biometrics are not supported
 			biometricsAvailableCache = false;
@@ -100,16 +101,7 @@ async function authenticateWithBiometrics(data: { dbName: string }): Promise<boo
 		}
 	} else if (process.platform === 'win32' && windowsHello) {
 		try {
-			return new Promise((resolve) => {
-				windowsHello!.authenticate(`Unlock ${data.dbName} with Windows Hello`, (error, result) => {
-					if (error) {
-						console.error('Windows Hello authentication failed:', error);
-						resolve(false);
-					} else {
-						resolve(result);
-					}
-				});
-			});
+			return await windowsHello.authenticate(`Unlock ${data.dbName} with Windows Hello`);
 		} catch (error) {
 			console.error('Windows Hello authentication failed:', error);
 			return false;
@@ -294,7 +286,16 @@ ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) 
 			return { success: false, error: 'Biometric authentication is not available on this device' };
 		}
 
-		if (!await authenticateWithBiometrics({ dbName: dbPath.split('/').pop() as string})) {
+		// First register the Windows Hello credential
+		if (process.platform === 'win32' && windowsHello) {
+			const registerResult = await windowsHello.register(`Register Windows Hello for ${dbPath.split('/').pop()}`);
+			if (!registerResult) {
+				return { success: false, error: 'Failed to register Windows Hello' };
+			}
+		}
+
+		// Then authenticate to verify it works
+		if (!await authenticateWithBiometrics({ dbName: dbPath.split('/').pop() as string })) {
 			return { success: false, error: 'Biometric authentication failed' };
 		}
 

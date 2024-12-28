@@ -21,8 +21,44 @@ if (process.platform === 'win32') {
 function createFallbackModule() {
   return {
     isAvailable: () => false,
+    register: () => Promise.reject(new Error('Windows Hello is only available on Windows platforms')),
     authenticate: () => Promise.reject(new Error('Windows Hello is only available on Windows platforms'))
   };
 }
 
-module.exports = windowsHello;
+// Wrap the native functions in promises
+const wrappedModule = {
+  isAvailable: windowsHello.isAvailable,
+  register: (message) => {
+    return new Promise((resolve, reject) => {
+      try {
+        windowsHello.register(message, (error, result) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+  authenticate: (message) => {
+    return new Promise((resolve, reject) => {
+      try {
+        windowsHello.authenticate(message, (error, result) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        });
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+};
+
+module.exports = wrappedModule;
