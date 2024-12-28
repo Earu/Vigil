@@ -47,39 +47,49 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
 	const [breachedEntries, setBreachedEntries] = useState<BreachedEntry[]>([]);
+	const [weakEntries, setWeakEntries] = useState<BreachedEntry[]>([]);
 	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
 	const [sidebarWidth, setSidebarWidth] = useState(400);
 	const [detailsWidth, setDetailsWidth] = useState(400);
 	const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 
-	// Check for breaches when database changes
+	// Check for breaches and weak passwords when database changes
 	useEffect(() => {
-		const findBreachedEntries = (group: Group, parentGroup: Group = group) => {
+		const findBreachedAndWeakEntries = (group: Group, parentGroup: Group = group) => {
 			const databasePath = DatabasePathService.getPath();
-			if (!databasePath) return [];
+			if (!databasePath) return { breached: [], weak: [] };
 
 			const breached: BreachedEntry[] = [];
+			const weak: BreachedEntry[] = [];
 
 			// Check entries in current group
 			group.entries.forEach(entry => {
 				const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+				const entryInfo = {
+					entry,
+					group: parentGroup,
+					count: status?.count || 0,
+					strength: status?.strength
+				};
+
 				if (status?.isPwned) {
-					breached.push({
-						entry,
-						group: parentGroup,
-						count: status.count,
-						strength: status.strength
-					});
+					breached.push(entryInfo);
+				}
+
+				if (status?.strength && status.strength.score < 3) {
+					weak.push(entryInfo);
 				}
 			});
 
 			// Check subgroups
 			group.groups.forEach(subgroup => {
-				breached.push(...findBreachedEntries(subgroup, subgroup));
+				const subResults = findBreachedAndWeakEntries(subgroup, subgroup);
+				breached.push(...subResults.breached);
+				weak.push(...subResults.weak);
 			});
 
-			return breached;
+			return { breached, weak };
 		};
 
 		const checkBreaches = async () => {
@@ -88,8 +98,9 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 			if (databasePath) {
 				// Wait for breach checks to complete
 				await BreachCheckService.checkGroup(databasePath, database.root);
-				const entries = findBreachedEntries(database.root);
-				setBreachedEntries(entries);
+				const { breached, weak } = findBreachedAndWeakEntries(database.root);
+				setBreachedEntries(breached);
+				setWeakEntries(weak);
 			}
 			setIsCheckingBreaches(false);
 		};
@@ -494,7 +505,11 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 				<BreachReport
 					database={database}
 					breachedEntries={breachedEntries}
-					onClose={() => setBreachedEntries([])}
+					weakEntries={weakEntries}
+					onClose={() => {
+						setBreachedEntries([]);
+						setWeakEntries([]);
+					}}
 				/>
 			)}
 		</div>
