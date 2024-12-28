@@ -18,8 +18,7 @@
 }
 
 .database-form {
-    background-color: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(16px);
+    background-color: #0a0a0a;
     padding: 2.5rem;
     border-radius: 1rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -189,7 +188,7 @@
     width: 100%;
     padding: 0.75rem 1rem;
     padding-right: 2.5rem;
-    background-color: rgba(0, 0, 0, 0.6);
+    background-color: #080808;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 0.75rem;
     color: white;
@@ -200,7 +199,7 @@
 .password-input:focus {
     outline: none;
     border-color: #ffffff;
-    background-color: rgba(0, 0, 0, 0.8);
+    background-color: #0f0f0f;
     box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
 }
 
@@ -315,7 +314,7 @@
 .text-input {
     width: 100%;
     padding: 0.75rem 1rem;
-    background-color: rgba(0, 0, 0, 0.6);
+    background-color: #080808;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 0.75rem;
     color: white;
@@ -326,7 +325,7 @@
 .text-input:focus {
     outline: none;
     border-color: #ffffff;
-    background-color: rgba(0, 0, 0, 0.8);
+    background-color: #0f0f0f;
     box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
 }
 
@@ -334,7 +333,7 @@
     display: flex;
     gap: 0.5rem;
     padding: 0.25rem;
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: #080808;
     border-radius: 0.75rem;
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -401,4 +400,4 @@
 .biometric-icon {
     width: 1.25rem;
     height: 1.25rem;
-} 
+}

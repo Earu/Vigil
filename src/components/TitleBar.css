@@ -1,7 +1,6 @@
 .title-bar {
 	height: 48px;
-	background: black;
-	backdrop-filter: blur(12px);
+	background: #000000;
 	display: flex;
 	align-items: center;
 	-webkit-app-region: drag;
@@ -12,11 +11,10 @@
 	right: 0;
 	top: 0;
 	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-	-webkit-app-region: drag;
 }
 
 .title-bar.in-password-view {
-	background: rgba(0, 0, 0, 0.4);
+	background: #080808;
 	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 	height: 48px;
 }
@@ -70,7 +68,7 @@
 	font-family: inherit;
 	font-size: 13px;
 	color: #ffffff;
-	background-color: rgba(255, 255, 255, 0.1);
+	background-color: #1a1a1a;
 	border: 1px solid rgba(255, 255, 255, 0.1);
 	border-radius: 6px;
 	transition: all 0.2s ease;
@@ -79,7 +77,7 @@
 
 .search-input:focus {
 	outline: none;
-	background-color: rgba(255, 255, 255, 0.15);
+	background-color: #222222;
 	border-color: rgba(255, 255, 255, 0.2);
 }
 
@@ -92,7 +90,7 @@
 	font-family: inherit;
 	font-size: 13px;
 	color: #fff;
-	background-color: rgba(255, 255, 255, 0.1);
+	background-color: #1a1a1a;
 	border: 1px solid rgba(255, 255, 255, 0.1);
 	border-radius: 6px;
 	cursor: pointer;
@@ -103,7 +101,7 @@
 }
 
 .lock-button:hover {
-	background-color: rgba(255, 255, 255, 0.15);
+	background-color: #222222;
 	border-color: rgba(255, 255, 255, 0.2);
 }
 

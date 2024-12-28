@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Entry } from '../../types/database';
 import * as kdbxweb from 'kdbxweb';
+import { BreachCheckService } from '../../services/BreachCheckService';
+import { DatabasePathService } from '../../services/DatabasePathService';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -14,6 +16,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const [isEditing, setIsEditing] = useState(isNew);
 	const [clipboardTimer, setClipboardTimer] = useState<number>(0);
 	const [copiedField, setCopiedField] = useState<string>('');
+	const [breachStatus, setBreachStatus] = useState<{ isPwned: boolean; count: number } | null>(null);
 	const timerRef = useRef<NodeJS.Timeout>();
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
@@ -43,6 +46,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	useEffect(() => {
 		if (!isNew && entry) {
 			setEditedEntry(entry);
+			// Check breach status when entry changes
+			const databasePath = DatabasePathService.getPath();
+			if (databasePath) {
+				const status = BreachCheckService.getEntryBreachStatus(databasePath, entry.id);
+				setBreachStatus(status);
+			}
 		}
 	}, [entry, isNew]);
 
@@ -223,6 +232,27 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 				</div>
 			</div>
 
+			{breachStatus?.isPwned && !isNew && !isEditing && (
+				<div className="breach-warning-header">
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						className="breach-warning-icon"
+					>
+						<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+					</svg>
+					<div className="breach-warning-content">
+						<h3>Password Compromised</h3>
+						<p>This password has appeared in {breachStatus.count.toLocaleString()} data {breachStatus.count === 1 ? 'breach' : 'breaches'}. You should change it as soon as possible.</p>
+					</div>
+				</div>
+			)}
+
 			<div className="entry-fields">
 				<div className="field-group">
 					<label>Title</label>
@@ -231,9 +261,9 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							type="text"
 							value={editedEntry.title}
 							onChange={(e) => setEditedEntry({ ...editedEntry, title: e.target.value })}
-							className="field-value"
-							readOnly={!isEditing}
-							placeholder="Enter title"
+								className="field-value"
+								readOnly={!isEditing}
+								placeholder="Enter title"
 						/>
 						{!isEditing && editedEntry.title && renderCopyButton(
 							() => copyToClipboard(editedEntry.title, 'Title'),
