@@ -19,7 +19,7 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
     useEffect(() => {
         const loadLastDatabase = async () => {
             if (!window.electron) return;
-            
+
             try {
                 const lastPath = await window.electron.getLastDatabasePath();
                 if (lastPath) {
@@ -162,4 +162,4 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
             )}
         </div>
     );
-}; 
+};

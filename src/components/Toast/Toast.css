@@ -32,6 +32,14 @@
 	border-left: 4px solid #ff0000;
 }
 
+.toast.info {
+    border-left: 4px solid #3b82f6;
+}
+
+.toast.warning {
+    border-left: 4px solid #f59e0b;
+}
+
 @keyframes toast-slide-in {
 	from {
 		transform: translateX(100%);
@@ -52,4 +60,4 @@
 		transform: translateX(100%);
 		opacity: 0;
 	}
-} 
+}

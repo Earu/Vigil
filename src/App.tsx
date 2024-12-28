@@ -8,6 +8,7 @@ import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
 import { hash } from 'argon2-browser';
 import { AuthenticationView } from './components/Authentication/AuthenticationView';
+import { DatabasePathService } from './services/DatabasePathService';
 
 declare var argon2: { hash: typeof hash };
 
@@ -30,6 +31,12 @@ kdbxweb.CryptoEngine.argon2 = async (password: ArrayBuffer, salt: ArrayBuffer, m
 	}
 };
 
+interface SaveResult {
+	success: boolean;
+	filePath?: string;
+	error?: string;
+}
+
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
 	const [searchQuery, setSearchQuery] = useState('');
@@ -50,6 +57,7 @@ function App() {
 	const handleLock = () => {
 		setDatabase(null);
 		setKdbxDb(null);
+		DatabasePathService.setPath(undefined);
 	};
 
 	const handleDatabaseChange = async (updatedDatabase: Database) => {
@@ -121,22 +129,23 @@ function App() {
 			// Save the updated database
 			const arrayBuffer = await kdbxDb.save();
 
-			let result;
-			if (updatedDatabase.path) {
+			let result: SaveResult | undefined;
+			const currentPath = DatabasePathService.getPath();
+			if (currentPath) {
 				// If we have a path, save directly to it
-				result = await window.electron?.saveToFile(updatedDatabase.path, new Uint8Array(arrayBuffer));
+				result = await window.electron?.saveToFile(currentPath, new Uint8Array(arrayBuffer));
 				if (!result?.success) {
 					// If direct save fails, fall back to save dialog
 					result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
 					if (result?.success && result.filePath) {
-						updatedDatabase.path = result.filePath;
+						DatabasePathService.setPath(result.filePath);
 					}
 				}
 			} else {
 				// If no path, use save dialog
 				result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
 				if (result?.success && result.filePath) {
-					updatedDatabase.path = result.filePath;
+					DatabasePathService.setPath(result.filePath);
 				}
 			}
 

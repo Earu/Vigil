@@ -9,6 +9,10 @@ export interface Entry {
 	notes?: string;
 	created: Date;
 	modified: Date;
+	breachStatus?: {
+		isPwned: boolean;
+		count: number;
+	};
 }
 
 export interface Group {
@@ -18,11 +22,11 @@ export interface Group {
 	groups: Group[];
 	entries: Entry[];
 	expanded?: boolean;
+	hasBreachedEntries?: boolean;
 }
 
 export interface Database {
 	name: string;
 	groups: Group[];
 	root: Group;
-	path?: string;
 }

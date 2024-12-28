@@ -2,6 +2,8 @@ import { useState, useEffect, RefObject } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
 import { convertKdbxToDatabase } from '../../utils/databaseUtils';
+import { BreachCheckService } from '../../services/BreachCheckService';
+import { DatabasePathService } from '../../services/DatabasePathService';
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -90,7 +92,20 @@ export const PasswordForm = ({
                 credentials
             );
 
-            onDatabaseOpen(convertKdbxToDatabase(db), db);
+            const database = convertKdbxToDatabase(db);
+            DatabasePathService.setPath(databasePath);
+            onDatabaseOpen(database, db);
+
+            // Start breach checking in the background
+            const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
+            if (hasBreaches) {
+                (window as any).showToast?.({
+                    message: 'Some passwords in this database were found in data breaches',
+                    type: 'warning',
+                    duration: 10000
+                });
+            }
+
             await window.electron.saveLastDatabasePath(databasePath);
         } catch (err) {
             console.error('Failed to unlock database with biometrics:', err);
@@ -195,6 +210,7 @@ export const PasswordForm = ({
                 }
                 fileBuffer = result.data.buffer;
                 await window.electron.saveLastDatabasePath(databasePath);
+                DatabasePathService.setPath(databasePath);
             } else {
                 fileBuffer = await selectedFile.arrayBuffer();
                 credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
@@ -205,7 +221,20 @@ export const PasswordForm = ({
                 credentials
             );
 
-            onDatabaseOpen(convertKdbxToDatabase(db), db);
+            const database = convertKdbxToDatabase(db);
+            onDatabaseOpen(database, db);
+
+            // Start breach checking in the background
+            if (databasePath) {
+                const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
+                if (hasBreaches) {
+                    (window as any).showToast?.({
+                        message: 'Some passwords in this database were found in data breaches',
+                        type: 'warning',
+                        duration: 10000
+                    });
+                }
+            }
         } catch (err) {
             console.error('Failed to unlock database:', err);
             setError('Invalid password or corrupted database file');
