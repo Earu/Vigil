@@ -3,6 +3,8 @@ import { Entry } from '../../types/database';
 import * as kdbxweb from 'kdbxweb';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
+import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
+import './EntryDetails.css';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -11,12 +13,74 @@ interface EntryDetailsProps {
 	isNew?: boolean;
 }
 
+interface PasswordStrengthIndicatorProps {
+	score: number;
+	warning?: string;
+	suggestions?: string[];
+}
+
+const PasswordStrengthIndicator = ({ score, warning, suggestions }: PasswordStrengthIndicatorProps) => {
+	const getStrengthColor = () => {
+		switch (score) {
+			case 0: return '#dc2626'; // red-600
+			case 1: return '#dc2626'; // red-600
+			case 2: return '#f59e0b'; // amber-500
+			case 3: return '#10b981'; // emerald-500
+			case 4: return '#10b981'; // emerald-500
+			default: return '#94a3b8'; // gray-400
+		}
+	};
+
+	const getStrengthLabel = () => {
+		switch (score) {
+			case 0: return 'Very Weak';
+			case 1: return 'Weak';
+			case 2: return 'Fair';
+			case 3: return 'Strong';
+			case 4: return 'Very Strong';
+			default: return 'Unknown';
+		}
+	};
+
+	return (
+		<div className="password-strength">
+			<div className="strength-bar-container">
+				<div
+					className="strength-bar"
+					style={{
+						width: `${(score + 1) * 20}%`,
+						backgroundColor: getStrengthColor()
+					}}
+				/>
+			</div>
+			<div className="strength-label" style={{ color: getStrengthColor() }}>
+				{getStrengthLabel()}
+			</div>
+			{warning && <div className="strength-warning">{warning}</div>}
+			{suggestions && suggestions.length > 0 && (
+				<ul className="strength-suggestions">
+					{suggestions.map((suggestion, index) => (
+						<li key={index}>{suggestion}</li>
+					))}
+				</ul>
+			)}
+		</div>
+	);
+};
+
 export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
 	const [clipboardTimer, setClipboardTimer] = useState<number>(0);
 	const [copiedField, setCopiedField] = useState<string>('');
 	const [breachStatus, setBreachStatus] = useState<{ isPwned: boolean; count: number } | null>(null);
+	const [passwordStrength, setPasswordStrength] = useState<{
+		score: number;
+		feedback: {
+			warning: string;
+			suggestions: string[];
+		};
+	} | null>(null);
 	const timerRef = useRef<NodeJS.Timeout>();
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
@@ -51,6 +115,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 			if (databasePath) {
 				const status = BreachCheckService.getEntryBreachStatus(databasePath, entry.id);
 				setBreachStatus(status);
+
+				// Check password strength
+				const password = typeof entry.password === 'string' ? entry.password : entry.password.getText();
+				HaveIBeenPwnedService.checkPassword(password).then(result => {
+					setPasswordStrength(result.strength);
+				});
 			}
 		}
 	}, [entry, isNew]);
@@ -183,11 +253,16 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	};
 
 	// Handle password changes
-	const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+	const handlePasswordChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const newPassword = e.target.value;
 		setEditedEntry({
 			...editedEntry,
-			password: e.target.value
+			password: newPassword
 		});
+
+		// Check password strength
+		const result = await HaveIBeenPwnedService.checkPassword(newPassword);
+		setPasswordStrength(result.strength);
 	};
 
 	return (
@@ -249,6 +324,29 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					<div className="breach-warning-content">
 						<h3>Password Compromised</h3>
 						<p>This password has appeared in {breachStatus.count.toLocaleString()} data {breachStatus.count === 1 ? 'breach' : 'breaches'}. You should change it as soon as possible.</p>
+					</div>
+				</div>
+			)}
+
+			{passwordStrength && passwordStrength.score < 3 && !isNew && !isEditing && (
+				<div className="weak-password-warning-header">
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						strokeWidth="2"
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						className="weak-password-warning-icon"
+					>
+						<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+						<line x1="12" y1="8" x2="12" y2="12" />
+						<line x1="12" y1="16" x2="12.01" y2="16" />
+					</svg>
+					<div className="weak-password-warning-content">
+						<h3>Weak Password</h3>
+						<p>{passwordStrength.feedback.warning || 'This password is considered weak. Consider using a stronger password to improve security.'}</p>
 					</div>
 				</div>
 			)}
@@ -344,6 +442,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 										password: kdbxweb.ProtectedValue.fromString(password)
 									});
 									setShowPassword(true);
+									// Check strength of generated password
+									HaveIBeenPwnedService.checkPassword(password).then(result => {
+										setPasswordStrength(result.strength);
+									});
 								}}
 								title="Generate password"
 								type="button"
@@ -370,6 +472,13 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							'Password'
 						)}
 					</div>
+					{passwordStrength && (isEditing || isNew) && (
+						<PasswordStrengthIndicator
+							score={passwordStrength.score}
+							warning={passwordStrength.feedback.warning}
+							suggestions={passwordStrength.feedback.suggestions}
+						/>
+					)}
 				</div>
 
 				<div className="field-group">

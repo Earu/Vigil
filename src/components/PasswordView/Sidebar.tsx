@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Database, Group, Entry } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
+import { BreachStatusStore } from '../../services/BreachStatusStore';
 
 interface SidebarProps {
 	database: Database;
@@ -34,18 +35,33 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	const [isDragging, setIsDragging] = useState(false);
 	const [isDragOver, setIsDragOver] = useState(false);
 	const [hasBreachedEntries, setHasBreachedEntries] = useState(false);
+	const [hasWeakPasswords, setHasWeakPasswords] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const hasSubgroups = group.groups.length > 0;
 
 	useEffect(() => {
-		const checkBreachStatus = async () => {
+		const checkGroupStatus = async () => {
 			const path = DatabasePathService.getPath();
 			if (path) {
 				const isBreached = await BreachCheckService.checkGroup(path, group);
 				setHasBreachedEntries(isBreached);
+
+				// Check for weak passwords in the group
+				const checkWeakPasswords = (group: Group): boolean => {
+					const hasWeakPassword = group.entries.some(entry => {
+						const status = BreachStatusStore.getEntryStatus(path, entry.id);
+						return status?.strength && status.strength.score < 3;
+					});
+
+					if (hasWeakPassword) return true;
+
+					return group.groups.some(subgroup => checkWeakPasswords(subgroup));
+				};
+
+				setHasWeakPasswords(checkWeakPasswords(group));
 			}
 		};
-		checkBreachStatus();
+		checkGroupStatus();
 	}, [group]);
 
 	// Focus input when editing starts
@@ -251,6 +267,24 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 										className="breach-icon"
 									>
 										<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+									</svg>
+							</span>
+						)}
+						{!hasBreachedEntries && hasWeakPasswords && (
+							<span className="group-weak-password-indicator" title="Contains weak passwords">
+								<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="weak-password-icon"
+									>
+										<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+										<line x1="12" y1="8" x2="12" y2="12" />
+										<line x1="12" y1="16" x2="12.01" y2="16" />
 									</svg>
 							</span>
 						)}
