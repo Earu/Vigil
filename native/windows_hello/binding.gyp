@@ -8,7 +8,8 @@
           "<!@(node -p \"require('node-addon-api').include\")",
           "$(WindowsSdkDir)Include\\$(WindowsTargetPlatformVersion)\\um",
           "$(WindowsSdkDir)Include\\$(WindowsTargetPlatformVersion)\\shared",
-          "$(WindowsSdkDir)Include\\$(WindowsTargetPlatformVersion)\\cppwinrt"
+          "$(WindowsSdkDir)Include\\$(WindowsTargetPlatformVersion)\\cppwinrt",
+          "include"
         ],
         "dependencies": [
           "<!(node -p \"require('node-addon-api').gyp\")"
