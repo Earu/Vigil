@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Database, Entry, Group } from '../../types/database';
 import { Sidebar } from './Sidebar';
 import { EntryList } from './EntryList';
@@ -48,6 +48,10 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
 	const [breachedEntries, setBreachedEntries] = useState<BreachedEntry[]>([]);
 	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
+	const [sidebarWidth, setSidebarWidth] = useState(400);
+	const [detailsWidth, setDetailsWidth] = useState(400);
+	const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
 
 	// Check for breaches when database changes
 	useEffect(() => {
@@ -393,18 +397,75 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 		onDatabaseChange?.(updatedDatabase);
 	};
 
+	const handleResizeStart = (side: 'left' | 'right') => (e: React.MouseEvent) => {
+		e.preventDefault();
+		setIsResizing(side);
+
+		const startX = e.clientX;
+		const startWidth = side === 'left' ? sidebarWidth : detailsWidth;
+		const contentRect = contentRef.current?.getBoundingClientRect();
+		const contentElement = contentRef.current;
+
+		if (!contentElement || !contentRect) return;
+
+		const handleMouseMove = (e: MouseEvent) => {
+			const delta = e.clientX - startX;
+			const newWidth = side === 'left'
+				? Math.max(200, Math.min(startWidth + delta, contentRect.width - 600))
+				: Math.max(200, Math.min(startWidth - delta, contentRect.width - 600));
+
+			// Update CSS custom property directly instead of React state
+			contentElement.style.setProperty(
+				side === 'left' ? '--sidebar-width' : '--details-width',
+				`${newWidth}px`
+			);
+		};
+
+		const handleMouseUp = () => {
+			setIsResizing(null);
+			document.removeEventListener('mousemove', handleMouseMove);
+			document.removeEventListener('mouseup', handleMouseUp);
+
+			// Update React state only after dragging is complete
+			const finalWidth = parseInt(
+				getComputedStyle(contentElement).getPropertyValue(
+					side === 'left' ? '--sidebar-width' : '--details-width'
+				)
+			);
+			if (side === 'left') {
+				setSidebarWidth(finalWidth);
+			} else {
+				setDetailsWidth(finalWidth);
+			}
+		};
+
+		document.addEventListener('mousemove', handleMouseMove);
+		document.addEventListener('mouseup', handleMouseUp);
+	};
+
 	return (
 		<div className="password-view">
-			<div className="password-view-content">
+			<div
+				ref={contentRef}
+				className="password-view-content"
+				style={{
+					'--sidebar-width': `${sidebarWidth}px`,
+					'--details-width': `${detailsWidth}px`
+				} as React.CSSProperties}
+			>
 				<Sidebar
 					database={database}
-						selectedGroup={selectedGroup}
-						onGroupSelect={handleGroupSelect}
-						onNewGroup={handleNewGroup}
-						onRemoveGroup={handleRemoveGroup}
-						onGroupNameChange={handleGroupNameChange}
-						onMoveGroup={handleMoveGroup}
-						onMoveEntry={handleMoveEntry}
+					selectedGroup={selectedGroup}
+					onGroupSelect={handleGroupSelect}
+					onNewGroup={handleNewGroup}
+					onRemoveGroup={handleRemoveGroup}
+					onGroupNameChange={handleGroupNameChange}
+					onMoveGroup={handleMoveGroup}
+					onMoveEntry={handleMoveEntry}
+				/>
+				<div
+					className={`resize-handle left ${isResizing === 'left' ? 'resizing' : ''}`}
+					onMouseDown={handleResizeStart('left')}
 				/>
 				<EntryList
 					group={selectedGroup}
@@ -416,9 +477,12 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 					onRemoveEntry={handleRemoveEntry}
 					onMoveEntry={handleMoveEntry}
 				/>
+				<div
+					className={`resize-handle right ${isResizing === 'right' ? 'resizing' : ''}`}
+					onMouseDown={handleResizeStart('right')}
+				/>
 				{(selectedEntry || isCreatingNew) && (
 					<EntryDetails
-						key={isCreatingNew ? 'new' : selectedEntry?.id}
 						entry={selectedEntry}
 						onClose={handleCloseEntry}
 						onSave={handleSaveEntry}
