@@ -43,6 +43,8 @@ export class BreachCheckService {
     }
 
     private static updateToast(checked: number, total: number): void {
+        if (total === 0) return;
+
         const message = `Checking passwords for breaches (${checked}/${total})`;
         if (this.toastId) {
             (window as any).updateToast?.(this.toastId, {
