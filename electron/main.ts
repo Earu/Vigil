@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, systemPreferences } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, systemPreferences, clipboard } from 'electron'
 import path from 'path'
 import fs from 'fs'
 
@@ -336,5 +336,15 @@ ipcMain.handle('disable-biometrics', async (_, dbPath: string) => {
 	} catch (error) {
 		console.error('Failed to disable biometrics:', error);
 		return { success: false, error: 'Failed to disable biometric authentication' };
+	}
+});
+
+ipcMain.handle('clear-clipboard', () => {
+	try {
+		clipboard.writeText('');
+		return { success: true };
+	} catch (error) {
+		console.error('Failed to clear clipboard:', error);
+		return { success: false, error: 'Failed to clear clipboard' };
 	}
 });

@@ -32,9 +32,6 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }:
 		window.electron?.closeWindow();
 	};
 
-	// Don't render title bar if not in electron
-	//if (!window.electron) return null;
-
 	return (
 		<div className={`title-bar ${inPasswordView ? 'in-password-view' : ''}`}>
 			<div className="title-bar-drag-area">

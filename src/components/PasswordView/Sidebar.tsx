@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Database, Group, Entry } from '../../types/database';
+import { BreachCheckService } from '../../services/BreachCheckService';
+import { DatabasePathService } from '../../services/DatabasePathService';
 
 interface SidebarProps {
 	database: Database;
@@ -31,8 +33,20 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	const [editedName, setEditedName] = useState(group.name);
 	const [isDragging, setIsDragging] = useState(false);
 	const [isDragOver, setIsDragOver] = useState(false);
+	const [hasBreachedEntries, setHasBreachedEntries] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const hasSubgroups = group.groups.length > 0;
+
+	useEffect(() => {
+		const checkBreachStatus = async () => {
+			const path = DatabasePathService.getPath();
+			if (path) {
+				const isBreached = await BreachCheckService.checkGroup(path, group);
+				setHasBreachedEntries(isBreached);
+			}
+		};
+		checkBreachStatus();
+	}, [group]);
 
 	// Focus input when editing starts
 	useEffect(() => {
@@ -109,7 +123,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 
 		try {
 			const data = JSON.parse(e.dataTransfer.getData('application/json'));
-			
+
 			// Handle group drops
 			if (data.groupId) {
 				const draggedGroupId = data.groupId;
@@ -149,7 +163,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 				const findEntry = (searchGroup: Group): [Entry | null, Group | null] => {
 					const entry = searchGroup.entries.find(e => e.id === draggedEntryId);
 					if (entry) return [entry, searchGroup];
-					
+
 					for (const subgroup of searchGroup.groups) {
 						const [found, sourceGroup] = findEntry(subgroup);
 						if (found) return [found, sourceGroup];
@@ -216,7 +230,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 						onClick={(e) => e.stopPropagation()}
 					/>
 				) : (
-					<span 
+					<span
 						className="group-name"
 						onDoubleClick={(e) => {
 							e.stopPropagation();
@@ -224,6 +238,22 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 						}}
 					>
 						{group.name}
+						{hasBreachedEntries && (
+							<span className="group-breach-indicator" title="Contains breached passwords">
+								<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+										className="breach-icon"
+									>
+										<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+									</svg>
+							</span>
+						)}
 					</span>
 				)}
 				<span className="entry-count">

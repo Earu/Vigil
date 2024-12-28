@@ -85,7 +85,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 				setClipboardTimer((prev) => {
 					if (prev <= 1) {
 						clearInterval(interval);
-						navigator.clipboard.writeText(''); // Clear clipboard
+						window.electron?.clearClipboard().catch(console.error);
 						setCopiedField(''); // Clear the copied field indicator
 						return 0;
 					}
@@ -148,7 +148,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 			...editedEntry,
 			modified: new Date(),
 			// Convert password to ProtectedValue if it's a string
-			password: typeof editedEntry.password === 'string' 
+			password: typeof editedEntry.password === 'string'
 				? kdbxweb.ProtectedValue.fromString(editedEntry.password)
 				: editedEntry.password
 		};
@@ -175,8 +175,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 
 	// Handle password changes
 	const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-		setEditedEntry({ 
-			...editedEntry, 
+		setEditedEntry({
+			...editedEntry,
 			password: e.target.value
 		});
 	};
@@ -309,8 +309,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 									const password = Array.from(crypto.getRandomValues(new Uint8Array(20)))
 										.map(byte => chars[byte % chars.length])
 										.join('');
-									setEditedEntry({ 
-										...editedEntry, 
+									setEditedEntry({
+										...editedEntry,
 										password: kdbxweb.ProtectedValue.fromString(password)
 									});
 									setShowPassword(true);
@@ -364,7 +364,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 									href={editedEntry.url}
 									target="_blank"
 									rel="noopener noreferrer"
-									
+
 									className="open-button"
 									title="Open URL"
 								>
