@@ -58,7 +58,10 @@
 		},
 		"mac": {
 			"target": "dmg",
-			"icon": "build/icons/icon.icns"
+			"icon": "build/icons/icon.icns",
+			"hardenedRuntime": false,
+			"gatekeeperAssess": false,
+			"identity": null
 		},
 		"linux": {
 			"target": "AppImage",
