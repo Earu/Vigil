@@ -112,10 +112,6 @@ export class KeepassDatabaseService {
         return password.getText();
     }
 
-    static createProtectedValue(password: string): kdbxweb.ProtectedValue {
-        return kdbxweb.ProtectedValue.fromString(password);
-    }
-
     static prepareEntryForSave(entry: Entry): Entry {
         return {
             ...entry,
@@ -670,25 +666,5 @@ export class KeepassDatabaseService {
             this.clearCache();
             throw err;
         }
-    }
-
-    // Add batch processing for multiple entries
-    static saveEntries(database: Database, entries: Entry[], selectedGroup: Group): Database {
-        const updatedDatabase: Database = this.deepCopyWithDates(database);
-        const targetGroup = this.findGroupInDatabase(selectedGroup.id, updatedDatabase.root) || updatedDatabase.root;
-
-        // Process all entries in a single batch
-        const existingEntries = new Set(targetGroup.entries.map(e => e.id));
-        entries.forEach(entry => {
-            if (existingEntries.has(entry.id)) {
-                const index = targetGroup.entries.findIndex(e => e.id === entry.id);
-                targetGroup.entries[index] = entry;
-            } else {
-                targetGroup.entries.push(entry);
-            }
-        });
-
-        this.clearCache();
-        return updatedDatabase;
     }
 }
