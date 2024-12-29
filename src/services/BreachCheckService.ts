@@ -2,6 +2,7 @@ import { HaveIBeenPwnedService } from './HaveIBeenPwnedService';
 import { Entry, Group } from '../types/database';
 import { BreachStatusStore } from './BreachStatusStore';
 import * as kdbxweb from 'kdbxweb';
+import { DatabasePathService } from '../services/DatabasePathService';
 
 export interface PasswordStatus {
     isPwned: boolean;
@@ -13,6 +14,26 @@ export interface PasswordStatus {
             suggestions: string[];
         };
     };
+}
+
+export interface BreachedEntry {
+    entry: Entry;
+    group: Group;
+    count: number;
+    strength?: {
+        score: number;
+        feedback: {
+            warning: string;
+            suggestions: string[];
+        };
+    };
+}
+
+export interface BreachCheckResult {
+    breached: BreachedEntry[];
+    weak: BreachedEntry[];
+    hasCheckedEntries: boolean;
+    allEntriesCached: boolean;
 }
 
 export class BreachCheckService {
@@ -184,5 +205,87 @@ export class BreachCheckService {
 
     public static clearCache(databasePath: string): void {
         BreachStatusStore.clearDatabase(databasePath);
+    }
+
+    /**
+     * Finds breached and weak entries from the cache for a given group
+     * @param group The group to check
+     * @param parentGroup Optional parent group (defaults to the group itself)
+     * @returns Object containing breached and weak entries, along with cache status
+     */
+    public static findBreachedAndWeakEntries(group: Group, parentGroup: Group = group): BreachCheckResult {
+        const databasePath = DatabasePathService.getPath();
+        if (!databasePath) return { 
+            breached: [], 
+            weak: [], 
+            hasCheckedEntries: false,
+            allEntriesCached: false 
+        };
+
+        const breached: BreachedEntry[] = [];
+        const weak: BreachedEntry[] = [];
+        let hasCheckedEntries = false;
+        let allEntriesCached = true;
+
+        // Check entries in current group
+        group.entries.forEach(entry => {
+            const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+            hasCheckedEntries = true;
+            
+            if (status === null) {
+                allEntriesCached = false;
+                return;
+            }
+
+            const entryInfo = {
+                entry,
+                group: parentGroup,
+                count: status.count,
+                strength: status.strength
+            };
+
+            if (status.isPwned) {
+                breached.push(entryInfo);
+            }
+
+            if (status.strength && status.strength.score < 3) {
+                weak.push(entryInfo);
+            }
+        });
+
+        // Check subgroups
+        group.groups.forEach(subgroup => {
+            const subResults = this.findBreachedAndWeakEntries(subgroup, subgroup);
+            breached.push(...subResults.breached);
+            weak.push(...subResults.weak);
+            hasCheckedEntries = hasCheckedEntries || subResults.hasCheckedEntries;
+            allEntriesCached = allEntriesCached && subResults.allEntriesCached;
+        });
+
+        return { 
+            breached, 
+            weak, 
+            hasCheckedEntries,
+            allEntriesCached
+        };
+    }
+
+    /**
+     * Checks if a group has any weak passwords
+     * @param group The group to check
+     * @returns boolean indicating if the group has any weak passwords
+     */
+    public static hasWeakPasswords(group: Group): boolean {
+        const databasePath = DatabasePathService.getPath();
+        if (!databasePath) return false;
+
+        const hasWeakPassword = group.entries.some(entry => {
+            const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+            return status?.strength && status.strength.score < 3;
+        });
+
+        if (hasWeakPassword) return true;
+
+        return group.groups.some(subgroup => this.hasWeakPasswords(subgroup));
     }
 }

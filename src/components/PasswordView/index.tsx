@@ -4,8 +4,7 @@ import { Sidebar } from './Sidebar';
 import { EntryList } from './EntryList';
 import { EntryDetails } from './EntryDetails';
 import { BreachReport } from './BreachReport';
-import { BreachStatusStore } from '../../services/BreachStatusStore';
-import { DatabasePathService } from '../../services/DatabasePathService';
+import { BreachCheckService, BreachedEntry } from '../../services/BreachCheckService';
 import './PasswordView.css';
 import * as kdbxweb from 'kdbxweb';
 
@@ -27,19 +26,6 @@ interface PasswordViewProps {
 	searchQuery: string;
 	onDatabaseChange?: (database: Database) => void;
 	showInitialBreachReport?: boolean;
-}
-
-interface BreachedEntry {
-	entry: Entry;
-	group: Group;
-	count: number;
-	strength?: {
-		score: number;
-		feedback: {
-			warning: string;
-			suggestions: string[];
-		};
-	};
 }
 
 export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport }: PasswordViewProps) => {
@@ -65,45 +51,9 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 
 	// Check for breaches and weak passwords when database changes
 	useEffect(() => {
-		const findBreachedAndWeakEntries = (group: Group, parentGroup: Group = group) => {
-			const databasePath = DatabasePathService.getPath();
-			if (!databasePath) return { breached: [], weak: [] };
-
-			const breached: BreachedEntry[] = [];
-			const weak: BreachedEntry[] = [];
-
-			// Check entries in current group
-			group.entries.forEach(entry => {
-				const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
-				const entryInfo = {
-					entry,
-					group: parentGroup,
-					count: status?.count || 0,
-					strength: status?.strength
-				};
-
-				if (status?.isPwned) {
-					breached.push(entryInfo);
-				}
-
-				if (status?.strength && status.strength.score < 3) {
-					weak.push(entryInfo);
-				}
-			});
-
-			// Check subgroups
-			group.groups.forEach(subgroup => {
-				const subResults = findBreachedAndWeakEntries(subgroup, subgroup);
-				breached.push(...subResults.breached);
-				weak.push(...subResults.weak);
-			});
-
-			return { breached, weak };
-		};
-
 		// Only update the UI with existing breach status, don't run new checks
 		const updateBreachStatus = () => {
-			const { breached, weak } = findBreachedAndWeakEntries(database.root);
+			const { breached, weak } = BreachCheckService.findBreachedAndWeakEntries(database.root);
 			setBreachedEntries(breached);
 			setWeakEntries(weak);
 			

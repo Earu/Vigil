@@ -1,81 +1,9 @@
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
-import { Database, Entry, Group } from '../../types/database';
+import { Database } from '../../types/database';
 import { convertKdbxToDatabase } from '../../utils/databaseUtils';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
-import { BreachStatusStore } from '../../services/BreachStatusStore';
-
-interface BreachedEntry {
-    entry: Entry;
-    group: Group;
-    count: number;
-    strength?: {
-        score: number;
-        feedback: {
-            warning: string;
-            suggestions: string[];
-        };
-    };
-}
-
-// Helper function to find breached and weak entries from cache
-const findBreachedAndWeakEntries = (group: Group, parentGroup: Group = group) => {
-    const databasePath = DatabasePathService.getPath();
-    if (!databasePath) return { 
-        breached: [], 
-        weak: [], 
-        hasCheckedEntries: false,
-        allEntriesCached: false 
-    };
-
-    const breached: BreachedEntry[] = [];
-    const weak: BreachedEntry[] = [];
-    let hasCheckedEntries = false;
-    let allEntriesCached = true;
-
-    // Check entries in current group
-    group.entries.forEach(entry => {
-        const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
-        hasCheckedEntries = true;
-        
-        if (status === null) {
-            allEntriesCached = false;
-            return;
-        }
-
-        const entryInfo = {
-            entry,
-            group: parentGroup,
-            count: status.count,
-            strength: status.strength
-        };
-
-        if (status.isPwned) {
-            breached.push(entryInfo);
-        }
-
-        if (status.strength && status.strength.score < 3) {
-            weak.push(entryInfo);
-        }
-    });
-
-    // Check subgroups
-    group.groups.forEach(subgroup => {
-        const subResults = findBreachedAndWeakEntries(subgroup, subgroup);
-        breached.push(...subResults.breached);
-        weak.push(...subResults.weak);
-        hasCheckedEntries = hasCheckedEntries || subResults.hasCheckedEntries;
-        allEntriesCached = allEntriesCached && subResults.allEntriesCached;
-    });
-
-    return { 
-        breached, 
-        weak, 
-        hasCheckedEntries,
-        allEntriesCached
-    };
-};
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -169,7 +97,7 @@ export const PasswordForm = ({
             onDatabaseOpen(database, db);
 
             // Check cache status
-            const { breached, weak, hasCheckedEntries, allEntriesCached } = findBreachedAndWeakEntries(database.root);
+            const { breached, weak, hasCheckedEntries, allEntriesCached } = BreachCheckService.findBreachedAndWeakEntries(database.root);
             
             // If we have any cached results with breaches, show them immediately
             if (breached.length > 0 || weak.length > 0) {
@@ -310,7 +238,7 @@ export const PasswordForm = ({
             // Start breach checking in the background
             if (databasePath) {
                 // Check cache status
-                const { breached, weak, hasCheckedEntries, allEntriesCached } = findBreachedAndWeakEntries(database.root);
+                const { breached, weak, hasCheckedEntries, allEntriesCached } = BreachCheckService.findBreachedAndWeakEntries(database.root);
                 
                 // If we have any cached results with breaches, show them immediately
                 if (breached.length > 0 || weak.length > 0) {
