@@ -1,25 +1,13 @@
-import { Database, Entry, Group } from '../../types/database';
+import { Database } from '../../types/database';
 import { useState } from 'react';
+import { BreachedEntry } from '../../services/BreachCheckService';
 import './BreachReport.css';
-
-type EntryInfo = {
-    entry: Entry;
-    group: Group;
-    count: number;
-    strength?: {
-        score: number;
-        feedback: {
-            warning: string;
-            suggestions: string[];
-        };
-    };
-};
 
 interface BreachReportProps {
     database: Database;
     onClose: () => void;
-    breachedEntries: Array<EntryInfo>;
-    weakEntries: Array<EntryInfo>;
+    breachedEntries: Array<BreachedEntry>;
+    weakEntries: Array<BreachedEntry>;
     isChecking: boolean;
 }
 
@@ -52,7 +40,7 @@ export const BreachReport = ({ breachedEntries, weakEntries, onClose, isChecking
     const hasWeakPasswords = weakEntries.length > 0;
     const hasBreachedPasswords = breachedEntries.length > 0;
 
-    const renderBreachedEntry = ({ entry, group, count }: EntryInfo) => (
+    const renderBreachedEntry = ({ entry, group, count }: BreachedEntry) => (
         <div key={entry.id} className="breached-entry">
             <div className="entry-info">
                 <h3>{entry.title}</h3>
@@ -67,7 +55,7 @@ export const BreachReport = ({ breachedEntries, weakEntries, onClose, isChecking
         </div>
     );
 
-    const renderWeakEntry = ({ entry, group, strength }: EntryInfo) => (
+    const renderWeakEntry = ({ entry, group, strength }: BreachedEntry) => (
         <div key={entry.id} className="breached-entry">
             <div className="entry-info">
                 <h3>{entry.title}</h3>

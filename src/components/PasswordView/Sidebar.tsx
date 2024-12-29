@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Database, Group, Entry } from '../../types/database';
-import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
-import { BreachStatusStore } from '../../services/BreachStatusStore';
+import { BreachCheckService } from '../../services/BreachCheckService';
 
 interface SidebarProps {
 	database: Database;
@@ -45,20 +44,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 			if (path) {
 				const isBreached = await BreachCheckService.checkGroup(path, group);
 				setHasBreachedEntries(isBreached);
-
-				// Check for weak passwords in the group
-				const checkWeakPasswords = (group: Group): boolean => {
-					const hasWeakPassword = group.entries.some(entry => {
-						const status = BreachStatusStore.getEntryStatus(path, entry.id);
-						return status?.strength && status.strength.score < 3;
-					});
-
-					if (hasWeakPassword) return true;
-
-					return group.groups.some(subgroup => checkWeakPasswords(subgroup));
-				};
-
-				setHasWeakPasswords(checkWeakPasswords(group));
+				setHasWeakPasswords(BreachCheckService.hasWeakPasswords(group));
 			}
 		};
 		checkGroupStatus();
