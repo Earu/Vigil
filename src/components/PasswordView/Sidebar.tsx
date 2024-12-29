@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Database, Group, Entry } from '../../types/database';
-import { DatabasePathService } from '../../services/DatabasePathService';
-import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { BreachCheckService } from '../../services/BreachCheckService';
 
 interface SidebarProps {
 	database: Database;
@@ -41,7 +40,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 
 	useEffect(() => {
 		const checkGroupStatus = async () => {
-			const path = DatabasePathService.getPath();
+			const path = KeepassDatabaseService.getPath();
 			if (path) {
 				const isBreached = await BreachCheckService.checkGroup(path, group);
 				setHasBreachedEntries(isBreached);
