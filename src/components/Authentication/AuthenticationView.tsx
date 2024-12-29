@@ -3,6 +3,7 @@ import { DatabaseForm } from './DatabaseForm';
 import { PasswordForm } from './PasswordForm';
 import { Database } from '../../types/database';
 import * as kdbxweb from 'kdbxweb';
+import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import './AuthenticationView.css';
 
 interface AuthenticationViewProps {
@@ -20,36 +21,23 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
 
     useEffect(() => {
         const loadLastDatabase = async () => {
-            if (!window.electron) return;
+            const result = await KeepassDatabaseService.loadLastDatabase();
+            if (result.file) {
+                setSelectedFile(result.file);
+                setDatabasePath(result.databasePath);
+                setInitialBiometricsEnabled(result.biometricsEnabled);
 
-            try {
-                const lastPath = await window.electron.getLastDatabasePath();
-                if (lastPath) {
-                    const result = await window.electron.readFile(lastPath);
-                    if (result.success && result.data) {
-                        setSelectedFile(new File([result.data], lastPath.split('/').pop() || 'database.kdbx'));
-                        setDatabasePath(lastPath);
-
-                        const available = await window.electron.isBiometricsAvailable();
-                        if (available) {
-                            const biometricsResult = await window.electron.hasBiometricsEnabled(lastPath);
-                            if (biometricsResult.success && biometricsResult.enabled) {
-                                setInitialBiometricsEnabled(true);
-                                setTimeout(() => {
-                                    const passwordForm = document.querySelector('.password-form') as HTMLElement;
-                                    if (passwordForm) {
-                                        const biometricButton = passwordForm.querySelector('.biometric-unlock-button') as HTMLElement;
-                                        if (biometricButton) {
-                                            biometricButton.click();
-                                        }
-                                    }
-                                }, 100);
+                if (result.biometricsEnabled) {
+                    setTimeout(() => {
+                        const passwordForm = document.querySelector('.password-form') as HTMLElement;
+                        if (passwordForm) {
+                            const biometricButton = passwordForm.querySelector('.biometric-unlock-button') as HTMLElement;
+                            if (biometricButton) {
+                                biometricButton.click();
                             }
                         }
-                    }
+                    }, 100);
                 }
-            } catch (err) {
-                console.error('Failed to load last database:', err);
             }
         };
 
@@ -80,14 +68,8 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
                 const fullPath = await window.electron.getFilePath(file.name);
                 if (fullPath) {
                     setDatabasePath(fullPath);
-                    // Check biometrics status for dropped file
-                    const available = await window.electron.isBiometricsAvailable();
-                    if (available) {
-                        const biometricsResult = await window.electron.hasBiometricsEnabled(fullPath);
-                        if (biometricsResult.success) {
-                            setInitialBiometricsEnabled(biometricsResult.enabled || false);
-                        }
-                    }
+                    const biometricsEnabled = await KeepassDatabaseService.checkBiometricsForFile(fullPath);
+                    setInitialBiometricsEnabled(biometricsEnabled);
                 }
             }
         }

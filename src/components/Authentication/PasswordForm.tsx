@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
-import { convertKdbxToDatabase } from '../../utils/databaseUtils';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
+import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -92,18 +92,18 @@ export const PasswordForm = ({
                 credentials
             );
 
-            const database = convertKdbxToDatabase(db);
+            const database = KeepassDatabaseService.convertKdbxToDatabase(db);
             DatabasePathService.setPath(databasePath);
             onDatabaseOpen(database, db);
 
             // Check cache status
             const { breached, weak, hasCheckedEntries, allEntriesCached } = BreachCheckService.findBreachedAndWeakEntries(database.root);
-            
+
             // If we have any cached results with breaches, show them immediately
             if (breached.length > 0 || weak.length > 0) {
                 onDatabaseOpen(database, db, true);
             }
-            
+
             // Only run full check if we have entries but not all are cached
             if (hasCheckedEntries && !allEntriesCached) {
                 const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
@@ -232,19 +232,19 @@ export const PasswordForm = ({
                 credentials
             );
 
-            const database = convertKdbxToDatabase(db);
+            const database = KeepassDatabaseService.convertKdbxToDatabase(db);
             onDatabaseOpen(database, db);
 
             // Start breach checking in the background
             if (databasePath) {
                 // Check cache status
                 const { breached, weak, hasCheckedEntries, allEntriesCached } = BreachCheckService.findBreachedAndWeakEntries(database.root);
-                
+
                 // If we have any cached results with breaches, show them immediately
                 if (breached.length > 0 || weak.length > 0) {
                     onDatabaseOpen(database, db, true);
                 }
-                
+
                 // Only run full check if we have entries but not all are cached
                 if (hasCheckedEntries && !allEntriesCached) {
                     const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
@@ -294,7 +294,7 @@ export const PasswordForm = ({
                 throw new Error(result?.error || 'Failed to save database');
             }
 
-            onDatabaseOpen(convertKdbxToDatabase(db), db);
+            onDatabaseOpen(KeepassDatabaseService.convertKdbxToDatabase(db), db);
         } catch (err) {
             console.error('Failed to create database:', err);
             setError(err instanceof Error ? err.message : 'Failed to create database');
