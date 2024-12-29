@@ -41,6 +41,7 @@ function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
+	const [showInitialBreachReport, setShowInitialBreachReport] = useState(false);
 
 	useEffect(() => {
 		const loadArgon2 = async () => {
@@ -49,14 +50,16 @@ function App() {
 		loadArgon2();
 	}, []);
 
-	const handleDatabaseOpen = (database: Database, kdbxDb: kdbxweb.Kdbx) => {
+	const handleDatabaseOpen = (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
 		setDatabase(database);
 		setKdbxDb(kdbxDb);
+		setShowInitialBreachReport(!!showBreachReport);
 	};
 
 	const handleLock = () => {
 		setDatabase(null);
 		setKdbxDb(null);
+		setShowInitialBreachReport(false);
 		DatabasePathService.setPath(undefined);
 	};
 
@@ -181,6 +184,7 @@ function App() {
 					database={database}
 					searchQuery={searchQuery}
 					onDatabaseChange={handleDatabaseChange}
+					showInitialBreachReport={showInitialBreachReport}
 				/>
 				<ToastContainer />
 			</>

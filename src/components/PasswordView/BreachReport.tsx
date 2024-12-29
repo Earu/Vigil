@@ -20,6 +20,7 @@ interface BreachReportProps {
     onClose: () => void;
     breachedEntries: Array<EntryInfo>;
     weakEntries: Array<EntryInfo>;
+    isChecking: boolean;
 }
 
 type TabType = 'breached' | 'weak';
@@ -46,7 +47,7 @@ const getStrengthLabel = (score: number) => {
     }
 };
 
-export const BreachReport = ({ breachedEntries, weakEntries, onClose }: BreachReportProps) => {
+export const BreachReport = ({ breachedEntries, weakEntries, onClose, isChecking }: BreachReportProps) => {
     const [activeTab, setActiveTab] = useState<TabType>('breached');
     const hasWeakPasswords = weakEntries.length > 0;
     const hasBreachedPasswords = breachedEntries.length > 0;
@@ -121,7 +122,26 @@ export const BreachReport = ({ breachedEntries, weakEntries, onClose }: BreachRe
                     </button>
                 </div>
                 <div className="breach-report-content">
-                    {activeTab === 'breached' && hasBreachedPasswords && (
+                    {isChecking && (
+                        <div className="breach-summary">
+                            <div className="breach-count">
+                                <svg
+                                    className="spinner"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                >
+                                    <circle className="spinner-circle" cx="12" cy="12" r="10" />
+                                </svg>
+                            </div>
+                            <p className="breach-warning">
+                                Checking passwords for breaches...
+                            </p>
+                        </div>
+                    )}
+
+                    {!isChecking && activeTab === 'breached' && hasBreachedPasswords && (
                         <>
                             <div className="breach-summary">
                                 <div className="breach-count">
@@ -138,7 +158,7 @@ export const BreachReport = ({ breachedEntries, weakEntries, onClose }: BreachRe
                         </>
                     )}
 
-                    {activeTab === 'weak' && hasWeakPasswords && (
+                    {!isChecking && activeTab === 'weak' && hasWeakPasswords && (
                         <>
                             <div className="weak-passwords-summary">
                                 <div className="weak-count">
@@ -155,7 +175,7 @@ export const BreachReport = ({ breachedEntries, weakEntries, onClose }: BreachRe
                         </>
                     )}
 
-                    {((activeTab === 'breached' && !hasBreachedPasswords) ||
+                    {!isChecking && ((activeTab === 'breached' && !hasBreachedPasswords) ||
                       (activeTab === 'weak' && !hasWeakPasswords)) && (
                         <div className="breach-summary">
                             <p className="breach-warning">
