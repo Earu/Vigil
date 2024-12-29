@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
-import { DatabasePathService } from '../../services/DatabasePathService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 
 interface PasswordFormProps {
@@ -93,7 +92,7 @@ export const PasswordForm = ({
             );
 
             const database = KeepassDatabaseService.convertKdbxToDatabase(db);
-            DatabasePathService.setPath(databasePath);
+            KeepassDatabaseService.setPath(databasePath);
             onDatabaseOpen(database, db);
 
             // Check cache status
@@ -221,7 +220,7 @@ export const PasswordForm = ({
                 }
                 fileBuffer = result.data.buffer;
                 await window.electron.saveLastDatabasePath(databasePath);
-                DatabasePathService.setPath(databasePath);
+                KeepassDatabaseService.setPath(databasePath);
             } else {
                 fileBuffer = await selectedFile.arrayBuffer();
                 credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));

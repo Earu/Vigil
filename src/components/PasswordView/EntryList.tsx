@@ -1,5 +1,4 @@
 import { Entry, Group, Database } from '../../types/database';
-import { DatabasePathService } from '../../services/DatabasePathService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 
@@ -63,7 +62,7 @@ export const EntryList = ({
 	};
 
 	const getEntryStatus = (entry: Entry) => {
-		const path = DatabasePathService.getPath();
+		const path = KeepassDatabaseService.getPath();
 		if (!path) return null;
 		return BreachStatusStore.getEntryStatus(path, entry.id);
 	};

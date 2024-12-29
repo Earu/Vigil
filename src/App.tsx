@@ -7,7 +7,6 @@ import './App.css';
 import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
 import { AuthenticationView } from './components/Authentication/AuthenticationView';
-import { DatabasePathService } from './services/DatabasePathService';
 import { KeepassDatabaseService } from './services/KeepassDatabaseService';
 
 function App() {
@@ -30,7 +29,7 @@ function App() {
 		setDatabase(null);
 		setKdbxDb(null);
 		setShowInitialBreachReport(false);
-		DatabasePathService.setPath(undefined);
+		KeepassDatabaseService.setPath(undefined);
 	};
 
 	const handleDatabaseChange = async (updatedDatabase: Database) => {

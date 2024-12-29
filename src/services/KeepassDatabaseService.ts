@@ -1,7 +1,6 @@
 import * as kdbxweb from 'kdbxweb';
 import { hash } from 'argon2-browser';
 import { Database, Group, Entry } from '../types/database';
-import { DatabasePathService } from './DatabasePathService';
 
 declare var argon2: { hash: typeof hash };
 
@@ -27,6 +26,15 @@ export class KeepassDatabaseService {
     private static readonly CACHE_DURATION = 5000; // 5 seconds cache duration
     private static entriesCache = new Map<string, Cache<Entry[]>>();
     private static groupCache = new Map<string, Cache<Group>>();
+    private static currentPath: string | undefined;
+
+    static setPath(path: string | undefined) {
+        this.currentPath = path;
+    }
+
+    static getPath(): string | undefined {
+        return this.currentPath;
+    }
 
     private static clearCache() {
         this.entriesCache.clear();
@@ -622,7 +630,7 @@ export class KeepassDatabaseService {
             const arrayBuffer = await kdbxDb.save();
 
             let result: SaveResult | undefined;
-            const currentPath = DatabasePathService.getPath();
+            const currentPath = this.getPath();
             if (currentPath) {
                 // If we have a path, save directly to it
                 result = await window.electron?.saveToFile(currentPath, new Uint8Array(arrayBuffer));
@@ -630,14 +638,14 @@ export class KeepassDatabaseService {
                     // If direct save fails, fall back to save dialog
                     result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
                     if (result?.success && result.filePath) {
-                        DatabasePathService.setPath(result.filePath);
+                        this.setPath(result.filePath);
                     }
                 }
             } else {
                 // If no path, use save dialog
                 result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
                 if (result?.success && result.filePath) {
-                    DatabasePathService.setPath(result.filePath);
+                    this.setPath(result.filePath);
                 }
             }
 
