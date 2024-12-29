@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Database, Group, Entry } from '../../types/database';
 import { DatabasePathService } from '../../services/DatabasePathService';
 import { BreachCheckService } from '../../services/BreachCheckService';
+import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 
 interface SidebarProps {
 	database: Database;
@@ -50,7 +51,6 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 		checkGroupStatus();
 	}, [group]);
 
-	// Focus input when editing starts
 	useEffect(() => {
 		if (isEditing && inputRef.current) {
 			inputRef.current.focus();
@@ -75,14 +75,6 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 			setIsEditing(false);
 		}
 		e.stopPropagation();
-	};
-
-	const getAllEntriesCount = (group: Group): number => {
-		let count = group.entries.length;
-		group.groups.forEach(subgroup => {
-			count += getAllEntriesCount(subgroup);
-		});
-		return count;
 	};
 
 	const handleDragStart = (e: React.DragEvent) => {
@@ -113,11 +105,6 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 		setIsDragOver(false);
 	};
 
-	const isGroupInHierarchy = (targetGroup: Group, potentialParent: Group): boolean => {
-		if (targetGroup.id === potentialParent.id) return true;
-		return potentialParent.groups.some(g => isGroupInHierarchy(targetGroup, g));
-	};
-
 	const handleDrop = (e: React.DragEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
@@ -135,23 +122,11 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 					return;
 				}
 
-				// Find the dragged group
-				const findGroup = (searchGroup: Group): Group | null => {
-					if (searchGroup.id === draggedGroupId) {
-						return searchGroup;
-					}
-					for (const subgroup of searchGroup.groups) {
-						const found = findGroup(subgroup);
-						if (found) return found;
-					}
-					return null;
-				};
-
-				const draggedGroup = findGroup(database.root);
+				const draggedGroup = KeepassDatabaseService.findGroupInDatabase(draggedGroupId, database.root);
 				if (!draggedGroup) return;
 
 				// Don't allow dropping on a descendant
-				if (isGroupInHierarchy(group, draggedGroup)) {
+				if (KeepassDatabaseService.isGroupInHierarchy(group, draggedGroup)) {
 					return;
 				}
 
@@ -159,25 +134,8 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 			}
 			// Handle entry drops
 			else if (data.entryId) {
-				const draggedEntryId = data.entryId;
-
-				// Find the dragged entry
-				const findEntry = (searchGroup: Group): [Entry | null, Group | null] => {
-					const entry = searchGroup.entries.find(e => e.id === draggedEntryId);
-					if (entry) return [entry, searchGroup];
-
-					for (const subgroup of searchGroup.groups) {
-						const [found, sourceGroup] = findEntry(subgroup);
-						if (found) return [found, sourceGroup];
-					}
-					return [null, null];
-				};
-
-				const [draggedEntry, sourceGroup] = findEntry(database.root);
-				if (!draggedEntry || !sourceGroup) return;
-
-				// Don't move to the same group
-				if (sourceGroup.id === group.id) return;
+				const [draggedEntry, sourceGroup] = KeepassDatabaseService.findEntry(data.entryId, database.root);
+				if (!draggedEntry || !sourceGroup || sourceGroup.id === group.id) return;
 
 				onMoveEntry?.(draggedEntry, group);
 			}
@@ -278,7 +236,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 						</span>
 					)}
 					<span className="entry-count">
-						{getAllEntriesCount(group)}
+						{KeepassDatabaseService.countEntriesInGroup(group)}
 					</span>
 					<div className="group-actions" onClick={(e) => e.stopPropagation()}>
 						<button

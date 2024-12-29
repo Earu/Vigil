@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { Entry } from '../../types/database';
-import * as kdbxweb from 'kdbxweb';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
+import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
 
@@ -86,27 +86,9 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const timerRef = useRef<NodeJS.Timeout>();
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
-			return {
-				id: '',
-				title: '',
-				username: '',
-				password: '',
-				url: '',
-				notes: '',
-				created: new Date(),
-				modified: new Date(),
-			};
+			return KeepassDatabaseService.createNewEntry();
 		}
-		return entry || {
-			id: '',
-			title: '',
-			username: '',
-			password: '',
-			url: '',
-			notes: '',
-			created: new Date(),
-			modified: new Date(),
-		};
+		return entry || KeepassDatabaseService.createNewEntry();
 	});
 
 	useEffect(() => {
@@ -120,42 +102,29 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 				setBreachStatus(status);
 
 				// Check password strength
-				const password = typeof entry.password === 'string' ? entry.password : entry.password.getText();
+				const password = KeepassDatabaseService.getPasswordString(entry.password);
 				HaveIBeenPwnedService.checkPassword(password).then(result => {
 					setPasswordStrength(result.strength);
 				});
 			}
 		} else if (isNew) {
-			// Reset the edited entry when creating a new one
-			setEditedEntry({
-				id: '',
-				title: '',
-				username: '',
-				password: '',
-				url: '',
-				notes: '',
-				created: new Date(),
-				modified: new Date(),
-			});
+			setEditedEntry(KeepassDatabaseService.createNewEntry());
 			setIsEditing(true);
 			setBreachStatus(null);
 			setPasswordStrength(null);
 		}
 	}, [entry, isNew]);
 
-	// Add keyboard shortcut handler
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
-			// Only handle shortcuts when not in editing mode
 			if (isEditing || isNew) return;
 
-			// Check for Ctrl/Cmd key
 			const isCmdOrCtrl = e.metaKey || e.ctrlKey;
 			if (!isCmdOrCtrl) return;
 
 			if (e.key === 'c') {
-				e.preventDefault(); // Prevent default copy behavior
-				copyToClipboard(getPasswordString(), 'Password');
+				e.preventDefault();
+				copyToClipboard(KeepassDatabaseService.getPasswordString(editedEntry.password), 'Password');
 			} else if (e.key === 'b') {
 				e.preventDefault();
 				copyToClipboard(editedEntry.username, 'Username');
@@ -166,7 +135,6 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		return () => window.removeEventListener('keydown', handleKeyDown);
 	}, [isEditing, isNew, editedEntry]);
 
-	// Timer cleanup effect
 	useEffect(() => {
 		return () => {
 			if (timerRef.current) {
@@ -175,7 +143,6 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		};
 	}, []);
 
-	// Timer countdown effect
 	useEffect(() => {
 		if (clipboardTimer > 0) {
 			const interval = setInterval(() => {
@@ -183,7 +150,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					if (prev <= 1) {
 						clearInterval(interval);
 						window.electron?.clearClipboard().catch(console.error);
-						setCopiedField(''); // Clear the copied field indicator
+						setCopiedField('');
 						return 0;
 					}
 					return prev - 1;
@@ -197,8 +164,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const copyToClipboard = async (text: string, field: string) => {
 		try {
 			await navigator.clipboard.writeText(text);
-			setClipboardTimer(20); // Reset timer to 20 seconds
-			setCopiedField(field); // Set which field was copied
+			setClipboardTimer(20);
+			setCopiedField(field);
 			(window as any).showToast?.({
 				message: `${field} copied to clipboard`,
 				type: 'success'
@@ -241,14 +208,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	);
 
 	const handleSave = () => {
-		const updatedEntry = {
-			...editedEntry,
-			modified: new Date(),
-			// Convert password to ProtectedValue if it's a string
-			password: typeof editedEntry.password === 'string'
-				? kdbxweb.ProtectedValue.fromString(editedEntry.password)
-				: editedEntry.password
-		};
+		const updatedEntry = KeepassDatabaseService.prepareEntryForSave(editedEntry);
 		onSave(updatedEntry);
 		setIsEditing(false);
 	};
@@ -257,20 +217,11 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		if (isNew) {
 			onClose();
 		} else {
-			setEditedEntry(entry || editedEntry);
+			setEditedEntry(entry || KeepassDatabaseService.createNewEntry());
 			setIsEditing(false);
 		}
 	};
 
-	// Get the password string value for display/editing
-	const getPasswordString = () => {
-		if (typeof editedEntry.password === 'string') {
-			return editedEntry.password;
-		}
-		return editedEntry.password.getText();
-	};
-
-	// Handle password changes
 	const handlePasswordChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const newPassword = e.target.value;
 		setEditedEntry({
@@ -278,7 +229,6 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 			password: newPassword
 		});
 
-		// Check password strength
 		const result = await HaveIBeenPwnedService.checkPassword(newPassword);
 		setPasswordStrength(result.strength);
 	};
@@ -377,9 +327,9 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							type="text"
 							value={editedEntry.title}
 							onChange={(e) => setEditedEntry({ ...editedEntry, title: e.target.value })}
-								className="field-value"
-								readOnly={!isEditing}
-								placeholder="Enter title"
+							className="field-value"
+							readOnly={!isEditing}
+							placeholder="Enter title"
 						/>
 						{!isEditing && editedEntry.title && renderCopyButton(
 							() => copyToClipboard(editedEntry.title, 'Title'),
@@ -413,7 +363,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					<div className="field-value-container">
 						<input
 							type={showPassword ? 'text' : 'password'}
-							value={getPasswordString()}
+							value={KeepassDatabaseService.getPasswordString(editedEntry.password)}
 							onChange={handlePasswordChange}
 							className="field-value monospace"
 							readOnly={!isEditing}
@@ -471,7 +421,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							</button>
 						)}
 						{!isEditing && editedEntry.password && renderCopyButton(
-							() => copyToClipboard(getPasswordString(), 'Password'),
+							() => copyToClipboard(KeepassDatabaseService.getPasswordString(editedEntry.password), 'Password'),
 							'Copy password',
 							'Password'
 						)}
@@ -507,7 +457,6 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 									href={editedEntry.url}
 									target="_blank"
 									rel="noopener noreferrer"
-
 									className="open-button"
 									title="Open URL"
 								>
@@ -578,13 +527,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 								password
 							});
 							setShowPassword(true);
-							// Check strength of generated password
 							HaveIBeenPwnedService.checkPassword(password.getText()).then(result => {
 								setPasswordStrength(result.strength);
 							});
 							setShowPasswordGenerator(false);
 						}}
-						currentPassword={getPasswordString()}
+						currentPassword={KeepassDatabaseService.getPasswordString(editedEntry.password)}
 					/>
 				)}
 			</div>
