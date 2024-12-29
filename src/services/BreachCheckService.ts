@@ -2,7 +2,7 @@ import { HaveIBeenPwnedService } from './HaveIBeenPwnedService';
 import { Entry, Group } from '../types/database';
 import { BreachStatusStore } from './BreachStatusStore';
 import * as kdbxweb from 'kdbxweb';
-import { DatabasePathService } from '../services/DatabasePathService';
+import { KeepassDatabaseService } from './KeepassDatabaseService';
 
 export interface PasswordStatus {
     isPwned: boolean;
@@ -214,12 +214,12 @@ export class BreachCheckService {
      * @returns Object containing breached and weak entries, along with cache status
      */
     public static findBreachedAndWeakEntries(group: Group, parentGroup: Group = group): BreachCheckResult {
-        const databasePath = DatabasePathService.getPath();
-        if (!databasePath) return { 
-            breached: [], 
-            weak: [], 
+        const databasePath = KeepassDatabaseService.getPath();
+        if (!databasePath) return {
+            breached: [],
+            weak: [],
             hasCheckedEntries: false,
-            allEntriesCached: false 
+            allEntriesCached: false
         };
 
         const breached: BreachedEntry[] = [];
@@ -231,7 +231,7 @@ export class BreachCheckService {
         group.entries.forEach(entry => {
             const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
             hasCheckedEntries = true;
-            
+
             if (status === null) {
                 allEntriesCached = false;
                 return;
@@ -262,9 +262,9 @@ export class BreachCheckService {
             allEntriesCached = allEntriesCached && subResults.allEntriesCached;
         });
 
-        return { 
-            breached, 
-            weak, 
+        return {
+            breached,
+            weak,
             hasCheckedEntries,
             allEntriesCached
         };
@@ -276,7 +276,7 @@ export class BreachCheckService {
      * @returns boolean indicating if the group has any weak passwords
      */
     public static hasWeakPasswords(group: Group): boolean {
-        const databasePath = DatabasePathService.getPath();
+        const databasePath = KeepassDatabaseService.getPath();
         if (!databasePath) return false;
 
         const hasWeakPassword = group.entries.some(entry => {

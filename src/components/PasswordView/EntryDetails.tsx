@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Entry } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
-import { DatabasePathService } from '../../services/DatabasePathService';
-import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
 
@@ -96,7 +95,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 			setEditedEntry(entry);
 			setIsEditing(false);
 			// Check breach status when entry changes
-			const databasePath = DatabasePathService.getPath();
+			const databasePath = KeepassDatabaseService.getPath();
 			if (databasePath) {
 				const status = BreachCheckService.getEntryBreachStatus(databasePath, entry.id);
 				setBreachStatus(status);
