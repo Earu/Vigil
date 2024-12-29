@@ -4,7 +4,6 @@ import { Sidebar } from './Sidebar';
 import { EntryList } from './EntryList';
 import { EntryDetails } from './EntryDetails';
 import { BreachReport } from './BreachReport';
-import { BreachCheckService } from '../../services/BreachCheckService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { DatabasePathService } from '../../services/DatabasePathService';
 import './PasswordView.css';
@@ -27,6 +26,7 @@ interface PasswordViewProps {
 	database: Database;
 	searchQuery: string;
 	onDatabaseChange?: (database: Database) => void;
+	showInitialBreachReport?: boolean;
 }
 
 interface BreachedEntry {
@@ -42,17 +42,26 @@ interface BreachedEntry {
 	};
 }
 
-export const PasswordView = ({ database, searchQuery, onDatabaseChange }: PasswordViewProps) => {
+export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport }: PasswordViewProps) => {
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
 	const [breachedEntries, setBreachedEntries] = useState<BreachedEntry[]>([]);
 	const [weakEntries, setWeakEntries] = useState<BreachedEntry[]>([]);
+	const [showBreachReport, setShowBreachReport] = useState(false);
 	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
 	const [sidebarWidth, setSidebarWidth] = useState(400);
 	const [detailsWidth, setDetailsWidth] = useState(400);
 	const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
+
+	// Update showBreachReport when showInitialBreachReport changes
+	useEffect(() => {
+		if (showInitialBreachReport) {
+			setShowBreachReport(true);
+			setIsCheckingBreaches(true);
+		}
+	}, [showInitialBreachReport]);
 
 	// Check for breaches and weak passwords when database changes
 	useEffect(() => {
@@ -92,21 +101,20 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 			return { breached, weak };
 		};
 
-		const checkBreaches = async () => {
-			setIsCheckingBreaches(true);
-			const databasePath = DatabasePathService.getPath();
-			if (databasePath) {
-				// Wait for breach checks to complete
-				await BreachCheckService.checkGroup(databasePath, database.root);
-				const { breached, weak } = findBreachedAndWeakEntries(database.root);
-				setBreachedEntries(breached);
-				setWeakEntries(weak);
+		// Only update the UI with existing breach status, don't run new checks
+		const updateBreachStatus = () => {
+			const { breached, weak } = findBreachedAndWeakEntries(database.root);
+			setBreachedEntries(breached);
+			setWeakEntries(weak);
+			
+			// If we were checking breaches and now have results, stop checking
+			if (isCheckingBreaches && (breached.length > 0 || weak.length > 0)) {
+				setIsCheckingBreaches(false);
 			}
-			setIsCheckingBreaches(false);
 		};
 
-		checkBreaches();
-	}, [database]);
+		updateBreachStatus();
+	}, [database, isCheckingBreaches]);
 
 	// Update selected group when database changes
 	useEffect(() => {
@@ -501,14 +509,17 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange }: Passwo
 					/>
 				)}
 			</div>
-			{!isCheckingBreaches && breachedEntries.length > 0 && (
+			{(showBreachReport && (breachedEntries.length > 0 || isCheckingBreaches)) && (
 				<BreachReport
 					database={database}
 					breachedEntries={breachedEntries}
 					weakEntries={weakEntries}
+					isChecking={isCheckingBreaches}
 					onClose={() => {
+						setShowBreachReport(false);
 						setBreachedEntries([]);
 						setWeakEntries([]);
+						setIsCheckingBreaches(false);
 					}}
 				/>
 			)}
