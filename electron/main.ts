@@ -123,21 +123,37 @@ function createWindow() {
 		}
 	});
 
-	ipcMain.handle('minimize-window', () => {
-		win.minimize();
-	})
+	// Register window-specific IPC handlers
+	type WindowHandler = [string, (...args: any[]) => any];
+	const windowHandlers: WindowHandler[] = [
+		['minimize-window', () => win.minimize()],
+		['maximize-window', () => {
+			if (win.isMaximized()) {
+				win.unmaximize();
+			} else {
+				win.maximize();
+			}
+		}],
+		['close-window', () => win.close()]
+	];
 
-	ipcMain.handle('maximize-window', () => {
-		if (win.isMaximized()) {
-			win.unmaximize();
-		} else {
-			win.maximize();
-		}
-	})
+	// Register each handler and store their removal functions
+	const removeHandlers = windowHandlers.map(([channel, handler]) => {
+		ipcMain.handle(channel, handler);
+		return () => {
+			try {
+				ipcMain.removeHandler(channel);
+			} catch (error) {
+				// Handler might already be removed
+				console.log(`Handler ${channel} already removed`);
+			}
+		};
+	});
 
-	ipcMain.handle('close-window', () => {
-		win.close();
-	})
+	win.on('closed', () => {
+		// Clean up handlers when window is closed
+		removeHandlers.forEach(remove => remove());
+	});
 
 	win.on('maximize', () => {
 		win.webContents.send('window-maximized', true)
