@@ -17,7 +17,43 @@ interface LoadLastDatabaseResult {
     biometricsEnabled: boolean;
 }
 
+// Cache interface for memoization
+interface Cache<T> {
+    value: T;
+    timestamp: number;
+}
+
 export class KeepassDatabaseService {
+    private static readonly CACHE_DURATION = 5000; // 5 seconds cache duration
+    private static entriesCache = new Map<string, Cache<Entry[]>>();
+    private static groupCache = new Map<string, Cache<Group>>();
+
+    private static clearCache() {
+        this.entriesCache.clear();
+        this.groupCache.clear();
+    }
+
+    private static getCacheKey(group: Group, searchQuery: string = ''): string {
+        return `${group.id}_${searchQuery}`;
+    }
+
+    private static getFromCache<T>(cache: Map<string, Cache<T>>, key: string): T | null {
+        const cached = cache.get(key);
+        if (!cached) return null;
+
+        const now = Date.now();
+        if (now - cached.timestamp > this.CACHE_DURATION) {
+            cache.delete(key);
+            return null;
+        }
+
+        return cached.value;
+    }
+
+    private static setCache<T>(cache: Map<string, Cache<T>>, key: string, value: T) {
+        cache.set(key, { value, timestamp: Date.now() });
+    }
+
     static convertKdbxToDatabase(kdbxDb: kdbxweb.Kdbx): Database {
         const convertGroup = (group: kdbxweb.KdbxGroup): Group => {
             return {
@@ -83,23 +119,35 @@ export class KeepassDatabaseService {
     }
 
     static getAllEntriesFromGroup(group: Group): Entry[] {
+        const cacheKey = this.getCacheKey(group);
+        const cached = this.getFromCache(this.entriesCache, cacheKey);
+        if (cached) return cached;
+
         let entries = [...group.entries];
         group.groups.forEach(subgroup => {
             entries = entries.concat(this.getAllEntriesFromGroup(subgroup));
         });
+
+        this.setCache(this.entriesCache, cacheKey, entries);
         return entries;
     }
 
     static filterEntries(entries: Entry[], searchQuery: string): Entry[] {
         if (!searchQuery) return entries;
 
-        const searchLower = searchQuery.toLowerCase();
-        return entries.filter(entry =>
-            entry.title.toLowerCase().includes(searchLower) ||
-            entry.username.toLowerCase().includes(searchLower) ||
-            (entry.url?.toLowerCase().includes(searchLower)) ||
-            (entry.notes?.toLowerCase().includes(searchLower))
-        );
+        const searchTerms = searchQuery.toLowerCase().split(' ').filter(Boolean);
+        if (searchTerms.length === 0) return entries;
+
+        return entries.filter(entry => {
+            const searchableText = [
+                entry.title,
+                entry.username,
+                entry.url,
+                entry.notes
+            ].filter(Boolean).join(' ').toLowerCase();
+
+            return searchTerms.every(term => searchableText.includes(term));
+        });
     }
 
     static sortEntriesByTitle(entries: Entry[]): Entry[] {
@@ -109,12 +157,19 @@ export class KeepassDatabaseService {
     }
 
     static getEntriesForDisplay(group: Group, database: Database | undefined, searchQuery: string): Entry[] {
+        const cacheKey = this.getCacheKey(group, searchQuery);
+        const cached = this.getFromCache(this.entriesCache, cacheKey);
+        if (cached) return cached;
+
         const baseEntries = group === database?.root || searchQuery
             ? this.getAllEntriesFromGroup(group)
             : this.getAllEntriesFromGroup(group);
 
         const filteredEntries = this.filterEntries(baseEntries, searchQuery);
-        return this.sortEntriesByTitle(filteredEntries);
+        const sortedEntries = this.sortEntriesByTitle(filteredEntries);
+
+        this.setCache(this.entriesCache, cacheKey, sortedEntries);
+        return sortedEntries;
     }
 
     static getUrlHostname(url: string): string {
@@ -130,22 +185,35 @@ export class KeepassDatabaseService {
         if (obj === null || typeof obj !== 'object') return obj;
         if (obj instanceof Date) return new Date(obj);
         if (obj instanceof kdbxweb.ProtectedValue) return obj;
-
-        const copy: any = Array.isArray(obj) ? [] : {};
-        for (const key in obj) {
-            copy[key] = this.deepCopyWithDates(obj[key]);
+        if (Array.isArray(obj)) {
+            return obj.map(item => this.deepCopyWithDates(item));
         }
+
+        const copy: any = {};
+        Object.entries(obj).forEach(([key, value]) => {
+            copy[key] = this.deepCopyWithDates(value);
+        });
         return copy;
     }
 
     static findGroupInDatabase(groupId: string, root: Group): Group | null {
+        const cacheKey = `find_${groupId}`;
+        const cached = this.getFromCache(this.groupCache, cacheKey);
+        if (cached) return cached;
+
         if (root.id === groupId) {
+            this.setCache(this.groupCache, cacheKey, root);
             return root;
         }
+
         for (const subgroup of root.groups) {
             const found = this.findGroupInDatabase(groupId, subgroup);
-            if (found) return found;
+            if (found) {
+                this.setCache(this.groupCache, cacheKey, found);
+                return found;
+            }
         }
+
         return null;
     }
 
@@ -322,6 +390,7 @@ export class KeepassDatabaseService {
             }
         }
 
+        this.clearCache();
         return updatedDatabase;
     }
 
@@ -340,6 +409,7 @@ export class KeepassDatabaseService {
         };
 
         removeEntryFromGroup(updatedDatabase.root);
+        this.clearCache();
         return updatedDatabase;
     }
 
@@ -381,6 +451,7 @@ export class KeepassDatabaseService {
             target.entries.push(entryToMove);
         }
 
+        this.clearCache();
         return updatedDatabase;
     }
 
@@ -472,22 +543,32 @@ export class KeepassDatabaseService {
         // Update group name
         kdbxGroup.name = group.name;
 
-        // Clear existing entries
-        while (kdbxGroup.entries.length > 0) {
-            kdbxGroup.entries.pop();
-        }
+        // Create a map of existing entries for faster lookup
+        const existingEntries = new Map(
+            kdbxGroup.entries.map(entry => [entry.uuid.toString(), entry])
+        );
 
-        // Add updated entries
+        // Process all entries in one pass
+        const updatedEntries: kdbxweb.KdbxEntry[] = [];
         group.entries.forEach((entry: Entry) => {
-            const kdbxEntry = kdbxDb.createEntry(kdbxGroup);
-            // If this is an existing entry, preserve its UUID
+            let kdbxEntry: kdbxweb.KdbxEntry;
+
             if (entry.id && entry.id.length === 32) {
-                const uuidBytes = new Uint8Array(16);
-                for (let i = 0; i < 16; i++) {
-                    uuidBytes[i] = parseInt(entry.id.substr(i * 2, 2), 16);
+                // Reuse existing entry if available
+                kdbxEntry = existingEntries.get(entry.id) || kdbxDb.createEntry(kdbxGroup);
+                if (!existingEntries.has(entry.id)) {
+                    // Set UUID for new entry
+                    const uuidBytes = new Uint8Array(16);
+                    for (let i = 0; i < 16; i++) {
+                        uuidBytes[i] = parseInt(entry.id.substr(i * 2, 2), 16);
+                    }
+                    kdbxEntry.uuid = new kdbxweb.KdbxUuid(uuidBytes);
                 }
-                kdbxEntry.uuid = new kdbxweb.KdbxUuid(uuidBytes);
+            } else {
+                kdbxEntry = kdbxDb.createEntry(kdbxGroup);
             }
+
+            // Update entry fields
             kdbxEntry.fields.set('Title', entry.title);
             kdbxEntry.fields.set('UserName', entry.username);
             kdbxEntry.fields.set('Password', typeof entry.password === 'string'
@@ -498,26 +579,32 @@ export class KeepassDatabaseService {
             if (entry.notes) kdbxEntry.fields.set('Notes', entry.notes);
             kdbxEntry.times.creationTime = entry.created;
             kdbxEntry.times.lastModTime = entry.modified;
+
+            updatedEntries.push(kdbxEntry);
         });
 
-        // Handle subgroups
-        // First, remove groups that no longer exist
-        const groupIds = new Set(group.groups.map(g => g.id));
-        kdbxGroup.groups = kdbxGroup.groups.filter(kg =>
-            groupIds.has(kg.uuid.toString())
+        // Replace all entries at once
+        kdbxGroup.entries = updatedEntries;
+
+        // Create a map of existing groups for faster lookup
+        const existingGroups = new Map(
+            kdbxGroup.groups.map(g => [g.uuid.toString(), g])
         );
 
-        // Then update or create groups
+        // Process all groups in one pass
+        const updatedGroups: kdbxweb.KdbxGroup[] = [];
         group.groups.forEach((subgroup: Group) => {
-            let kdbxSubgroup = kdbxGroup.groups.find(kg => kg.uuid.toString() === subgroup.id);
+            let kdbxSubgroup = existingGroups.get(subgroup.id);
             if (!kdbxSubgroup) {
                 kdbxSubgroup = kdbxDb.createGroup(kdbxGroup, subgroup.name);
-                // For new groups, we'll let KdbxWeb generate the UUID
-                // and update our group object to match
                 subgroup.id = kdbxSubgroup.uuid.toString();
             }
             this.updateGroup(subgroup, kdbxSubgroup, kdbxDb);
+            updatedGroups.push(kdbxSubgroup);
         });
+
+        // Replace all groups at once
+        kdbxGroup.groups = updatedGroups;
     }
 
     static async saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
@@ -563,6 +650,8 @@ export class KeepassDatabaseService {
                 message: 'Database saved successfully',
                 type: 'success'
             });
+
+            this.clearCache();
         } catch (err) {
             console.error('Failed to save database:', err);
             // Show error toast
@@ -570,7 +659,28 @@ export class KeepassDatabaseService {
                 message: 'Failed to save database',
                 type: 'error'
             });
+            this.clearCache();
             throw err;
         }
+    }
+
+    // Add batch processing for multiple entries
+    static saveEntries(database: Database, entries: Entry[], selectedGroup: Group): Database {
+        const updatedDatabase: Database = this.deepCopyWithDates(database);
+        const targetGroup = this.findGroupInDatabase(selectedGroup.id, updatedDatabase.root) || updatedDatabase.root;
+
+        // Process all entries in a single batch
+        const existingEntries = new Set(targetGroup.entries.map(e => e.id));
+        entries.forEach(entry => {
+            if (existingEntries.has(entry.id)) {
+                const index = targetGroup.entries.findIndex(e => e.id === entry.id);
+                targetGroup.entries[index] = entry;
+            } else {
+                targetGroup.entries.push(entry);
+            }
+        });
+
+        this.clearCache();
+        return updatedDatabase;
     }
 }
