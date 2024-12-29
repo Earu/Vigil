@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { DatabaseForm } from './DatabaseForm';
 import { PasswordForm } from './PasswordForm';
+import { Database } from '../../types/database';
+import * as kdbxweb from 'kdbxweb';
 import './AuthenticationView.css';
 
 interface AuthenticationViewProps {
-    onDatabaseOpen: (database: any, kdbxDb: any) => void;
+    onDatabaseOpen: (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => void;
 }
 
 export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) => {

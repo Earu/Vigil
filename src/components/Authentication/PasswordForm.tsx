@@ -1,9 +1,81 @@
-import { useState, useEffect, RefObject } from 'react';
+import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
-import { Database } from '../../types/database';
+import { Database, Entry, Group } from '../../types/database';
 import { convertKdbxToDatabase } from '../../utils/databaseUtils';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { DatabasePathService } from '../../services/DatabasePathService';
+import { BreachStatusStore } from '../../services/BreachStatusStore';
+
+interface BreachedEntry {
+    entry: Entry;
+    group: Group;
+    count: number;
+    strength?: {
+        score: number;
+        feedback: {
+            warning: string;
+            suggestions: string[];
+        };
+    };
+}
+
+// Helper function to find breached and weak entries from cache
+const findBreachedAndWeakEntries = (group: Group, parentGroup: Group = group) => {
+    const databasePath = DatabasePathService.getPath();
+    if (!databasePath) return { 
+        breached: [], 
+        weak: [], 
+        hasCheckedEntries: false,
+        allEntriesCached: false 
+    };
+
+    const breached: BreachedEntry[] = [];
+    const weak: BreachedEntry[] = [];
+    let hasCheckedEntries = false;
+    let allEntriesCached = true;
+
+    // Check entries in current group
+    group.entries.forEach(entry => {
+        const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+        hasCheckedEntries = true;
+        
+        if (status === null) {
+            allEntriesCached = false;
+            return;
+        }
+
+        const entryInfo = {
+            entry,
+            group: parentGroup,
+            count: status.count,
+            strength: status.strength
+        };
+
+        if (status.isPwned) {
+            breached.push(entryInfo);
+        }
+
+        if (status.strength && status.strength.score < 3) {
+            weak.push(entryInfo);
+        }
+    });
+
+    // Check subgroups
+    group.groups.forEach(subgroup => {
+        const subResults = findBreachedAndWeakEntries(subgroup, subgroup);
+        breached.push(...subResults.breached);
+        weak.push(...subResults.weak);
+        hasCheckedEntries = hasCheckedEntries || subResults.hasCheckedEntries;
+        allEntriesCached = allEntriesCached && subResults.allEntriesCached;
+    });
+
+    return { 
+        breached, 
+        weak, 
+        hasCheckedEntries,
+        allEntriesCached
+    };
+};
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -12,8 +84,8 @@ interface PasswordFormProps {
     error: string | null;
     setError: (error: string | null) => void;
     setSelectedFile: (file: File | null) => void;
-    onDatabaseOpen: (database: Database, kdbxDb: kdbxweb.Kdbx) => void;
-    passwordInputRef: RefObject<HTMLInputElement>;
+    onDatabaseOpen: (database: Database, db: kdbxweb.Kdbx, showBreachReport?: boolean) => void;
+    passwordInputRef: React.RefObject<HTMLInputElement>;
     setIsCreatingNew: (isCreating: boolean) => void;
     initialBiometricsEnabled: boolean;
 }
@@ -63,7 +135,7 @@ export const PasswordForm = ({
         if (!selectedFile || !databasePath || !window.electron || !isBiometricsEnabled) return;
 
         setIsLoading(true);
-        setError(null);
+        setError('');
 
         try {
             const biometricResult = await window.electron.getBiometricPassword(databasePath);
@@ -96,14 +168,25 @@ export const PasswordForm = ({
             DatabasePathService.setPath(databasePath);
             onDatabaseOpen(database, db);
 
-            // Start breach checking in the background
-            const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
-            if (hasBreaches) {
-                (window as any).showToast?.({
-                    message: 'Some passwords in this database were found in data breaches',
-                    type: 'warning',
-                    duration: 10000
-                });
+            // Check cache status
+            const { breached, weak, hasCheckedEntries, allEntriesCached } = findBreachedAndWeakEntries(database.root);
+            
+            // If we have any cached results with breaches, show them immediately
+            if (breached.length > 0 || weak.length > 0) {
+                onDatabaseOpen(database, db, true);
+            }
+            
+            // Only run full check if we have entries but not all are cached
+            if (hasCheckedEntries && !allEntriesCached) {
+                const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
+                if (hasBreaches) {
+                    (window as any).showToast?.({
+                        message: 'Some passwords in this database were found in data breaches',
+                        type: 'warning',
+                        duration: 10000
+                    });
+                    onDatabaseOpen(database, db, true);
+                }
             }
 
             await window.electron.saveLastDatabasePath(databasePath);
@@ -186,7 +269,7 @@ export const PasswordForm = ({
         if (!selectedFile) return;
 
         setIsLoading(true);
-        setError(null);
+        setError('');
 
         try {
             let fileBuffer: ArrayBuffer;
@@ -226,13 +309,25 @@ export const PasswordForm = ({
 
             // Start breach checking in the background
             if (databasePath) {
-                const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
-                if (hasBreaches) {
-                    (window as any).showToast?.({
-                        message: 'Some passwords in this database were found in data breaches',
-                        type: 'warning',
-                        duration: 10000
-                    });
+                // Check cache status
+                const { breached, weak, hasCheckedEntries, allEntriesCached } = findBreachedAndWeakEntries(database.root);
+                
+                // If we have any cached results with breaches, show them immediately
+                if (breached.length > 0 || weak.length > 0) {
+                    onDatabaseOpen(database, db, true);
+                }
+                
+                // Only run full check if we have entries but not all are cached
+                if (hasCheckedEntries && !allEntriesCached) {
+                    const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
+                    if (hasBreaches) {
+                        (window as any).showToast?.({
+                            message: 'Some passwords in this database were found in data breaches',
+                            type: 'warning',
+                            duration: 10000
+                        });
+                        onDatabaseOpen(database, db, true);
+                    }
                 }
             }
         } catch (err) {
@@ -258,7 +353,7 @@ export const PasswordForm = ({
         }
 
         setIsLoading(true);
-        setError(null);
+        setError('');
 
         try {
             const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
@@ -299,7 +394,7 @@ export const PasswordForm = ({
                         className="clear-file"
                         onClick={() => {
                             setSelectedFile(null);
-                            setError(null);
+                            setError('');
                         }}
                         title="Clear selection"
                     >
@@ -471,7 +566,7 @@ export const PasswordForm = ({
                                     setPassword('');
                                     setConfirmPassword('');
                                     setDatabaseName('New Database');
-                                    setError(null);
+                                    setError('');
                                 }}
                             >
                                 Cancel
