@@ -2,7 +2,10 @@ import { familySync, GLIBC } from 'detect-libc';
 import fs from 'fs';
 import path from 'path';
 
-const modulesToCopy = ['keytar', '@node-rs/argon2', 'passport-desktop'];
+const modulesToCopy = ['keytar', '@node-rs/argon2'];
+if (process.platform === 'win32') {
+    modulesToCopy.push('passport-desktop');
+}
 
 // Get the platform-specific path for node native modules
 function getModulePath(moduleName) {
