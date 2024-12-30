@@ -60,7 +60,9 @@
 			"icon": "build/icons/icon.icns",
 			"hardenedRuntime": false,
 			"gatekeeperAssess": false,
-			"identity": null
+			"identity": null,
+			"asarUnpack": ["**/*.node"],
+			"artifactName": "${productName}-${version}-${arch}.${ext}"
 		},
 		"linux": {
 			"target": "AppImage",
