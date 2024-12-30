@@ -383,7 +383,7 @@ export const PasswordForm = ({
                             }}
                         >
                             <BiometricAuthIcon className="auth-icon" />
-                            {navigator.userAgent.includes('Mac') ? 'Touch ID' : 'Windows Hello'}
+                            {navigator.userAgent.includes('Mac') ? 'Touch ID' : (navigator.userAgent.includes('Windows') ? 'Windows Hello' : 'Biometrics')}
                         </button>
                     </div>
 
@@ -394,7 +394,7 @@ export const PasswordForm = ({
                             disabled={isLoading}
                         >
                             <BiometricAuthIcon className="biometric-icon" />
-                            {navigator.userAgent.includes('Mac') ? 'Unlock with Touch ID' : 'Unlock with Windows Hello'}
+                            {navigator.userAgent.includes('Mac') ? 'Unlock with Touch ID' : (navigator.userAgent.includes('Windows') ? 'Unlock with Windows Hello' : 'Unlock with Biometrics')}
                         </button>
                     )}
                 </>
