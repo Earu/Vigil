@@ -47,10 +47,6 @@ jobs:
 
     - name: Build Electron app
       run: |
-        mkdir -p build/icons
-        if [ "$RUNNER_OS" == "macOS" ]; then
-          cp build/icons/icon.icns dist/icon.icns || true
-        fi
         npm run electron:build
       env:
         NODE_ENV: production
