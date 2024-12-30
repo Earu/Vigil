@@ -2,7 +2,7 @@ import { familySync, GLIBC } from 'detect-libc';
 import fs from 'fs';
 import path from 'path';
 
-const modulesToCopy = ['keytar', '@node-rs/argon2'];
+const modulesToCopy = ['keytar', '@node-rs/argon2', 'passport-desktop'];
 
 // Get the platform-specific path for node native modules
 function getModulePath(moduleName) {
@@ -16,13 +16,25 @@ function getModulePath(moduleName) {
 
         // Linux has two mainstream libcs for some odd reason
         // Too bad!
-        if (platform === "linux") 
+        if (platform === "linux")
             variant = familySync() === GLIBC ? "-gnu" : "-musl";
-        else 
+        else
             variant = platform === 'win32' ? '-msvc' : '';
 
         const nativeModuleName = `argon2-${platform}-${arch}${variant}`;
         const nativeModulePath = path.join(process.cwd(), 'node_modules', '@node-rs', nativeModuleName);
+        const files = fs.readdirSync(nativeModulePath);
+        const nativeFile = files.find(file => file.endsWith('.node'));
+        return path.join(nativeModulePath, nativeFile);
+    }
+
+    // Special handling for passport-desktop
+    if (moduleName === 'passport-desktop') {
+        const platform = process.platform;
+        const arch = process.arch;
+        const variant = platform === 'win32' ? '-msvc' : '';
+        const nativeModuleName = `passport-desktop-${platform}-${arch}${variant}`;
+        const nativeModulePath = path.join(process.cwd(), 'node_modules', nativeModuleName);
         const files = fs.readdirSync(nativeModulePath);
         const nativeFile = files.find(file => file.endsWith('.node'));
         return path.join(nativeModulePath, nativeFile);
@@ -52,33 +64,4 @@ for (const module of modulesToCopy) {
         console.error(`Failed to copy ${module}:`, err);
         process.exit(1);
     }
-}
-
-// Copy Windows Hello files if on Windows
-if (process.platform === 'win32') {
-    // Create windows_hello directory
-    const windowsHelloDir = path.join(destDir, 'windows_hello')
-    if (!fs.existsSync(windowsHelloDir)) {
-        fs.mkdirSync(windowsHelloDir, { recursive: true });
-    }
-
-    // Copy Windows Hello files
-    const windowsHelloSrcDir = path.join(process.cwd(), 'native', 'windows_hello')
-    const files = [
-        ['build/Release/windows_hello.node', 'windows_hello.node'],
-        ['binding.js', 'binding.js']
-    ]
-
-    files.forEach(([src, dest]) => {
-        const srcPath = path.join(windowsHelloSrcDir, src);
-        const destPath = path.join(windowsHelloDir, dest);
-
-        if (fs.existsSync(srcPath)) {
-            fs.copyFileSync(srcPath, destPath);
-            console.log(`Copied ${srcPath} to ${destPath}`);
-        } else {
-            console.error(`Source file not found: ${srcPath}`);
-            process.exit(1);
-        }
-    })
 }

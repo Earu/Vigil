@@ -2,27 +2,16 @@ import { app, BrowserWindow, ipcMain, dialog, systemPreferences, clipboard } fro
 import path from 'path'
 import fs from 'fs'
 import * as argon2 from '@node-rs/argon2';
-// Import keytar and Windows Hello dynamically based on environment
+import { Passport } from 'passport-desktop';
+// Import keytar dynamically based on environment
 let keytar: typeof import('keytar');
-let windowsHello: {
-	isAvailable: () => boolean;
-	register: (message: string) => Promise<boolean>;
-	authenticate: (message: string) => Promise<boolean>;
-} | null = null;
 
 try {
 	if (process.env.NODE_ENV === 'development') {
 		keytar = require('keytar');
-		if (process.platform === 'win32') {
-			windowsHello = require('../native/windows_hello/binding');
-		}
 	} else {
 		const keytarPath = path.join(__dirname, 'native_modules', 'keytar.node');
 		keytar = require(keytarPath);
-		if (process.platform === 'win32') {
-			const windowsHelloPath = path.join(__dirname, 'native_modules', 'windows_hello', 'binding.js');
-			windowsHello = require(windowsHelloPath);
-		}
 	}
 } catch (error) {
 	console.error('Failed to load native modules:', error);
@@ -74,9 +63,9 @@ async function isBiometricsAvailable(): Promise<boolean> {
 			// On macOS, use systemPreferences to check for Touch ID availability
 			const canPromptTouchID = systemPreferences.canPromptTouchID();
 			biometricsAvailableCache = canPromptTouchID;
-		} else if (process.platform === 'win32' /*&& windowsHello*/) {
-			// On Windows, use our native module to check Windows Hello availability
-			biometricsAvailableCache = false; //windowsHello.isAvailable();
+		} else if (process.platform === 'win32') {
+			// On Windows, use passport-desktop to check Windows Hello availability
+			biometricsAvailableCache = Passport.available();
 		} else {
 			// For other platforms, return false as biometrics are not supported
 			biometricsAvailableCache = false;
@@ -90,7 +79,7 @@ async function isBiometricsAvailable(): Promise<boolean> {
 }
 
 // Function to prompt for biometric authentication
-async function authenticateWithBiometrics(data: { dbName: string }): Promise<boolean> {
+async function authenticateWithBiometrics(data: { dbPath: string, dbName: string }): Promise<boolean> {
 	if (process.platform === 'darwin') {
 		try {
 			await systemPreferences.promptTouchID(`unlock ${data.dbName} with biometrics`);
@@ -99,9 +88,16 @@ async function authenticateWithBiometrics(data: { dbName: string }): Promise<boo
 			console.error('TouchID authentication failed:', error);
 			return false;
 		}
-	} else if (process.platform === 'win32' && windowsHello) {
+	} else if (process.platform === 'win32') {
 		try {
-			return await windowsHello.authenticate(`Unlock ${data.dbName} with Windows Hello`);
+			const passport = new Passport(data.dbPath);
+			if (!passport.accountExists) {
+				await passport.createAccount(); // This will show the Windows Hello prompt
+				return true;
+			}
+
+			const result = await Passport.requestVerification(`Unlock ${data.dbName} with Windows Hello`);
+			return result === 0; // 0 is VerificationResult.Verified
 		} catch (error) {
 			console.error('Windows Hello authentication failed:', error);
 			return false;
@@ -327,16 +323,7 @@ ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) 
 			return { success: false, error: 'Biometric authentication is not available on this device' };
 		}
 
-		// First register the Windows Hello credential
-		if (process.platform === 'win32' && windowsHello) {
-			const registerResult = await windowsHello.register(`Register Windows Hello for ${dbPath.split('/').pop()}`);
-			if (!registerResult) {
-				return { success: false, error: 'Failed to register Windows Hello' };
-			}
-		}
-
-		// Then authenticate to verify it works
-		if (!await authenticateWithBiometrics({ dbName: dbPath.split('/').pop() as string })) {
+		if (!await authenticateWithBiometrics({ dbPath, dbName: dbPath.split('/').pop() as string })) {
 			return { success: false, error: 'Biometric authentication failed' };
 		}
 
@@ -354,7 +341,7 @@ ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
 			return { success: false, error: 'Biometric authentication is not available on this device' };
 		}
 
-		if (!await authenticateWithBiometrics({ dbName: dbPath.split('/').pop() as string })) {
+		if (!await authenticateWithBiometrics({ dbPath, dbName: dbPath.split('/').pop() as string })) {
 			return { success: false, error: 'Biometric authentication failed' };
 		}
 
