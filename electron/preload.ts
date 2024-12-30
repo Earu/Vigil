@@ -21,6 +21,9 @@ const api: IElectronAPI = {
 	hasBiometricsEnabled: (dbPath) => ipcRenderer.invoke('has-biometrics-enabled', dbPath),
 	disableBiometrics: (dbPath) => ipcRenderer.invoke('disable-biometrics', dbPath),
 	clearClipboard: () => ipcRenderer.invoke('clear-clipboard'),
+	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => ipcRenderer.invoke('argon2', password, salt, memory, iterations, length, parallelism, type, version),
+	on: (channel: string, callback: Function) => ipcRenderer.on(channel, (_, ...args) => callback(...args)),
+	off: (channel: string, callback: Function) => ipcRenderer.off(channel, (_, ...args) => callback(...args)),
 }
 
 contextBridge.exposeInMainWorld('electron', api)

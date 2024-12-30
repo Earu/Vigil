@@ -1,5 +1,4 @@
-import * as esbuild from 'esbuild'
-import path from 'path'
+import * as esbuild from 'esbuild';
 
 const config = {
 	platform: 'node',
@@ -11,6 +10,9 @@ const config = {
 		'keytar',
 		// Exclude all .node files
 		'*.node',
+		// Exclude native modules
+		'@node-rs/argon2-win32-x64-msvc',
+		'@node-rs/argon2',
 		// Exclude the windows_hello binding
 		'../native/windows_hello/*'
 	],
@@ -18,11 +20,11 @@ const config = {
 	target: 'node18',
 	sourcemap: true,
 	minify: process.env.NODE_ENV !== 'development'
-}
+};
 
 try {
-	await esbuild.build(config)
+	await esbuild.build(config);
 } catch (err) {
-	console.error('Build failed:', err)
-	process.exit(1)
+	console.error('Build failed:', err);
+	process.exit(1);
 }
