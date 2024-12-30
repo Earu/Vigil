@@ -57,7 +57,17 @@
 		},
 		"mac": {
 			"target": "dmg",
-			"icon": "build/icons/icon.icns"
+			"icon": "build/icons/icon.icns",
+			"artifactName": "${productName}-${version}-${arch}.${ext}",
+			"hardenedRuntime": true,
+			"gatekeeperAssess": false,
+			"darkModeSupport": true,
+			"extraResources": [
+				{
+					"from": "build/icons/icon.icns",
+					"to": "icon.icns"
+				}
+			]
 		},
 		"linux": {
 			"target": "AppImage",
