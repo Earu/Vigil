@@ -17,6 +17,7 @@ export interface IElectronAPI {
 	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
 	clearClipboard: () => Promise<{ success: boolean; error?: string }>;
 	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => Promise<ArrayBuffer>;
+	openExternal: (url: string) => Promise<void>;
 	on: (channel: string, callback: (...args: any[]) => void) => void;
 	off: (channel: string, callback: (...args: any[]) => void) => void;
 }
