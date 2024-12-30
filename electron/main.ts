@@ -345,6 +345,10 @@ ipcMain.handle('save-last-database-path', async (_, dbPath: string) => {
 // Add new IPC handler to check if biometrics is enabled for a database
 ipcMain.handle('has-biometrics-enabled', async (_, dbPath: string) => {
 	try {
+		if (!await isBiometricsAvailable()) {
+			return { success: false, error: 'Biometric authentication is not available on this device' };
+		}
+
 		const key = await generateUniqueKey(dbPath);
 		const hasPassword = await keytar.getPassword(SERVICE_NAME, key);
 		return { success: true, enabled: !!hasPassword };
