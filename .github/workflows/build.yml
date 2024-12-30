@@ -48,8 +48,10 @@ jobs:
     - name: Build Electron app
       run: |
         # Clean up any existing build artifacts
-        rm -rf dist/mac* || true
-        rm -rf "dist/Electron.app" || true
+        rm -rf dist
+        rm -rf "dist-electron"
+        # Ensure icons directory exists
+        mkdir -p build/icons
         npm run electron:build
       env:
         NODE_ENV: production
