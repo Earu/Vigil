@@ -9,15 +9,14 @@
 		"build": "tsc -b && vite build",
 		"preview": "vite preview",
 		"electron:dev": "concurrently \"vite\" \"node electron/build.mjs && node electron/copy-native-modules.mjs && cross-env NODE_ENV=development electron dist-electron/main.js\"",
-		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder",
-		"build:native": "cd native/windows_hello && node-gyp configure build",
-		"postinstall": "node -e \"if (process.platform === 'win32') { require('child_process').execSync('npm run build:native', {stdio: 'inherit'}) }\""
+		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder"
 	},
 	"dependencies": {
 		"@node-rs/argon2": "^2.0.2",
 		"@types/zxcvbn": "^4.4.5",
 		"kdbxweb": "^2.1.1",
 		"keytar": "^7.9.0",
+		"passport-desktop": "^0.1.2",
 		"react": "^18.3.1",
 		"react-dom": "^18.3.1",
 		"zxcvbn": "^4.4.2"
