@@ -16,10 +16,16 @@ export interface IElectronAPI {
 	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled: boolean; error?: string }>;
 	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
 	clearClipboard: () => Promise<{ success: boolean; error?: string }>;
+	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => Promise<ArrayBuffer>;
+	on: (channel: string, callback: (...args: any[]) => void) => void;
+	off: (channel: string, callback: (...args: any[]) => void) => void;
 }
 
 declare global {
 	interface Window {
 		electron?: IElectronAPI;
 	}
+	var startupFilePath: string | undefined;
 }
+
+export {};

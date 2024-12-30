@@ -40,3 +40,6 @@ native/**/cmake_install.cmake
 *.lib
 *.exp
 *.pdb
+
+# Argon2
+public

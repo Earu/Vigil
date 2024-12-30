@@ -1,8 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { hash } from 'argon2-browser';
 import { Database, Group, Entry } from '../types/database';
-
-declare var argon2: { hash: typeof hash };
 
 interface SaveResult {
     success: boolean;
@@ -457,37 +454,6 @@ export class KeepassDatabaseService {
 
         this.clearCache();
         return updatedDatabase;
-    }
-
-    static async initializeArgon2() {
-        await import('argon2-browser/lib/argon2.js');
-
-        kdbxweb.CryptoEngine.argon2 = async (
-            password: ArrayBuffer,
-            salt: ArrayBuffer,
-            memory: number,
-            iterations: number,
-            length: number,
-            parallelism: number,
-            type: number,
-            _version: number
-        ) => {
-            try {
-                const result = await argon2.hash({
-                    pass: new Uint8Array(password),
-                    salt: new Uint8Array(salt),
-                    time: iterations,
-                    mem: memory,
-                    parallelism,
-                    type,
-                    hashLen: length
-                });
-                return result.hash;
-            } catch (err) {
-                console.error('Argon2 error:', err);
-                throw err;
-            }
-        };
     }
 
     static async loadLastDatabase(): Promise<LoadLastDatabaseResult> {

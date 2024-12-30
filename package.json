@@ -15,8 +15,8 @@
 		"postinstall": "node -e \"if (process.platform === 'win32') { require('child_process').execSync('npm run build:native', {stdio: 'inherit'}) }\""
 	},
 	"dependencies": {
+		"@node-rs/argon2": "^2.0.2",
 		"@types/zxcvbn": "^4.4.5",
-		"argon2-browser": "^1.18.0",
 		"kdbxweb": "^2.1.1",
 		"keytar": "^7.9.0",
 		"react": "^18.3.1",
@@ -24,7 +24,6 @@
 		"zxcvbn": "^4.4.2"
 	},
 	"devDependencies": {
-		"@types/argon2-browser": "^1.18.4",
 		"@types/react": "^18.3.17",
 		"@types/react-dom": "^18.3.5",
 		"@vitejs/plugin-react": "^4.3.4",
@@ -70,6 +69,15 @@
 		"win": {
 			"target": "nsis",
 			"icon": "build/icons/icon.ico"
-		}
+		},
+		"fileAssociations": [
+			{
+				"ext": "kdbx",
+				"name": "KeePass Database",
+				"description": "KeePass Password Database",
+				"role": "Editor",
+				"icon": "build/icons/icon"
+			}
+		]
 	}
 }

@@ -20,28 +20,54 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
     const passwordInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        const loadLastDatabase = async () => {
-            const result = await KeepassDatabaseService.loadLastDatabase();
-            if (result.file) {
-                setSelectedFile(result.file);
-                setDatabasePath(result.databasePath);
-                setInitialBiometricsEnabled(result.biometricsEnabled);
+        let hasDirectFileOpen = false;
 
-                if (result.biometricsEnabled) {
-                    setTimeout(() => {
-                        const passwordForm = document.querySelector('.password-form') as HTMLElement;
-                        if (passwordForm) {
-                            const biometricButton = passwordForm.querySelector('.biometric-unlock-button') as HTMLElement;
-                            if (biometricButton) {
-                                biometricButton.click();
-                            }
-                        }
-                    }, 100);
+        if (window.electron) {
+            const handleFileOpened = async (_: any, data: { data: Buffer, path: string }) => {
+                try {
+                    setSelectedFile(new File([data.data], data.path.split('/').pop() || 'database.kdbx'));
+                    setDatabasePath(data.path);
+                    setError(null);
+                    hasDirectFileOpen = true;
+                } catch (err) {
+                    console.error('Failed to handle opened file:', err);
+                    setError('Failed to open file');
                 }
-            }
-        };
+            };
 
-        loadLastDatabase();
+            window.electron.on('file-opened', handleFileOpened);
+
+            // Load last database only if no direct file open
+            const loadLastDatabase = async () => {
+                if (hasDirectFileOpen) return;
+
+                const result = await KeepassDatabaseService.loadLastDatabase();
+                if (result.file && !hasDirectFileOpen) {
+                    setSelectedFile(result.file);
+                    setDatabasePath(result.databasePath);
+                    setInitialBiometricsEnabled(result.biometricsEnabled);
+
+                    if (result.biometricsEnabled) {
+                        setTimeout(() => {
+                            const passwordForm = document.querySelector('.password-form') as HTMLElement;
+                            if (passwordForm) {
+                                const biometricButton = passwordForm.querySelector('.biometric-unlock-button') as HTMLElement;
+                                if (biometricButton) {
+                                    biometricButton.click();
+                                }
+                            }
+                        }, 100);
+                    }
+                }
+            };
+
+            loadLastDatabase();
+
+            return () => {
+                if (!window.electron) return;
+                window.electron.off('file-opened', handleFileOpened);
+            };
+        }
     }, []);
 
     const handleDragOver = (e: React.DragEvent) => {

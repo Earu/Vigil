@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, systemPreferences, clipboard } from 'electron'
 import path from 'path'
 import fs from 'fs'
-
+import * as argon2 from '@node-rs/argon2';
 // Import keytar and Windows Hello dynamically based on environment
 let keytar: typeof import('keytar');
 let windowsHello: {
@@ -123,6 +123,11 @@ function createWindow() {
 		}
 	});
 
+	if (global.startupFilePath) {
+		handleFileOpen(global.startupFilePath);
+		global.startupFilePath = undefined;
+	}
+
 	// Register window-specific IPC handlers
 	type WindowHandler = [string, (...args: any[]) => any];
 	const windowHandlers: WindowHandler[] = [
@@ -156,12 +161,12 @@ function createWindow() {
 	});
 
 	win.on('maximize', () => {
-		win.webContents.send('window-maximized', true)
-	})
+		win.webContents.send('window-maximized', true);
+	});
 
 	win.on('unmaximize', () => {
-		win.webContents.send('window-maximized', false)
-	})
+		win.webContents.send('window-maximized', false);
+	});
 
 	if (process.env.NODE_ENV === 'development') {
 		win.loadURL('http://localhost:5173');
@@ -180,19 +185,33 @@ function createWindow() {
 	}
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
 	if (process.platform !== 'darwin') {
 		app.quit();
 	}
-})
+});
 
 app.on('activate', () => {
 	if (BrowserWindow.getAllWindows().length === 0) {
 		createWindow();
 	}
-})
+});
+
+ipcMain.handle('argon2', async (_, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
+	const hash = await argon2.hashRaw(new Uint8Array(password), {
+		memoryCost: memory,
+		timeCost: iterations,
+		outputLen: length,
+		parallelism: parallelism,
+		algorithm: type,
+		version: version == 16 ? argon2.Version.V0x10 : argon2.Version.V0x13,
+		salt: new Uint8Array(salt),
+	});
+
+	return hash;
+});
 
 ipcMain.handle('save-file', async (_, data: Uint8Array) => {
 	const { filePath, canceled } = await dialog.showSaveDialog({
@@ -248,17 +267,23 @@ ipcMain.handle('get-file-path', async (_, filePath: string) => {
 });
 
 ipcMain.handle('open-file', async () => {
-	const result = await dialog.showOpenDialog({
+	const { filePaths, canceled } = await dialog.showOpenDialog({
 		properties: ['openFile'],
-		filters: [
-			{ name: 'KeePass Database', extensions: ['kdbx'] }
-		]
+		filters: [{ name: 'KeePass Database', extensions: ['kdbx'] }]
 	});
 
-	return {
-		filePath: result.filePaths[0],
-		canceled: result.canceled
-	};
+	if (canceled || filePaths.length === 0) {
+		return { success: false, error: 'Open cancelled' };
+	}
+
+	try {
+		const filePath = filePaths[0];
+		await handleFileOpen(filePath);
+		return { success: true, filePath };
+	} catch (error) {
+		console.error('Failed to open file:', error);
+		return { success: false, error: 'Failed to open file' };
+	}
 });
 
 ipcMain.handle('read-file', async (_, filePath: string) => {
@@ -364,3 +389,48 @@ ipcMain.handle('clear-clipboard', () => {
 		return { success: false, error: 'Failed to clear clipboard' };
 	}
 });
+
+// Register as default handler for kdbx files
+app.setAsDefaultProtocolClient('kdbx');
+
+// Handle file opening on Windows/Linux
+if (process.platform !== 'darwin') {
+	const filePath = process.argv.find(arg => arg.endsWith('.kdbx'));
+	if (filePath) {
+		global.startupFilePath = filePath;
+	}
+}
+
+// Handle file opening on macOS
+app.on('open-file', (event, filePath) => {
+	event.preventDefault();
+	if (app.isReady()) {
+		handleFileOpen(filePath);
+	} else {
+		global.startupFilePath = filePath;
+	}
+});
+
+// Handle file opening from command line arguments on Windows
+if (process.platform === 'win32') {
+	const filePath = process.argv.find(arg => arg.endsWith('.kdbx'));
+	if (filePath) {
+		global.startupFilePath = filePath;
+	}
+}
+
+// Function to handle opening files
+async function handleFileOpen(filePath: string) {
+	try {
+		const result = await fs.promises.readFile(filePath);
+		const mainWindow = BrowserWindow.getAllWindows()[0];
+		if (mainWindow) {
+			mainWindow.webContents.send('file-opened', {
+				data: result,
+				path: filePath
+			});
+		}
+	} catch (error) {
+		console.error('Failed to open file:', error);
+	}
+}
