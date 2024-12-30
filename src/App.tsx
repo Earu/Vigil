@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Background } from './components/Background';
 import { PasswordView } from './components/PasswordView';
 import * as kdbxweb from 'kdbxweb';
@@ -14,10 +14,6 @@ function App() {
 	const [searchQuery, setSearchQuery] = useState('');
 	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
 	const [showInitialBreachReport, setShowInitialBreachReport] = useState(false);
-
-	useEffect(() => {
-		KeepassDatabaseService.initializeArgon2();
-	}, []);
 
 	const handleDatabaseOpen = (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
 		setDatabase(database);

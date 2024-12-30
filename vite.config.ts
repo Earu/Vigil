@@ -12,12 +12,17 @@ export default defineConfig({
 	build: {
 		outDir: 'dist',
 		rollupOptions: {
-			external: [/\.wasm$/],
+			external: [
+				/\.wasm$/,
+				/\.node$/,
+				'keytar',
+				'@node-rs/argon2'
+			],
 		},
 		assetsDir: 'assets'
 	},
 	optimizeDeps: {
-		exclude: ['@syntect/wasm', 'argon2-browser']
+		exclude: ['@syntect/wasm', '@node-rs/argon2', 'keytar']
 	},
 	base: './'
 })

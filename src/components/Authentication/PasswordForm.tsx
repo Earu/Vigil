@@ -286,6 +286,8 @@ export const PasswordForm = ({
             const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
             const db = kdbxweb.Kdbx.create(credentials, databaseName.trim());
 
+            // TODO: Set KDF parameters to improve new database security
+
             const arrayBuffer = await db.save();
             const result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
 
