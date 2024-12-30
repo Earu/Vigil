@@ -57,14 +57,7 @@
 		},
 		"mac": {
 			"target": "dmg",
-			"icon": "build/icons/icon.icns",
-			"hardenedRuntime": false,
-			"gatekeeperAssess": false,
-			"identity": null,
-			"asarUnpack": ["**/*.node"],
-			"artifactName": "${productName}-${version}-${arch}.${ext}",
-			"electronLanguages": ["en"],
-			"forceCodeSigning": false
+			"icon": "build/icons/icon.icns"
 		},
 		"linux": {
 			"target": "AppImage",
