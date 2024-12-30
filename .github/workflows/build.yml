@@ -38,20 +38,8 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libgconf-2-4 libnss3
 
-    # Add this new step for macOS
-    - name: Install Apple Certificates
-      if: runner.os == 'macOS'
-      run: |
-        echo "Skipping certificates for now - building unsigned"
-        defaults write com.apple.security.temporary-exception.files.absolute-path.read-only -bool YES
-
     - name: Build Electron app
       run: |
-        # Clean up any existing build artifacts
-        rm -rf dist
-        rm -rf "dist-electron"
-        # Ensure icons directory exists
-        mkdir -p build/icons
         npm run electron:build
       env:
         NODE_ENV: production
