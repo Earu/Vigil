@@ -2,9 +2,14 @@ import { app, BrowserWindow, ipcMain, dialog, systemPreferences, clipboard } fro
 import path from 'path'
 import fs from 'fs'
 import * as argon2 from '@node-rs/argon2';
-import { Passport } from 'passport-desktop';
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'crypto';
 import { execSync } from 'child_process';
+
+let Passport: any;
+if (process.platform === 'win32') {
+    const { Passport: WindowsPassport } = require('passport-desktop');
+    Passport = WindowsPassport;
+}
 
 // Import keytar dynamically based on environment
 let keytar: typeof import('keytar');
