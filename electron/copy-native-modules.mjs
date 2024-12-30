@@ -1,3 +1,4 @@
+import { familySync, GLIBC } from 'detect-libc';
 import fs from 'fs';
 import path from 'path';
 
@@ -11,7 +12,15 @@ function getModulePath(moduleName) {
     if (moduleName === '@node-rs/argon2') {
         const platform = process.platform;
         const arch = process.arch;
-        const variant = platform === 'win32' ? '-msvc' : '';
+        let variant;
+
+        // Linux has two mainstream libcs for some odd reason
+        // Too bad!
+        if (platform === "linux") 
+            variant = familySync() === GLIBC ? "-gnu" : "-musl";
+        else 
+            variant = platform === 'win32' ? '-msvc' : '';
+
         const nativeModuleName = `argon2-${platform}-${arch}${variant}`;
         const nativeModulePath = path.join(process.cwd(), 'node_modules', '@node-rs', nativeModuleName);
         const files = fs.readdirSync(nativeModulePath);
