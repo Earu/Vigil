@@ -2,26 +2,31 @@ import { app, BrowserWindow, ipcMain, dialog, systemPreferences, clipboard } fro
 import path from 'path'
 import fs from 'fs'
 import * as argon2 from '@node-rs/argon2';
+import { KeyCreationOption, PublicKeyEncoding, VerificationResult, Passport } from 'passport-desktop';
+import { randomBytes, createPublicKey, createVerify } from 'node:crypto';
 // Import keytar and Windows Hello dynamically based on environment
 let keytar: typeof import('keytar');
-let windowsHello: {
-	isAvailable: () => boolean;
-	register: (message: string) => Promise<boolean>;
-	authenticate: (message: string) => Promise<boolean>;
-} | null = null;
+let windowsHello: { 
+	authenticate?: any; 
+	register?: any; 
+	default?: any; 
+	KeyCreationOption?: typeof KeyCreationOption; 
+	PublicKeyEncoding?: typeof PublicKeyEncoding; 
+	VerificationResult?: 
+	typeof VerificationResult; 
+	Passport?: typeof Passport; } | null = null;
 
 try {
 	if (process.env.NODE_ENV === 'development') {
 		keytar = require('keytar');
 		if (process.platform === 'win32') {
-			windowsHello = require('../native/windows_hello/binding');
+			windowsHello = await import("passport-desktop");
 		}
 	} else {
 		const keytarPath = path.join(__dirname, 'native_modules', 'keytar.node');
 		keytar = require(keytarPath);
 		if (process.platform === 'win32') {
-			const windowsHelloPath = path.join(__dirname, 'native_modules', 'windows_hello', 'binding.js');
-			windowsHello = require(windowsHelloPath);
+			windowsHello = await import("passport-desktop");
 		}
 	}
 } catch (error) {
@@ -74,9 +79,9 @@ async function isBiometricsAvailable(): Promise<boolean> {
 			// On macOS, use systemPreferences to check for Touch ID availability
 			const canPromptTouchID = systemPreferences.canPromptTouchID();
 			biometricsAvailableCache = canPromptTouchID;
-		} else if (process.platform === 'win32' /*&& windowsHello*/) {
+		} else if (process.platform === 'win32' && windowsHello?.Passport?.available()) {
 			// On Windows, use our native module to check Windows Hello availability
-			biometricsAvailableCache = false; //windowsHello.isAvailable();
+			biometricsAvailableCache = windowsHello.Passport.available();
 		} else {
 			// For other platforms, return false as biometrics are not supported
 			biometricsAvailableCache = false;
@@ -101,7 +106,26 @@ async function authenticateWithBiometrics(data: { dbName: string }): Promise<boo
 		}
 	} else if (process.platform === 'win32' && windowsHello) {
 		try {
-			return await windowsHello.authenticate(`Unlock ${data.dbName} with Windows Hello`);
+			const passport = new Passport(data.dbName);
+			const challenge = randomBytes(32);
+
+			if (!passport.accountExists)
+				passport.createAccount(KeyCreationOption.ReplaceExisting);
+
+			const signature = await passport.sign(challenge);
+			const keyBuf = await passport.getPublicKey(PublicKeyEncoding.Pkcs1RsaPublicKey);
+
+			const key = createPublicKey({
+				key: keyBuf,
+				format: 'der',
+				type: 'pkcs1'
+			});
+
+			const verify = createVerify('SHA256');
+			verify.write(challenge);
+			verify.end();
+
+			return verify.verify(key, signature);
 		} catch (error) {
 			console.error('Windows Hello authentication failed:', error);
 			return false;
