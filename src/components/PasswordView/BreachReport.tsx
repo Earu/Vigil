@@ -1,6 +1,8 @@
 import { Database } from '../../types/database';
 import { useState } from 'react';
 import { BreachedEntry } from '../../services/BreachCheckService';
+import { SpinnerIcon } from '../../icons/status/StatusIcons';
+import { CloseActionIcon } from '../../icons/actions/ActionIcons';
 import './BreachReport.css';
 
 interface BreachReportProps {
@@ -81,18 +83,7 @@ export const BreachReport = ({ breachedEntries, weakEntries, onClose, isChecking
                 <div className="breach-report-header">
                     <h2>Security Report</h2>
                     <button className="close-button" onClick={onClose}>
-                        <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                        >
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                        </svg>
+                        <CloseActionIcon />
                     </button>
                 </div>
                 <div className="breach-report-tabs">
@@ -113,15 +104,7 @@ export const BreachReport = ({ breachedEntries, weakEntries, onClose, isChecking
                     {isChecking && (
                         <div className="breach-summary">
                             <div className="breach-count">
-                                <svg
-                                    className="spinner"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                >
-                                    <circle className="spinner-circle" cx="12" cy="12" r="10" />
-                                </svg>
+                                <SpinnerIcon className="spinner" />
                             </div>
                             <p className="breach-warning">
                                 Checking passwords for breaches...

@@ -1,3 +1,5 @@
+import { BrowseAuthIcon } from '../../icons/auth/AuthIcons';
+
 interface DatabaseFormProps {
     setSelectedFile: (file: File | null) => void;
     setDatabasePath: (path: string | null) => void;
@@ -41,17 +43,7 @@ export const DatabaseForm = ({
                     className="file-input-label"
                     onClick={handleFileSelect}
                 >
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        className="browse-icon"
-                    >
-                        <path d="M20 11.08V8l-6-6H6a2 2 0 0 0-2 2v16c0 1.1.9 2 2 2h12a2 2 0 0 0 2-2v-3.08" />
-                        <path d="M14 3v5h5M18 21v-6M15 18h6" />
-                    </svg>
+                    <BrowseAuthIcon className="browse-icon" />
                     Browse Database
                 </button>
                 <button
@@ -63,4 +55,4 @@ export const DatabaseForm = ({
             </div>
         </>
     );
-}; 
+};
