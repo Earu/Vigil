@@ -13,8 +13,8 @@ const config = {
 		// Exclude native modules
 		'@node-rs/argon2-win32-x64-msvc',
 		'@node-rs/argon2',
-		// Exclude the windows_hello binding
-		'../native/windows_hello/*'
+		'passport-desktop',
+		'passport-desktop-win32-x64-msvc'
 	],
 	format: 'cjs',
 	target: 'node18',
