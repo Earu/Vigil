@@ -3,6 +3,9 @@ import path from 'path'
 import fs from 'fs'
 import * as argon2 from '@node-rs/argon2';
 import { Passport } from 'passport-desktop';
+import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'crypto';
+import { execSync } from 'child_process';
+
 // Import keytar dynamically based on environment
 let keytar: typeof import('keytar');
 
@@ -20,6 +23,39 @@ try {
 // Add path for storing last database location
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
 const SERVICE_NAME = 'Vigil Password Manager';
+const SALT_PATH = path.join(app.getPath('userData'), '.salt');
+
+// Function to generate a new random salt
+function generateNewSalt(): string {
+	const buffer = Buffer.alloc(32);
+	require('crypto').randomFillSync(buffer);
+	return buffer.toString('hex');
+}
+
+// Function to get or create the installation salt
+async function getInstallationSalt(): Promise<string> {
+	try {
+		if (fs.existsSync(SALT_PATH)) {
+			return await fs.promises.readFile(SALT_PATH, 'utf-8');
+		}
+
+		// Generate and save new salt if it doesn't exist
+		const newSalt = generateNewSalt();
+		await fs.promises.writeFile(SALT_PATH, newSalt, { mode: 0o600 }); // Restrictive permissions
+		return newSalt;
+	} catch (error) {
+		console.error('Failed to manage installation salt:', error);
+		// Fallback to a temporary salt if file operations fail
+		// This ensures the app still works but will prompt for biometric re-authentication
+		return generateNewSalt();
+	}
+}
+
+// Function to generate a unique key for each database
+async function generateUniqueKey(dbPath: string): Promise<string> {
+	const salt = await getInstallationSalt();
+	return `${dbPath}_${salt}`;
+}
 
 // Function to save last database path
 async function saveLastDatabasePath(dbPath: string) {
@@ -304,7 +340,8 @@ ipcMain.handle('save-last-database-path', async (_, dbPath: string) => {
 // Add new IPC handler to check if biometrics is enabled for a database
 ipcMain.handle('has-biometrics-enabled', async (_, dbPath: string) => {
 	try {
-		const hasPassword = await keytar.getPassword(SERVICE_NAME, dbPath);
+		const key = await generateUniqueKey(dbPath);
+		const hasPassword = await keytar.getPassword(SERVICE_NAME, key);
 		return { success: true, enabled: !!hasPassword };
 	} catch (error) {
 		console.error('Failed to check biometrics status:', error);
@@ -317,6 +354,84 @@ ipcMain.handle('is-biometrics-available', async () => {
 	return await isBiometricsAvailable();
 });
 
+// Function to get hardware-specific information
+async function getHardwareId(): Promise<string> {
+	if (process.platform === 'win32') {
+		// On Windows, use Windows Management Instrumentation (WMI)
+
+		try {
+			// Get motherboard serial number
+			const mbSerial = execSync('wmic baseboard get serialnumber').toString().split('\n')[1].trim();
+			// Get CPU ID
+			const cpuId = execSync('wmic cpu get processorid').toString().split('\n')[1].trim();
+			return `${mbSerial}-${cpuId}`;
+		} catch (error) {
+			console.error('Failed to get hardware ID:', error);
+			// Fallback to a combination of username and machine name
+			return `${process.env.USERNAME}-${process.env.COMPUTERNAME}`;
+		}
+	} else if (process.platform === 'darwin') {
+		// On macOS, use system_profiler
+		try {
+			// Get hardware UUID
+			const hardwareUUID = execSync('system_profiler SPHardwareDataType | grep "Hardware UUID"').toString().split(':')[1].trim();
+			return hardwareUUID;
+		} catch (error) {
+			console.error('Failed to get hardware ID:', error);
+			// Fallback to username and hostname
+			return `${process.env.USER}-${execSync('hostname').toString().trim()}`;
+		}
+	} else {
+		// On Linux, try to use DMI information
+		try {
+			// Try to get motherboard serial
+			const mbSerial = execSync('sudo dmidecode -s baseboard-serial-number').toString().trim();
+			return mbSerial;
+		} catch (error) {
+			console.error('Failed to get hardware ID:', error);
+			// Fallback to machine-id which is usually available on Linux
+			try {
+				return fs.readFileSync('/etc/machine-id', 'utf8').trim();
+			} catch {
+				// Last resort fallback
+				return `${process.env.USER}-${execSync('hostname').toString().trim()}`;
+			}
+		}
+	}
+}
+
+// Function to derive an encryption key from hardware ID and salt
+async function deriveEncryptionKey(hardwareId: string, salt: string): Promise<Buffer> {
+	return pbkdf2Sync(hardwareId, salt, 100000, 32, 'sha512');
+}
+
+// Function to encrypt password before storing
+async function encryptPassword(password: string): Promise<string> {
+	const hardwareId = await getHardwareId();
+	const salt = await getInstallationSalt();
+	const key = await deriveEncryptionKey(hardwareId, salt);
+	const iv = randomBytes(16);
+	const cipher = createCipheriv('aes-256-gcm', key, iv);
+	const encrypted = Buffer.concat([cipher.update(password, 'utf8'), cipher.final()]);
+	const authTag = cipher.getAuthTag();
+	// Return IV + Auth Tag + Encrypted data as base64
+	return Buffer.concat([iv, authTag, encrypted]).toString('base64');
+}
+
+// Function to decrypt stored password
+async function decryptPassword(encryptedData: string): Promise<string> {
+	const hardwareId = await getHardwareId();
+	const salt = await getInstallationSalt();
+	const key = await deriveEncryptionKey(hardwareId, salt);
+	const data = Buffer.from(encryptedData, 'base64');
+	const iv = data.subarray(0, 16);
+	const authTag = data.subarray(16, 32);
+	const encrypted = data.subarray(32);
+	const decipher = createDecipheriv('aes-256-gcm', key, iv);
+	decipher.setAuthTag(authTag);
+	return decipher.update(encrypted) + decipher.final('utf8');
+}
+
 ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) => {
 	try {
 		if (!await isBiometricsAvailable()) {
@@ -327,7 +442,9 @@ ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) 
 			return { success: false, error: 'Biometric authentication failed' };
 		}
 
-		await keytar.setPassword(SERVICE_NAME, dbPath, password);
+		const key = await generateUniqueKey(dbPath);
+		const encryptedPassword = await encryptPassword(password);
+		await keytar.setPassword(SERVICE_NAME, key, encryptedPassword);
 		return { success: true };
 	} catch (error) {
 		console.error('Failed to enable biometrics:', error);
@@ -345,11 +462,13 @@ ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
 			return { success: false, error: 'Biometric authentication failed' };
 		}
 
-		const password = await keytar.getPassword(SERVICE_NAME, dbPath);
-		if (!password) {
+		const key = await generateUniqueKey(dbPath);
+		const encryptedPassword = await keytar.getPassword(SERVICE_NAME, key);
+		if (!encryptedPassword) {
 			return { success: false, error: 'No password found for this database' };
 		}
 
+		const password = await decryptPassword(encryptedPassword);
 		return { success: true, password };
 	} catch (error) {
 		console.error('Failed to get password with biometrics:', error);
@@ -359,7 +478,8 @@ ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
 
 ipcMain.handle('disable-biometrics', async (_, dbPath: string) => {
 	try {
-		await keytar.deletePassword(SERVICE_NAME, dbPath);
+		const key = await generateUniqueKey(dbPath);
+		await keytar.deletePassword(SERVICE_NAME, key);
 		return { success: true };
 	} catch (error) {
 		console.error('Failed to disable biometrics:', error);
