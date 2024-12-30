@@ -46,6 +46,9 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         ARCH: ${{ matrix.arch }}
         CSC_IDENTITY_AUTO_DISCOVERY: false
+        # This is broken on macOS. Why.
+        # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
+        USE_HARD_LINKS: false
 
     # Windows artifacts
     - name: Upload Windows artifacts
