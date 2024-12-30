@@ -3,6 +3,8 @@ import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
+import { SpinnerIcon } from '../../icons/status/StatusIcons';
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -365,17 +367,7 @@ export const PasswordForm = ({
                                 setShowPasswordInput(true);
                             }}
                         >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                className="auth-icon"
-                            >
-                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                            </svg>
+                            <LockAuthIcon className="auth-icon" />
                             Password
                         </button>
                         <button
@@ -390,18 +382,7 @@ export const PasswordForm = ({
                                 }
                             }}
                         >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                className="auth-icon"
-                            >
-                                <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/>
-                                <path d="M12 6c-1.7 0-3 1.3-3 3v1c0 1.7 1.3 3 3 3s3-1.3 3-3V9c0-1.7-1.3-3-3-3z"/>
-                                <path d="M18 12c0 3.3-2.7 6-6 6s-6-2.7-6-6"/>
-                            </svg>
+                            <BiometricAuthIcon className="auth-icon" />
                             {navigator.userAgent.includes('Mac') ? 'Touch ID' : 'Windows Hello'}
                         </button>
                     </div>
@@ -412,18 +393,7 @@ export const PasswordForm = ({
                             onClick={handleBiometricUnlock}
                             disabled={isLoading}
                         >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                className="biometric-icon"
-                            >
-                                <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z"/>
-                                <path d="M12 6c-1.7 0-3 1.3-3 3v1c0 1.7 1.3 3 3 3s3-1.3 3-3V9c0-1.7-1.3-3-3-3z"/>
-                                <path d="M18 12c0 3.3-2.7 6-6 6s-6-2.7-6-6"/>
-                            </svg>
+                            <BiometricAuthIcon className="biometric-icon" />
                             {navigator.userAgent.includes('Mac') ? 'Unlock with Touch ID' : 'Unlock with Windows Hello'}
                         </button>
                     )}
@@ -448,25 +418,7 @@ export const PasswordForm = ({
                             type="button"
                             title={showPassword ? 'Hide password' : 'Show password'}
                         >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                            >
-                                {showPassword ? (
-                                    <>
-                                        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                                        <line x1="1" y1="1" x2="23" y2="23" />
-                                    </>
-                                ) : (
-                                    <>
-                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                        <circle cx="12" cy="12" r="3" />
-                                    </>
-                                )}
-                            </svg>
+                            {showPassword ? <HidePasswordIcon /> : <ShowPasswordIcon />}
                         </button>
                     </div>
 
@@ -507,28 +459,10 @@ export const PasswordForm = ({
                             disabled={isLoading}
                         >
                             {isLoading ? (
-                                <svg
-                                    className="spinner"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                >
-                                    <circle className="spinner-circle" cx="12" cy="12" r="10" />
-                                </svg>
+                                <SpinnerIcon className="spinner" />
                             ) : (
                                 <>
-                                    <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                        className="unlock-icon"
-                                    >
-                                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                                        <path d="M7 11V7a5 5 0 0 1 9.9-1" />
-                                    </svg>
+                                    <UnlockAuthIcon className="unlock-icon" />
                                     {isCreatingNew ? 'Create Database' : 'Unlock with Password'}
                                 </>
                             )}

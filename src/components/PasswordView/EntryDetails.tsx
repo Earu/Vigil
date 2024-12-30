@@ -3,6 +3,9 @@ import { Entry } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
+import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
+import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon } from '../../icons/actions/ActionIcons';
+import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
 
@@ -185,18 +188,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 				onClick={onClick}
 				title={title}
 			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					strokeWidth="2"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-				>
-					<rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-					<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-				</svg>
+				<CopyActionIcon />
 				{clipboardTimer > 0 && copiedField === field && (
 					<div className="clipboard-timer" style={{ '--progress': `${(clipboardTimer / 20) * 100}%` } as React.CSSProperties}>
 						{clipboardTimer}s
@@ -243,51 +235,18 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							onClick={() => setIsEditing(true)}
 							title="Edit entry"
 						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							>
-								<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-								<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-							</svg>
+							<EditActionIcon />
 						</button>
 					)}
 					<button className="close-button" onClick={onClose}>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						>
-							<line x1="18" y1="6" x2="6" y2="18" />
-							<line x1="6" y1="6" x2="18" y2="18" />
-						</svg>
+						<CloseActionIcon />
 					</button>
 				</div>
 			</div>
 
 			{breachStatus?.isPwned && !isNew && !isEditing && (
 				<div className="breach-warning-header">
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="2"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						className="breach-warning-icon"
-					>
-						<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-					</svg>
+					<BreachWarningIcon className="breach-warning-icon" />
 					<div className="breach-warning-content">
 						<h3>Password Compromised</h3>
 						<p>This password has appeared in {breachStatus.count.toLocaleString()} data {breachStatus.count === 1 ? 'breach' : 'breaches'}. You should change it as soon as possible.</p>
@@ -297,20 +256,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 
 			{passwordStrength && passwordStrength.score < 3 && !isNew && !isEditing && (
 				<div className="weak-password-warning-header">
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="2"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						className="weak-password-warning-icon"
-					>
-						<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-						<line x1="12" y1="8" x2="12" y2="12" />
-						<line x1="12" y1="16" x2="12.01" y2="16" />
-					</svg>
+					<SecurityShieldIcon className="weak-password-warning-icon" />
 					<div className="weak-password-warning-content">
 						<h3>Weak Password</h3>
 						<p>{passwordStrength.feedback.warning || 'This password is considered weak. Consider using a stronger password to improve security.'}</p>
@@ -373,27 +319,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							onClick={() => setShowPassword(!showPassword)}
 							title={showPassword ? 'Hide password' : 'Show password'}
 						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							>
-								{showPassword ? (
-									<>
-										<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-										<line x1="1" y1="1" x2="23" y2="23" />
-									</>
-								) : (
-									<>
-										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-										<circle cx="12" cy="12" r="3" />
-									</>
-								)}
-							</svg>
+							{showPassword ? <HidePasswordIcon /> : <ShowPasswordIcon />}
 						</button>
 						{isEditing && (
 							<button
@@ -405,18 +331,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 								title="Generate password"
 								type="button"
 							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<path d="M23 4v6h-6" />
-									<path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-								</svg>
+								<GenerateActionIcon />
 							</button>
 						)}
 						{!isEditing && editedEntry.password && renderCopyButton(
@@ -459,19 +374,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 									className="open-button"
 									title="Open URL"
 								>
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
-									>
-										<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-										<polyline points="15 3 21 3 21 9" />
-										<line x1="10" y1="14" x2="21" y2="3" />
-									</svg>
+									<OpenUrlActionIcon />
 								</a>
 							</>
 						)}

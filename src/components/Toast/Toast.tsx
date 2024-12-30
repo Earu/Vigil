@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { SuccessIcon, ErrorIcon, InfoIcon, WarningIcon } from '../../icons';
 import './Toast.css';
 
 export interface Toast {
@@ -24,70 +25,14 @@ const ToastItem = ({ toast, onRemove }: ToastProps) => {
 		}
 	}, [toast.id, toast.duration, onRemove]);
 
+	const iconStyle = { width: '16px', height: '16px' };
+
 	return (
 		<div className={`toast ${toast.type}`}>
-			{toast.type === 'success' && (
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="#10b981"
-					strokeWidth="2"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					style={{ width: '16px', height: '16px' }}
-				>
-					<path d="M20 6L9 17l-5-5" />
-				</svg>
-			)}
-			{toast.type === 'error' && (
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="#ef4444"
-					strokeWidth="2"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					style={{ width: '16px', height: '16px' }}
-				>
-					<circle cx="12" cy="12" r="10" />
-					<line x1="15" y1="9" x2="9" y2="15" />
-					<line x1="9" y1="9" x2="15" y2="15" />
-				</svg>
-			)}
-			{toast.type === 'info' && (
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="#3b82f6"
-					strokeWidth="2"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					style={{ width: '16px', height: '16px' }}
-				>
-					<circle cx="12" cy="12" r="10" />
-					<line x1="12" y1="16" x2="12" y2="12" />
-					<line x1="12" y1="8" x2="12" y2="8" />
-				</svg>
-			)}
-			{toast.type === 'warning' && (
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="#f59e0b"
-					strokeWidth="2"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					style={{ width: '16px', height: '16px' }}
-				>
-					<circle cx="12" cy="12" r="10" />
-					<line x1="12" y1="8" x2="12" y2="16" />
-					<line x1="12" y1="8" x2="12" y2="16" />
-				</svg>
-			)}
+			{toast.type === 'success' && <SuccessIcon style={iconStyle} />}
+			{toast.type === 'error' && <ErrorIcon style={iconStyle} />}
+			{toast.type === 'info' && <InfoIcon style={iconStyle} />}
+			{toast.type === 'warning' && <WarningIcon style={iconStyle} />}
 			{toast.message}
 		</div>
 	);

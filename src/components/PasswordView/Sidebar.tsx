@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Database, Group, Entry } from '../../types/database';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { BreachCheckService } from '../../services/BreachCheckService';
+import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
+import { ChevronActionIcon, AddActionIcon, EditActionIcon, CloseActionIcon } from '../../icons/actions/ActionIcons';
 
 interface SidebarProps {
 	database: Database;
@@ -164,18 +166,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 							setIsExpanded(!isExpanded);
 						}}
 					>
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-							className="chevron-icon"
-						>
-							<polyline points="9 18 15 12 9 6" />
-						</svg>
+						<ChevronActionIcon className="chevron-icon" />
 					</button>
 				)}
 				<div className="content-wrapper">
@@ -200,36 +191,12 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 							{group.name}
 							{hasBreachedEntries && (
 								<span className="group-breach-indicator" title="Contains breached passwords">
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
-										className="breach-icon"
-									>
-										<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-									</svg>
+									<BreachWarningIcon className="breach-icon" />
 								</span>
 							)}
 							{!hasBreachedEntries && hasWeakPasswords && (
 								<span className="group-weak-password-indicator" title="Contains weak passwords">
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
-										className="weak-password-icon"
-									>
-										<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-										<line x1="12" y1="8" x2="12" y2="12" />
-										<line x1="12" y1="16" x2="12.01" y2="16" />
-									</svg>
+									<SecurityShieldIcon className="weak-password-icon" />
 								</span>
 							)}
 						</span>
@@ -243,18 +210,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 							onClick={() => onNewGroup(group)}
 							title="Add subgroup"
 						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							>
-								<line x1="12" y1="5" x2="12" y2="19" />
-								<line x1="5" y1="12" x2="19" y2="12" />
-							</svg>
+							<AddActionIcon />
 						</button>
 						{!isEditing && (
 							<button
@@ -262,18 +218,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 								onClick={() => setIsEditing(true)}
 								title="Edit group name"
 							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-									<path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-								</svg>
+								<EditActionIcon />
 							</button>
 						)}
 						{group.id !== database.root.id && (
@@ -282,18 +227,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 								onClick={() => onRemoveGroup(group)}
 								title="Remove group"
 							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
-								>
-									<line x1="18" y1="6" x2="6" y2="18" />
-									<line x1="6" y1="6" x2="18" y2="18" />
-								</svg>
+								<CloseActionIcon />
 							</button>
 						)}
 					</div>
