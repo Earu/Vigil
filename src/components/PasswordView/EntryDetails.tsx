@@ -367,15 +367,13 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 									'Copy URL',
 									'URL'
 								)}
-								<a
-									href={editedEntry.url}
-									target="_blank"
-									rel="noopener noreferrer"
+								<button
+									onClick={() => window.electron?.openExternal(editedEntry.url!)}
 									className="open-button"
 									title="Open URL"
 								>
 									<OpenUrlActionIcon />
-								</a>
+								</button>
 							</>
 						)}
 					</div>

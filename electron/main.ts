@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, systemPreferences, clipboard } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, systemPreferences, clipboard, shell } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import * as argon2 from '@node-rs/argon2';
@@ -500,6 +500,10 @@ ipcMain.handle('clear-clipboard', () => {
 		console.error('Failed to clear clipboard:', error);
 		return { success: false, error: 'Failed to clear clipboard' };
 	}
+});
+
+ipcMain.handle('open-external', async (_, url: string) => {
+	await shell.openExternal(url);
 });
 
 // Register as default handler for kdbx files
