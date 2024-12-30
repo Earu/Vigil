@@ -1,6 +1,8 @@
 import { Entry, Group, Database } from '../../types/database';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
+import { AddActionIcon, KeyActionIcon, CloseActionIcon } from '../../icons/actions/ActionIcons';
 
 interface EntryListProps {
 	group: Group;
@@ -84,18 +86,7 @@ export const EntryList = ({
 				</div>
 				{!searchQuery && (
 					<button className="new-entry-button" onClick={onNewEntry} title="Add new entry">
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-						>
-							<line x1="12" y1="5" x2="12" y2="19" />
-							<line x1="5" y1="12" x2="19" y2="12" />
-						</svg>
+						<AddActionIcon />
 						New Entry
 					</button>
 				)}
@@ -122,18 +113,7 @@ export const EntryList = ({
 										}}
 									/>
 								) : (
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
-										className="key-icon"
-									>
-										<path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
-									</svg>
+									<KeyActionIcon className="key-icon" />
 								)}
 							</div>
 							<div className="entry-info">
@@ -145,36 +125,12 @@ export const EntryList = ({
 											<>
 												{status?.isPwned && (
 													<span className="breach-indicator" title={`Password found in ${status.count} data breaches`}>
-														<svg
-															xmlns="http://www.w3.org/2000/svg"
-															viewBox="0 0 24 24"
-															fill="none"
-															stroke="currentColor"
-															strokeWidth="2"
-															strokeLinecap="round"
-															strokeLinejoin="round"
-															className="breach-icon"
-														>
-															<path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-														</svg>
+														<BreachWarningIcon className="breach-icon" />
 													</span>
 												)}
 												{!status?.isPwned && status?.strength && status.strength.score < 3 && (
 													<span className="weak-password-indicator" title={status.strength.feedback.warning || 'Weak password detected'}>
-														<svg
-															xmlns="http://www.w3.org/2000/svg"
-															viewBox="0 0 24 24"
-															fill="none"
-															stroke="currentColor"
-															strokeWidth="2"
-															strokeLinecap="round"
-															strokeLinejoin="round"
-															className="weak-password-icon"
-														>
-															<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-															<line x1="12" y1="8" x2="12" y2="12" />
-															<line x1="12" y1="16" x2="12.01" y2="16" />
-														</svg>
+														<SecurityShieldIcon className="weak-password-icon" />
 													</span>
 												)}
 											</>
@@ -194,18 +150,7 @@ export const EntryList = ({
 							onClick={() => onRemoveEntry(entry)}
 							title="Remove entry"
 						>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							>
-								<line x1="18" y1="6" x2="6" y2="18" />
-								<line x1="6" y1="6" x2="18" y2="18" />
-							</svg>
+							<CloseActionIcon />
 						</button>
 					</div>
 				))}
