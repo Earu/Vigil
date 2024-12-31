@@ -23,6 +23,7 @@ const api: IElectronAPI = {
 	clearClipboard: () => ipcRenderer.invoke('clear-clipboard'),
 	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => ipcRenderer.invoke('argon2', password, salt, memory, iterations, length, parallelism, type, version),
 	openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+	getPlatform: () => ipcRenderer.invoke('get-platform'),
 	on: (channel: string, callback: Function) => ipcRenderer.on(channel, (_, ...args) => callback(...args)),
 	off: (channel: string, callback: Function) => ipcRenderer.off(channel, (_, ...args) => callback(...args)),
 }

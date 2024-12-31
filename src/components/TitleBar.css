@@ -13,10 +13,52 @@
 	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.title-bar.macos {
+	padding-left: 0; /* Remove the extra padding */
+}
+
 .title-bar.in-password-view {
 	background: #080808;
 	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 	height: 48px;
+}
+
+.macos-window-controls {
+	position: absolute;
+	left: 12px;
+	top: 50%;
+	transform: translateY(-50%);
+	display: flex;
+	gap: 8px;
+	-webkit-app-region: no-drag;
+	z-index: 2; /* Ensure traffic lights are above other elements */
+}
+
+.macos-window-controls .window-control {
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	border: none;
+	padding: 0;
+	margin: 0;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.macos-window-controls .window-control.close {
+	background-color: #ff5f57;
+}
+
+.macos-window-controls .window-control.minimize {
+	background-color: #ffbd2e;
+}
+
+.macos-window-controls .window-control.maximize {
+	background-color: #28c940;
+}
+
+.macos-window-controls .window-control:hover {
+	filter: brightness(85%);
 }
 
 .title-bar-drag-area {
@@ -46,19 +88,37 @@
 .title-bar-controls {
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	gap: 24px;
+	justify-content: flex-start;
+	gap: 32px;
 	flex: 1;
 	min-width: 0;
-	margin-right: 12px;
+	margin: 0;
+	width: 50%;
 	-webkit-app-region: drag;
+	position: absolute;
+	left: 25%;
+	padding: 0 20px;
+	box-sizing: border-box;
+}
+
+/* Specific adjustments for macOS */
+.title-bar.macos .title-bar-controls {
+	z-index: 1;
+	gap: 24px;
+}
+
+/* Keep the logo and title close to traffic lights on macOS */
+.title-bar.macos .title-bar-drag-area {
+	position: relative;
+	justify-content: flex-start;
+	padding-left: 80px;
 }
 
 .search-container {
 	flex: 1;
-	min-width: 100px;
-	max-width: 500px;
-	margin: 0 12px;
+	min-width: 0;
+	margin: 0;
+	width: 100%;
 }
 
 .search-input {
@@ -149,4 +209,9 @@
 	width: 24px;
 	height: 24px;
 	margin-right: 8px;
+}
+
+/* Remove the macOS-specific search container styles since we want consistent sizing */
+.title-bar.macos .search-container {
+	margin: 0 8px;
 }

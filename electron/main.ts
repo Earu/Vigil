@@ -555,6 +555,9 @@ ipcMain.handle('open-external', async (_, url: string) => {
 	await shell.openExternal(url);
 });
 
+// Add platform detection handler
+ipcMain.handle('get-platform', () => "win32");
+
 // Register as default handler for kdbx files
 app.setAsDefaultProtocolClient('kdbx');
 

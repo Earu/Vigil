@@ -11,12 +11,18 @@ interface TitleBarProps {
 
 export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }: TitleBarProps) {
 	const [isMaximized, setIsMaximized] = useState(false);
+	const [isMacOS, setIsMacOS] = useState(false);
 
 	useEffect(() => {
 		// Only run in electron environment
 		if (window.electron) {
 			window.electron.onMaximizeChange((maximized: boolean) => {
 				setIsMaximized(maximized);
+			});
+
+			// Check if we're on macOS
+			window.electron.getPlatform().then(platform => {
+				setIsMacOS(platform === 'darwin');
 			});
 		}
 	}, []);
@@ -34,7 +40,14 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }:
 	};
 
 	return (
-		<div className={`title-bar ${inPasswordView ? 'in-password-view' : ''}`}>
+		<div className={`title-bar ${inPasswordView ? 'in-password-view' : ''} ${isMacOS ? 'macos' : ''}`}>
+			{isMacOS && (
+				<div className="macos-window-controls">
+					<button className="window-control close" onClick={handleClose} />
+					<button className="window-control minimize" onClick={handleMinimize} />
+					<button className="window-control maximize" onClick={handleMaximize} />
+				</div>
+			)}
 			<div className="title-bar-drag-area">
 				<LogoIcon className="title-bar-logo" />
 				<span className="title-bar-text">Vigil</span>
@@ -56,17 +69,19 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }:
 					</div>
 				)}
 			</div>
-			<div className="window-controls">
-				<button className="window-control minimize" onClick={handleMinimize}>
-					<MinimizeIcon />
-				</button>
-				<button className="window-control maximize" onClick={handleMaximize}>
-					<MaximizeIcon isMaximized={isMaximized} />
-				</button>
-				<button className="window-control close" onClick={handleClose}>
-					<CloseIcon />
-				</button>
-			</div>
+			{!isMacOS && (
+				<div className="window-controls">
+					<button className="window-control minimize" onClick={handleMinimize}>
+						<MinimizeIcon />
+					</button>
+					<button className="window-control maximize" onClick={handleMaximize}>
+						<MaximizeIcon isMaximized={isMaximized} />
+					</button>
+					<button className="window-control close" onClick={handleClose}>
+						<CloseIcon />
+					</button>
+				</div>
+			)}
 		</div>
 	);
 }
