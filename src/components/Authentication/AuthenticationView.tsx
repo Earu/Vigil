@@ -11,6 +11,16 @@ interface AuthenticationViewProps {
     onDatabaseOpen: (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => void;
 }
 
+function triggerBiometricUnlock() {
+    const passwordForm = document.querySelector('.password-form') as HTMLElement;
+    if (passwordForm) {
+        const biometricButton = passwordForm.querySelector('.biometric-unlock-button') as HTMLElement;
+        if (biometricButton) {
+            biometricButton.click();
+        }
+    }
+}
+
 export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -24,12 +34,17 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
         let hasDirectFileOpen = false;
 
         if (window.electron) {
-            const handleFileOpened = (data: { data: Buffer, path: string }) => {
+            const handleFileOpened = async (data: { data: Buffer, path: string }) => {
                 try {
                     setSelectedFile(new File([data.data], data.path.split('/').pop() || 'database.kdbx'));
                     setDatabasePath(data.path);
                     setError(null);
                     hasDirectFileOpen = true;
+
+                    if (await KeepassDatabaseService.checkBiometricsForFile(data.path)) {
+                        setInitialBiometricsEnabled(true);
+                        setTimeout(() => triggerBiometricUnlock(), 100);
+                    }
                 } catch (err) {
                     setError('Failed to open file');
                 }
@@ -48,15 +63,7 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
                     setInitialBiometricsEnabled(result.biometricsEnabled);
 
                     if (result.biometricsEnabled) {
-                        setTimeout(() => {
-                            const passwordForm = document.querySelector('.password-form') as HTMLElement;
-                            if (passwordForm) {
-                                const biometricButton = passwordForm.querySelector('.biometric-unlock-button') as HTMLElement;
-                                if (biometricButton) {
-                                    biometricButton.click();
-                                }
-                            }
-                        }, 100);
+                        setTimeout(() => triggerBiometricUnlock(), 100);
                     }
                 }
             };
