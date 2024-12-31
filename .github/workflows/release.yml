@@ -77,12 +77,40 @@ jobs:
           branch: main
           path: artifacts/linux-arm64
 
+      - name: Rename artifacts
+        run: |
+          mkdir -p renamed-artifacts
+
+          # Function to get file extension
+          get_extension() {
+            filename="$1"
+            echo "${filename##*.}"
+          }
+
+          # Process each artifact directory
+          for dir in artifacts/*; do
+            if [ -d "$dir" ]; then
+              platform_arch=$(basename "$dir")
+              platform=${platform_arch%-*}
+              arch=${platform_arch#*-}
+
+              # Find the first file in the directory (should only be one)
+              for file in "$dir"/*; do
+                if [ -f "$file" ]; then
+                  ext=$(get_extension "$file")
+                  new_name="vigil-${platform}-${arch}-${{ github.event.inputs.version }}.${ext}"
+                  cp "$file" "renamed-artifacts/$new_name"
+                fi
+              done
+            fi
+          done
+
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.event.inputs.version }}
           files: |
-            artifacts/**/*
+            renamed-artifacts/*
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
