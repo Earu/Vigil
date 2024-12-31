@@ -62,7 +62,7 @@ jobs:
       if: runner.os == 'Windows'
       uses: actions/upload-artifact@v4
       with:
-        name: windows-installer
+        name: windows-{{ matrix.arch }}-installer
         path: |
           dist/*.exe
         if-no-files-found: error
@@ -82,7 +82,7 @@ jobs:
       if: runner.os == 'Linux'
       uses: actions/upload-artifact@v4
       with:
-        name: linux-installer
+        name: linux-{{ matrix.arch }}-installer
         path: |
           dist/*.AppImage
         if-no-files-found: error
