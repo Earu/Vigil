@@ -273,7 +273,6 @@ export class KeepassDatabaseService {
             name: "New Group",
             groups: [],
             entries: [],
-            expanded: true,
         };
 
         const updatedDatabase: Database = this.deepCopyWithDates(database);
