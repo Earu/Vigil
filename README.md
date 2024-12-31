@@ -2,6 +2,10 @@
 
 A modern, secure password manager with a beautiful user interface, built using Electron and React.
 
+![password_view](https://github.com/user-attachments/assets/443f725a-b249-4305-aa83-d3768a6afb2f)
+![security_report](https://github.com/user-attachments/assets/4a33a8b9-1985-4750-810a-bc20fe85747e)
+
+
 ## Features
 
 - 🔒 Secure KeePass (.kdbx) database support
