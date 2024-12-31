@@ -145,10 +145,62 @@ function createWindow() {
 		frame: false,
 		backgroundColor: '#1a1a1a',
 		webPreferences: {
-			nodeIntegration: true,
+			nodeIntegration: false,
 			contextIsolation: true,
+			sandbox: true,
+			webSecurity: true,
+			allowRunningInsecureContent: false,
 			preload: path.join(__dirname, 'preload.js')
 		}
+	});
+
+	// Set security-related headers including CSP
+	win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+		callback({
+			responseHeaders: {
+				...details.responseHeaders,
+				'Content-Security-Policy': [
+					process.env.NODE_ENV === 'development'
+						? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
+						  "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
+						  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+						  "img-src 'self' data: https://www.google.com https://*.gstatic.com; " +
+						  "font-src 'self' https://fonts.gstatic.com; " +
+						  "connect-src 'self' ws://localhost:5173 http://localhost:5173 https://api.pwnedpasswords.com https://haveibeenpwned.com; " +
+						  "base-uri 'self'; " +
+						  "form-action 'none'; " +
+						  "frame-ancestors 'none';"
+						: "default-src 'self';" +
+						  "script-src 'self';" +
+						  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;" +
+						  "img-src 'self' data: https://www.google.com https://*.gstatic.com;" +
+						  "font-src 'self' https://fonts.gstatic.com;" +
+						  "connect-src 'self' https://api.pwnedpasswords.com https://haveibeenpwned.com;" +
+						  "base-uri 'self';" +
+						  "form-action 'none';" +
+						  "frame-ancestors 'none';"
+				],
+				'X-Content-Type-Options': ['nosniff'],
+				'X-Frame-Options': ['DENY'],
+				'X-XSS-Protection': ['1; mode=block']
+			}
+		});
+	});
+
+	// Prevent navigation and new window creation
+	win.webContents.on('will-navigate', (event, navigationUrl) => {
+		const parsedUrl = new URL(navigationUrl);
+		if (process.env.NODE_ENV === 'development') {
+			if (parsedUrl.origin !== 'http://localhost:5173') {
+				event.preventDefault();
+			}
+		} else {
+			event.preventDefault();
+		}
+	});
+
+	win.webContents.setWindowOpenHandler(() => {
+		return { action: 'deny' };
 	});
 
 	// Add this handler for when the window is ready
