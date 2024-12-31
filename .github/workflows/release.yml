@@ -78,16 +78,11 @@ jobs:
           path: artifacts/linux-arm64
 
       - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          files: |
+            artifacts/**/*
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          for artifact_dir in artifacts/*; do
-            for file in "$artifact_dir"/*; do
-              if [ -f "$file" ]; then
-                platform_arch=$(basename "$artifact_dir")
-                filename=$(basename "$file")
-                echo "Uploading $filename for $platform_arch"
-                gh release upload ${{ github.event.inputs.version }} "$file" --clobber
-              fi
-            done
-          done
