@@ -25,19 +25,16 @@ try {
 	console.error('Failed to load native modules:', error);
 }
 
-// Add path for storing last database location
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
 const SERVICE_NAME = 'Vigil Password Manager';
 const SALT_PATH = path.join(app.getPath('userData'), '.salt');
 
-// Function to generate a new random salt
 function generateNewSalt(): string {
 	const buffer = Buffer.alloc(32);
 	require('crypto').randomFillSync(buffer);
 	return buffer.toString('hex');
 }
 
-// Function to get or create the installation salt
 async function getInstallationSalt(): Promise<string> {
 	try {
 		if (fs.existsSync(SALT_PATH)) {
@@ -56,13 +53,11 @@ async function getInstallationSalt(): Promise<string> {
 	}
 }
 
-// Function to generate a unique key for each database
 async function generateUniqueKey(dbPath: string): Promise<string> {
 	const salt = await getInstallationSalt();
 	return `${dbPath}_${salt}`;
 }
 
-// Function to save last database path
 async function saveLastDatabasePath(dbPath: string) {
 	try {
 		await fs.promises.writeFile(LAST_DB_PATH, JSON.stringify({ path: dbPath }));
@@ -73,13 +68,11 @@ async function saveLastDatabasePath(dbPath: string) {
 	}
 }
 
-// Function to load last database path
 async function loadLastDatabasePath(): Promise<string | null> {
 	try {
 		if (fs.existsSync(LAST_DB_PATH)) {
 			const data = await fs.promises.readFile(LAST_DB_PATH, 'utf-8');
 			const { path: dbPath } = JSON.parse(data);
-			// Verify the file still exists
 			if (fs.existsSync(dbPath)) {
 				return dbPath;
 			}
@@ -91,9 +84,7 @@ async function loadLastDatabasePath(): Promise<string | null> {
 	}
 }
 
-// Function to check if biometrics is available
 let biometricsAvailableCache: boolean | null = null;
-
 async function isBiometricsAvailable(): Promise<boolean> {
 	if (biometricsAvailableCache !== null) {
 		return biometricsAvailableCache;
@@ -119,7 +110,6 @@ async function isBiometricsAvailable(): Promise<boolean> {
 	return biometricsAvailableCache || false;
 }
 
-// Function to prompt for biometric authentication
 async function authenticateWithBiometrics(data: { dbPath: string, dbName: string }): Promise<boolean> {
 	if (process.platform === 'darwin') {
 		try {
@@ -147,6 +137,7 @@ async function authenticateWithBiometrics(data: { dbPath: string, dbName: string
 	return false;
 }
 
+let pendingFileOpen: { data: Buffer, path: string } | null = null;
 function createWindow() {
 	const win = new BrowserWindow({
 		width: 1200,
@@ -157,6 +148,15 @@ function createWindow() {
 			nodeIntegration: true,
 			contextIsolation: true,
 			preload: path.join(__dirname, 'preload.js')
+		}
+	});
+
+	// Add this handler for when the window is ready
+	win.webContents.on('did-finish-load', () => {
+		if (pendingFileOpen) {
+			console.log('[Main] Sending pending file-opened event');
+			win.webContents.send('file-opened', pendingFileOpen);
+			pendingFileOpen = null;
 		}
 	});
 
@@ -212,13 +212,6 @@ function createWindow() {
 		const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
 		console.log('Loading production file from:', indexPath);
 		win.loadFile(indexPath);
-
-		// Ensure required resources can load
-		win.webContents.session.webRequest.onBeforeRequest({ urls: ['file://*/*'] },
-			(_, callback) => {
-				callback({ cancel: false });
-			}
-		);
 	}
 }
 
@@ -544,11 +537,15 @@ async function handleFileOpen(filePath: string) {
 	try {
 		const result = await fs.promises.readFile(filePath);
 		const mainWindow = BrowserWindow.getAllWindows()[0];
-		if (mainWindow) {
-			mainWindow.webContents.send('file-opened', {
-				data: result,
-				path: filePath
-			});
+		const fileData = {
+			data: result,
+			path: filePath
+		};
+
+		if (mainWindow?.webContents.isLoading()) {
+			pendingFileOpen = fileData;
+		} else if (mainWindow) {
+			mainWindow.webContents.send('file-opened', fileData);
 		}
 	} catch (error) {
 		console.error('Failed to open file:', error);
