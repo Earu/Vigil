@@ -16,7 +16,6 @@ jobs:
           - os: windows-latest
             arch: arm64
           - os: ubuntu-latest
-            arch: x64
           - os: macos-latest
             arch: x64
           - os: macos-latest
@@ -39,7 +38,6 @@ jobs:
     - name: Install Linux dependencies
       if: runner.os == 'Linux'
       run: |
-        sudo dpkg --add-architecture arm64
         sudo apt-get update
         sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libgconf-2-4 libnss3
 
@@ -80,7 +78,7 @@ jobs:
       if: runner.os == 'Linux'
       uses: actions/upload-artifact@v4
       with:
-        name: linux-{{ matrix.arch }}-installer
+        name: linux-installer
         path: |
           dist/*.AppImage
         if-no-files-found: error
