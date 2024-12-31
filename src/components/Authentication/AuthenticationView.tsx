@@ -24,14 +24,13 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
         let hasDirectFileOpen = false;
 
         if (window.electron) {
-            const handleFileOpened = async (_: any, data: { data: Buffer, path: string }) => {
+            const handleFileOpened = (data: { data: Buffer, path: string }) => {
                 try {
                     setSelectedFile(new File([data.data], data.path.split('/').pop() || 'database.kdbx'));
                     setDatabasePath(data.path);
                     setError(null);
                     hasDirectFileOpen = true;
                 } catch (err) {
-                    console.error('Failed to handle opened file:', err);
                     setError('Failed to open file');
                 }
             };
