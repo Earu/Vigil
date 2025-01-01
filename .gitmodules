@@ -1,3 +1,0 @@
-[submodule "electron/firefox_decrypt_repo"]
-	path = electron/firefox_decrypt_repo
-	url = https://github.com/unode/firefox_decrypt.git

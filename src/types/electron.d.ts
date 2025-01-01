@@ -21,21 +21,11 @@ export interface IElectronAPI {
 	getPlatform: () => Promise<string>;
 	on: (channel: string, callback: (...args: any[]) => void) => void;
 	off: (channel: string, callback: (...args: any[]) => void) => void;
-	importBrowserPasswords: (browsers: string[]) => Promise<{ success: boolean; passwords?: Array<{
-		url: string;
-		username: string;
-		password: string;
-	}>; error?: string }>;
 }
 
 declare global {
 	interface Window {
 		electron?: IElectronAPI;
-		browserPasswords?: Array<{
-			url: string;
-			username: string;
-			password: string;
-		}>;
 	}
 	var startupFilePath: string | undefined;
 }
