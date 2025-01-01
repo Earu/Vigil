@@ -30,11 +30,17 @@ function getChromiumProfilePath(browser: string): string {
             chrome: join(home, 'AppData', 'Local', 'Google', 'Chrome', 'User Data'),
             edge: join(home, 'AppData', 'Local', 'Microsoft', 'Edge', 'User Data'),
             brave: join(home, 'AppData', 'Local', 'BraveSoftware', 'Brave-Browser', 'User Data'),
+            vivaldi: join(home, 'AppData', 'Local', 'Vivaldi', 'User Data'),
+            opera: join(home, 'AppData', 'Local', 'Opera Software', 'Opera Stable'),
+            chromium: join(home, 'AppData', 'Local', 'Chromium', 'User Data'),
         },
         darwin: {
             chrome: join(home, 'Library', 'Application Support', 'Google', 'Chrome'),
             edge: join(home, 'Library', 'Application Support', 'Microsoft Edge'),
             brave: join(home, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser'),
+            vivaldi: join(home, 'Library', 'Application Support', 'Vivaldi'),
+            opera: join(home, 'Library', 'Application Support', 'com.operasoftware.Opera'),
+            chromium: join(home, 'Library', 'Application Support', 'Chromium'),
         }
     };
 
