@@ -20,13 +20,19 @@ export const DatabaseForm = ({
     const [selectedBrowsers, setSelectedBrowsers] = useState<{ [key: string]: boolean }>({
         chrome: false,
         edge: false,
-        brave: false
+        brave: false,
+        vivaldi: false,
+        opera: false,
+        chromium: false
     });
 
     const browsers = [
         { id: 'chrome', name: 'Google Chrome' },
         { id: 'edge', name: 'Microsoft Edge' },
-        { id: 'brave', name: 'Brave Browser' }
+        { id: 'brave', name: 'Brave Browser' },
+        { id: 'vivaldi', name: 'Vivaldi' },
+        { id: 'opera', name: 'Opera' },
+        { id: 'chromium', name: 'Chromium' }
     ];
 
     const handleFileSelect = async (e: React.MouseEvent) => {
