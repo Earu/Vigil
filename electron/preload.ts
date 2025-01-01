@@ -26,9 +26,6 @@ const api: IElectronAPI = {
 	getPlatform: () => ipcRenderer.invoke('get-platform'),
 	on: (channel: string, callback: Function) => ipcRenderer.on(channel, (_, ...args) => callback(...args)),
 	off: (channel: string, callback: Function) => ipcRenderer.off(channel, (_, ...args) => callback(...args)),
-	importBrowserPasswords: async (browsers: string[]) => {
-		return await ipcRenderer.invoke('import-browser-passwords', browsers);
-	},
 }
 
 contextBridge.exposeInMainWorld('electron', api)
