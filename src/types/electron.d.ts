@@ -21,6 +21,11 @@ export interface IElectronAPI {
 	getPlatform: () => Promise<string>;
 	on: (channel: string, callback: (...args: any[]) => void) => void;
 	off: (channel: string, callback: (...args: any[]) => void) => void;
+	importBrowserPasswords: (browsers: string[]) => Promise<Array<{
+		url: string;
+		username: string;
+		password: string;
+	}>>;
 }
 
 declare global {

@@ -8,6 +8,7 @@ const config = {
 	external: [
 		'electron',
 		'keytar',
+		'sqlite3',
 		// Exclude all .node files
 		'*.node',
 		// Exclude native modules
