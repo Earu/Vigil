@@ -17,6 +17,8 @@ interface PasswordFormProps {
     passwordInputRef: React.RefObject<HTMLInputElement>;
     setIsCreatingNew: (isCreating: boolean) => void;
     initialBiometricsEnabled: boolean;
+    browserPasswords?: Array<{ url: string; username: string; password: string }>;
+    setBrowserPasswords?: (passwords: Array<{ url: string; username: string; password: string }> | undefined) => void;
 }
 
 export const PasswordForm = ({
@@ -29,7 +31,9 @@ export const PasswordForm = ({
     onDatabaseOpen,
     passwordInputRef,
     setIsCreatingNew,
-    initialBiometricsEnabled
+    initialBiometricsEnabled,
+    browserPasswords,
+    setBrowserPasswords
 }: PasswordFormProps) => {
     const [showPassword, setShowPassword] = useState(false);
     const [password, setPassword] = useState('');
@@ -288,7 +292,21 @@ export const PasswordForm = ({
             const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
             const db = kdbxweb.Kdbx.create(credentials, databaseName.trim());
 
-            // TODO: Set KDF parameters to improve new database security
+            console.log('browserPasswords:', browserPasswords);
+            // Import browser passwords if they exist
+            if (browserPasswords?.length && browserPasswords.length > 0) {
+                console.log('Importing browser passwords:', browserPasswords);
+                const importedGroup = db.createGroup(db.getDefaultGroup(), 'Imported');
+                for (const browserPassword of browserPasswords) {
+                    const entry = db.createEntry(importedGroup);
+                    entry.fields.set('Title', new URL(browserPassword.url).hostname);
+                    entry.fields.set('UserName', browserPassword.username);
+                    entry.fields.set('Password', kdbxweb.ProtectedValue.fromString(browserPassword.password));
+                    entry.fields.set('URL', browserPassword.url);
+                }
+                // Clear the imported passwords
+                setBrowserPasswords?.(undefined);
+            }
 
             const arrayBuffer = await db.save();
             const result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
