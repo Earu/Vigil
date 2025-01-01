@@ -6,10 +6,12 @@
 	"author": "Ryan",
 	"scripts": {
 		"dev": "vite",
-		"build": "tsc -b && vite build",
+		"build": "npm run build:firefox-decrypt && tsc && vite build && electron-builder",
 		"preview": "vite preview",
-		"electron:dev": "concurrently \"vite\" \"node electron/build.mjs && node electron/copy-native-modules.mjs && cross-env NODE_ENV=development electron dist-electron/main.js\"",
-		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder"
+		"electron:dev": "node electron/build.mjs && node electron/copy-native-modules.mjs && npm run build:firefox-decrypt && concurrently \"vite\" \"cross-env NODE_ENV=development electron dist-electron/main.js\"",
+		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && npm run build:firefox-decrypt && electron-builder",
+		"build:firefox-decrypt": "node electron/build-firefox-decrypt.mjs",
+		"update:firefox-decrypt": "git submodule update --remote electron/firefox_decrypt_repo"
 	},
 	"dependencies": {
 		"@node-rs/argon2": "^2.0.2",
@@ -52,6 +54,14 @@
 			"dist-electron/**/*",
 			"package.json"
 		],
+		"extraResources": [
+			{
+				"from": "dist-electron",
+				"to": ".",
+				"filter": ["firefox_decrypt.exe", "firefox_decrypt"]
+			}
+		],
+		"asar": true,
 		"extraMetadata": {
 			"main": "dist-electron/main.js"
 		},

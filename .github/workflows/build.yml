@@ -2,9 +2,9 @@ name: Build Electron App
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 jobs:
   build:
@@ -33,6 +33,15 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+        cache: 'pip'
+
+    - name: Install PyInstaller
+      run: pip install pyinstaller
 
     - name: Install dependencies
       run: npm ci

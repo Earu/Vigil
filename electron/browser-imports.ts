@@ -2,9 +2,10 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import * as sqlite3 from 'sqlite3';
 import { homedir } from 'os';
-import { createDecipheriv } from 'crypto';
+import { createDecipheriv, pbkdf2Sync, createHash } from 'crypto';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { app } from 'electron';
 import keytar from './get-keytar';
 
 const execFileAsync = promisify(execFile);
@@ -19,6 +20,17 @@ interface LoginRow {
     origin_url: string;
     username_value: string;
     password_value: Buffer;
+}
+
+interface FirefoxLoginData {
+    hostname: string;
+    encryptedUsername: string;
+    encryptedPassword: string;
+}
+
+interface FirefoxMetadataRow {
+    item1: Buffer;
+    item2: Buffer;
 }
 
 function getChromiumProfilePath(browser: string): string {
@@ -201,13 +213,115 @@ async function getChromiumPasswords(browser: string): Promise<BrowserPassword[]>
     }
 }
 
+function getFirefoxProfilePath(): string {
+    const platform = process.platform;
+    const home = homedir();
+
+    const paths = {
+        win32: join(home, 'AppData', 'Roaming', 'Mozilla', 'Firefox'),
+        darwin: join(home, 'Library', 'Application Support', 'Firefox'),
+        linux: join(home, '.mozilla', 'firefox')
+    };
+
+    return paths[platform as keyof typeof paths] || '';
+}
+
+async function checkPythonAvailable(): Promise<boolean> {
+    try {
+        await execFileAsync('python', ['--version']);
+        return true;
+    } catch (error) {
+        try {
+            await execFileAsync('python3', ['--version']);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    }
+}
+
+async function getFirefoxPasswords(): Promise<BrowserPassword[]> {
+    const passwords: BrowserPassword[] = [];
+    const profilePath = getFirefoxProfilePath();
+    if (!profilePath) return passwords;
+
+    try {
+        // Get the executable path based on whether we're in development or production
+        const executableName = process.platform === 'win32' ? 'firefox_decrypt.exe' : 'firefox_decrypt';
+        let executablePath: string;
+
+        if (process.env.NODE_ENV === 'development') {
+            executablePath = join(__dirname, executableName);
+        } else {
+            // In production, the executable will be in the extraResources directory
+            executablePath = join(
+                process.resourcesPath || app.getAppPath(),
+                executableName
+            );
+        }
+
+        // Make sure the executable has the right permissions on Unix-like systems
+        if (process.platform !== 'win32') {
+            await execFileAsync('chmod', ['+x', executablePath]);
+        }
+
+        // Common options for running the executable
+        const execOptions = {
+            env: {
+                ...process.env,
+                PYTHONIOENCODING: 'utf-8',
+                PYTHONUTF8: '1'
+            }
+        };
+
+        // First, list available profiles
+        const { stdout: profileList } = await execFileAsync(executablePath, ['--list', profilePath], execOptions);
+
+        const profileListArray = profileList.split("\n").map(line => line.trim());
+        const profileIndex = profileListArray.findIndex(line => line.endsWith(".default") || line.endsWith(".default-release"));
+        if (profileIndex === -1) {
+            throw new Error('No Firefox profiles found');
+        }
+
+        const profileNumber = profileListArray[profileIndex].split(" ")[0];
+
+        // Run the executable with JSON output format and the selected profile
+        const { stdout } = await execFileAsync(executablePath, [
+            '--format', 'json',
+            '--no-interactive',
+            '--choice', profileNumber,
+            profilePath
+        ], execOptions);
+
+        // Parse the JSON output
+        const decryptedPasswords = JSON.parse(stdout);
+
+        // Convert to our password format
+        for (const entry of decryptedPasswords) {
+            passwords.push({
+                url: entry.url,
+                username: entry.user,
+                password: entry.password
+            });
+        }
+
+        return passwords;
+    } catch (error) {
+        console.error('Failed to read Firefox passwords:', error);
+        throw error; // Re-throw the error to handle it in the UI
+    }
+}
+
 export async function importBrowserPasswords(browsers: string[]): Promise<BrowserPassword[]> {
     const allPasswords: BrowserPassword[] = [];
 
     for (const browser of browsers) {
         try {
-            if (['chrome', 'edge', 'brave'].includes(browser)) {
+            if (['chrome', 'edge', 'brave', 'vivaldi', 'opera', 'chromium'].includes(browser)) {
                 const passwords = await getChromiumPasswords(browser);
+                allPasswords.push(...passwords);
+            } else if (browser === 'firefox') {
+                const passwords = await getFirefoxPasswords();
                 allPasswords.push(...passwords);
             }
         } catch (error) {
