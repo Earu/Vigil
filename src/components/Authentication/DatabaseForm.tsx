@@ -1,17 +1,19 @@
-import { BrowseAuthIcon } from '../../icons/auth/AuthIcons';
+import { BrowseAuthIcon, ImportAuthIcon } from '../../icons/auth/AuthIcons';
 
 interface DatabaseFormProps {
     setSelectedFile: (file: File | null) => void;
     setDatabasePath: (path: string | null) => void;
     setIsCreatingNew: (isCreating: boolean) => void;
     setError: (error: string | null) => void;
+    setBrowserPasswords: (passwords: Array<{ url: string; username: string; password: string }>) => void;
 }
 
 export const DatabaseForm = ({
     setSelectedFile,
     setDatabasePath,
     setIsCreatingNew,
-    setError
+    setError,
+    setBrowserPasswords
 }: DatabaseFormProps) => {
     const handleFileSelect = async (e: React.MouseEvent) => {
         e.preventDefault();
@@ -51,6 +53,23 @@ export const DatabaseForm = ({
                     onClick={() => setIsCreatingNew(true)}
                 >
                     Create New Database
+                </button>
+                <button
+                    className="import-browser-button"
+                    onClick={() => {
+                        setIsCreatingNew(true);
+                        window.electron?.importBrowserPasswords(['chrome', 'firefox', 'edge'])
+                            .then(passwords => {
+                                setBrowserPasswords(passwords?.passwords || []);
+                            })
+                            .catch(err => {
+                                console.error('Failed to import browser passwords:', err);
+                                setError('Failed to import browser passwords');
+                            });
+                    }}
+                >
+                    <ImportAuthIcon className="import-icon" />
+                    Import from my browser
                 </button>
             </div>
         </>
