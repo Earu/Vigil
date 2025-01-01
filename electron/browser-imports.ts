@@ -226,20 +226,6 @@ function getFirefoxProfilePath(): string {
     return paths[platform as keyof typeof paths] || '';
 }
 
-async function checkPythonAvailable(): Promise<boolean> {
-    try {
-        await execFileAsync('python', ['--version']);
-        return true;
-    } catch (error) {
-        try {
-            await execFileAsync('python3', ['--version']);
-            return true;
-        } catch (error) {
-            return false;
-        }
-    }
-}
-
 async function getFirefoxPasswords(): Promise<BrowserPassword[]> {
     const passwords: BrowserPassword[] = [];
     const profilePath = getFirefoxProfilePath();
