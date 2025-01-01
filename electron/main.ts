@@ -199,7 +199,6 @@ function createWindow() {
 	// Add this handler for when the window is ready
 	win.webContents.on('did-finish-load', () => {
 		if (pendingFileOpen) {
-			console.log('[Main] Sending pending file-opened event');
 			win.webContents.send('file-opened', pendingFileOpen);
 			pendingFileOpen = null;
 		}
@@ -232,7 +231,7 @@ function createWindow() {
 				ipcMain.removeHandler(channel);
 			} catch (error) {
 				// Handler might already be removed
-				console.log(`Handler ${channel} already removed`);
+				console.warn(`Handler ${channel} already removed`);
 			}
 		};
 	});

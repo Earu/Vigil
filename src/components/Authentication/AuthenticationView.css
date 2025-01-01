@@ -426,3 +426,211 @@
     width: 1.25rem;
     height: 1.25rem;
 }
+
+.browser-select-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.browser-select-dialog {
+    background-color: var(--background-color);
+    border-radius: 8px;
+    padding: 20px;
+    min-width: 300px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+.browser-select-dialog h3 {
+    margin: 0 0 20px 0;
+    text-align: center;
+    color: var(--text-color);
+}
+
+.browser-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.browser-option {
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.browser-option:hover {
+    background-color: var(--hover-color);
+}
+
+.cancel-button {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 4px;
+    background-color: var(--error-color);
+    color: white;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.cancel-button:hover {
+    opacity: 0.9;
+}
+
+/* Browser Selection Modal */
+.browser-select-modal {
+    background-color: #0a0a0a;
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    width: 100%;
+    max-width: 500px;
+    margin: 1rem;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #ffffff;
+}
+
+.close-button {
+    background: none;
+    border: none;
+    color: #cccccc;
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0.25rem;
+    line-height: 1;
+    transition: color 0.2s ease;
+}
+
+.close-button:hover {
+    color: #ffffff;
+}
+
+.modal-content {
+    padding: 1.5rem;
+}
+
+.modal-content p {
+    margin: 0 0 1rem 0;
+    color: #cccccc;
+}
+
+.browser-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.browser-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.browser-toggle:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.browser-toggle input[type="checkbox"] {
+    appearance: none;
+    width: 1.25rem;
+    height: 1.25rem;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 0.25rem;
+    background-color: transparent;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.browser-toggle input[type="checkbox"]:checked {
+    background-color: #ffffff;
+    border-color: #ffffff;
+}
+
+.browser-toggle input[type="checkbox"]:checked::after {
+    content: "✓";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #000000;
+    font-size: 0.875rem;
+    font-weight: bold;
+}
+
+.toggle-label {
+    color: #ffffff;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    padding: 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.secondary-button {
+    padding: 0.75rem 1.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    color: #cccccc;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.secondary-button:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.primary-button {
+    padding: 0.75rem 1.5rem;
+    background: linear-gradient(135deg, #ffffff, #cccccc);
+    color: black;
+    border: none;
+    border-radius: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.primary-button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+}
