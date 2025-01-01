@@ -292,10 +292,8 @@ export const PasswordForm = ({
             const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
             const db = kdbxweb.Kdbx.create(credentials, databaseName.trim());
 
-            console.log('browserPasswords:', browserPasswords);
             // Import browser passwords if they exist
             if (browserPasswords?.length && browserPasswords.length > 0) {
-                console.log('Importing browser passwords:', browserPasswords);
                 const importedGroup = db.createGroup(db.getDefaultGroup(), 'Imported');
                 for (const browserPassword of browserPasswords) {
                     const entry = db.createEntry(importedGroup);

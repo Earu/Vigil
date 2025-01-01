@@ -1,4 +1,5 @@
 import { BrowseAuthIcon, ImportAuthIcon } from '../../icons/auth/AuthIcons';
+import { useState } from 'react';
 
 interface DatabaseFormProps {
     setSelectedFile: (file: File | null) => void;
@@ -15,6 +16,19 @@ export const DatabaseForm = ({
     setError,
     setBrowserPasswords
 }: DatabaseFormProps) => {
+    const [showBrowserSelect, setShowBrowserSelect] = useState(false);
+    const [selectedBrowsers, setSelectedBrowsers] = useState<{ [key: string]: boolean }>({
+        chrome: false,
+        edge: false,
+        brave: false
+    });
+
+    const browsers = [
+        { id: 'chrome', name: 'Google Chrome' },
+        { id: 'edge', name: 'Microsoft Edge' },
+        { id: 'brave', name: 'Brave Browser' }
+    ];
+
     const handleFileSelect = async (e: React.MouseEvent) => {
         e.preventDefault();
         if (!window.electron) return;
@@ -37,6 +51,36 @@ export const DatabaseForm = ({
         }
     };
 
+    const handleBrowserImport = async () => {
+        const selectedBrowserIds = Object.entries(selectedBrowsers)
+            .filter(([_, isSelected]) => isSelected)
+            .map(([id]) => id);
+
+        if (selectedBrowserIds.length === 0) {
+            setError('Please select at least one browser');
+            return;
+        }
+
+        setShowBrowserSelect(false);
+        setIsCreatingNew(true);
+
+        window.electron?.importBrowserPasswords(selectedBrowserIds)
+            .then(passwords => {
+                setBrowserPasswords(passwords?.passwords || []);
+            })
+            .catch(err => {
+                console.error('Failed to import browser passwords:', err);
+                setError('Failed to import browser passwords');
+            });
+    };
+
+    const toggleBrowser = (browserId: string) => {
+        setSelectedBrowsers(prev => ({
+            ...prev,
+            [browserId]: !prev[browserId]
+        }));
+    };
+
     return (
         <>
             <p>Select or drop your KeePass database file to get started</p>
@@ -56,22 +100,56 @@ export const DatabaseForm = ({
                 </button>
                 <button
                     className="import-browser-button"
-                    onClick={() => {
-                        setIsCreatingNew(true);
-                        window.electron?.importBrowserPasswords(['chrome', 'firefox', 'edge'])
-                            .then(passwords => {
-                                setBrowserPasswords(passwords?.passwords || []);
-                            })
-                            .catch(err => {
-                                console.error('Failed to import browser passwords:', err);
-                                setError('Failed to import browser passwords');
-                            });
-                    }}
+                    onClick={() => setShowBrowserSelect(true)}
                 >
                     <ImportAuthIcon className="import-icon" />
                     Import from my browser
                 </button>
             </div>
+            {showBrowserSelect && (
+                <div className="browser-select-overlay">
+                    <div className="browser-select-modal">
+                        <div className="modal-header">
+                            <h3>Import Browser Passwords</h3>
+                            <button
+                                className="close-button"
+                                onClick={() => setShowBrowserSelect(false)}
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <div className="modal-content">
+                            <p>Select the browsers you want to import passwords from:</p>
+                            <div className="browser-toggles">
+                                {browsers.map(browser => (
+                                    <label key={browser.id} className="browser-toggle">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedBrowsers[browser.id]}
+                                            onChange={() => toggleBrowser(browser.id)}
+                                        />
+                                        <span className="toggle-label">{browser.name}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="modal-footer">
+                            <button
+                                className="secondary-button"
+                                onClick={() => setShowBrowserSelect(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="primary-button"
+                                onClick={handleBrowserImport}
+                            >
+                                Import Selected
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 };
