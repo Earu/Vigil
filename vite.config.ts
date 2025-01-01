@@ -16,13 +16,14 @@ export default defineConfig({
 				/\.wasm$/,
 				/\.node$/,
 				'keytar',
-				'@node-rs/argon2'
+				'@node-rs/argon2',
+				'sqlite3'
 			],
 		},
 		assetsDir: 'assets'
 	},
 	optimizeDeps: {
-		exclude: ['@syntect/wasm', '@node-rs/argon2', 'keytar']
+		exclude: ['@syntect/wasm', '@node-rs/argon2', 'keytar', 'sqlite3']
 	},
 	base: './'
 })
