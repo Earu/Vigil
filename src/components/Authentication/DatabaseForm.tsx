@@ -16,26 +16,7 @@ export const DatabaseForm = ({
     setError,
     setBrowserPasswords
 }: DatabaseFormProps) => {
-    const [showBrowserSelect, setShowBrowserSelect] = useState(false);
-    const [selectedBrowsers, setSelectedBrowsers] = useState<{ [key: string]: boolean }>({
-        chrome: false,
-        edge: false,
-        brave: false,
-        vivaldi: false,
-        opera: false,
-        chromium: false,
-        firefox: false
-    });
-
-    const browsers = [
-        { id: 'chrome', name: 'Google Chrome' },
-        { id: 'edge', name: 'Microsoft Edge' },
-        { id: 'firefox', name: 'Mozilla Firefox' },
-        { id: 'brave', name: 'Brave Browser' },
-        { id: 'vivaldi', name: 'Vivaldi' },
-        { id: 'opera', name: 'Opera' },
-        { id: 'chromium', name: 'Chromium' },
-    ];
+    const [showImportModal, setShowImportModal] = useState(false);
 
     const handleFileSelect = async (e: React.MouseEvent) => {
         e.preventDefault();
@@ -59,41 +40,104 @@ export const DatabaseForm = ({
         }
     };
 
-    const handleBrowserImport = async () => {
-        const selectedBrowserIds = Object.entries(selectedBrowsers)
-            .filter(([_, isSelected]) => isSelected)
-            .map(([id]) => id);
+    const handleCsvImport = async () => {
+        // Create a file input element
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.csv';
 
-        if (selectedBrowserIds.length === 0) {
-            setError('Please select at least one browser');
-            return;
-        }
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
 
-        setShowBrowserSelect(false);
-        setIsCreatingNew(true);
+            try {
+                const text = await file.text();
+                const lines = text.split(/\r?\n/).filter(line => line.trim());
 
-        window.electron?.importBrowserPasswords(selectedBrowserIds)
-            .then(result => {
-                if (!result.success) {
-                    throw new Error(result.error);
+                if (lines.length === 0) {
+                    throw new Error('CSV file is empty');
                 }
-                setBrowserPasswords(result.passwords || []);
-            })
-            .catch(err => {
-                console.error('Failed to import browser passwords:', err);
-                if (err.message?.includes('Python is required')) {
-                    setError('Python is required to import Firefox passwords. Please install Python and try again.');
-                } else {
-                    setError('Failed to import browser passwords. Check the console for details.');
+
+                const passwords: Array<{ url: string; username: string; password: string }> = [];
+                const headerLine = parseCSVLine(lines[0]);
+                const headers = headerLine.map(h => h.toLowerCase());
+
+                const urlIndex = headers.findIndex(h => h === 'url' || h === 'origin');
+                const usernameIndex = headers.findIndex(h => h === 'username' || h === 'username field' || h === 'usernamevalue');
+                const passwordIndex = headers.findIndex(h => h === 'password' || h === 'password field' || h === 'passwordvalue');
+
+                if (passwordIndex === -1 || (urlIndex === -1 && usernameIndex === -1)) {
+                    console.log('Could not find required columns. Headers found:', headers);
+                    throw new Error('Could not find required columns (url/origin, username, password) in the CSV file');
                 }
-            });
+
+                // Parse based on known CSV formats
+                for (let i = 1; i < lines.length; i++) {
+                    const values = parseCSVLine(lines[i]);
+                    if (values.length === 0) {
+                        console.log(`Skipping empty line ${i + 1}`);
+                        continue;
+                    }
+
+                    const url = urlIndex !== -1 ? values[urlIndex] : "";
+                    const username = usernameIndex !== -1 ? values[usernameIndex] : "";
+                    const password = values[passwordIndex];
+
+                    if (!password) {
+                        continue;
+                    }
+
+                    passwords.push({ url, username, password });
+                }
+
+                if (passwords.length === 0) {
+                    throw new Error('No valid password entries found in CSV');
+                }
+
+                console.log(`Successfully imported ${passwords.length} passwords from CSV (${lines.length - 1} total entries)`);
+                setShowImportModal(false);
+                setIsCreatingNew(true);
+                setBrowserPasswords(passwords);
+            } catch (err) {
+                console.error('Failed to import CSV:', err);
+                setError(err instanceof Error ? err.message : 'Failed to import CSV file');
+            }
+        };
+
+        // Trigger the file picker
+        input.click();
     };
 
-    const toggleBrowser = (browserId: string) => {
-        setSelectedBrowsers(prev => ({
-            ...prev,
-            [browserId]: !prev[browserId]
-        }));
+    // Helper function to parse CSV lines properly handling quoted fields
+    const parseCSVLine = (line: string): string[] => {
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+
+            if (char === '"') {
+                if (inQuotes && line[i + 1] === '"') {
+                    // Handle escaped quotes
+                    current += '"';
+                    i++;
+                } else {
+                    // Toggle quote state
+                    inQuotes = !inQuotes;
+                }
+            } else if (char === ',' && !inQuotes) {
+                // End of field
+                result.push(current.trim());
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+
+        // Add the last field
+        result.push(current.trim());
+        return result;
     };
 
     return (
@@ -115,51 +159,43 @@ export const DatabaseForm = ({
                 </button>
                 <button
                     className="import-browser-button"
-                    onClick={() => setShowBrowserSelect(true)}
+                    onClick={() => setShowImportModal(true)}
                 >
                     <ImportAuthIcon className="import-icon" />
-                    Import from my browser
+                    Import from CSV
                 </button>
             </div>
-            {showBrowserSelect && (
+            {showImportModal && (
                 <div className="browser-select-overlay">
                     <div className="browser-select-modal">
                         <div className="modal-header">
-                            <h3>Import Browser Passwords</h3>
+                            <h3>Import Passwords from CSV</h3>
                             <button
                                 className="close-button"
-                                onClick={() => setShowBrowserSelect(false)}
+                                onClick={() => setShowImportModal(false)}
                             >
                                 ×
                             </button>
                         </div>
                         <div className="modal-content">
-                            <p>Select the browsers you want to import passwords from:</p>
-                            <div className="browser-toggles">
-                                {browsers.map(browser => (
-                                    <label key={browser.id} className="browser-toggle">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedBrowsers[browser.id]}
-                                            onChange={() => toggleBrowser(browser.id)}
-                                        />
-                                        <span className="toggle-label">{browser.name}</span>
-                                    </label>
-                                ))}
-                            </div>
+                            <p>Select a CSV file containing your exported passwords.</p>
+                            <p className="help-text">
+                                The CSV file should contain columns for URL, username, and password.
+                                You can export these from your browser's password manager.
+                            </p>
                         </div>
                         <div className="modal-footer">
                             <button
                                 className="secondary-button"
-                                onClick={() => setShowBrowserSelect(false)}
+                                onClick={() => setShowImportModal(false)}
                             >
                                 Cancel
                             </button>
                             <button
                                 className="primary-button"
-                                onClick={handleBrowserImport}
+                                onClick={handleCsvImport}
                             >
-                                Import Selected
+                                Select CSV File
                             </button>
                         </div>
                     </div>

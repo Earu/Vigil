@@ -43,5 +43,3 @@ native/**/cmake_install.cmake
 
 # Argon2
 public
-firefox_decrypt.spec
-build/firefox_decrypt

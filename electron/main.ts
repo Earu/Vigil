@@ -4,7 +4,6 @@ import fs from 'fs'
 import * as argon2 from '@node-rs/argon2';
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'crypto';
 import { execSync } from 'child_process';
-import { importBrowserPasswords } from './browser-imports';
 import keytar from './get-keytar';
 
 let Passport: any;
@@ -548,16 +547,6 @@ ipcMain.handle('open-external', async (_, url: string) => {
 });
 
 ipcMain.handle('get-platform', () => "win32");
-
-ipcMain.handle('import-browser-passwords', async (_, browsers: string[]) => {
-	try {
-		const passwords = await importBrowserPasswords(browsers);
-		return { success: true, passwords };
-	} catch (error) {
-		console.error('Failed to import browser passwords:', error);
-		return { success: false, error: 'Failed to import browser passwords' };
-	}
-});
 
 // Register as default handler for kdbx files
 app.setAsDefaultProtocolClient('kdbx');
