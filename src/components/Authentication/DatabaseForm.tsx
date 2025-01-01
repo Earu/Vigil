@@ -23,16 +23,18 @@ export const DatabaseForm = ({
         brave: false,
         vivaldi: false,
         opera: false,
-        chromium: false
+        chromium: false,
+        firefox: false
     });
 
     const browsers = [
         { id: 'chrome', name: 'Google Chrome' },
         { id: 'edge', name: 'Microsoft Edge' },
+        { id: 'firefox', name: 'Mozilla Firefox' },
         { id: 'brave', name: 'Brave Browser' },
         { id: 'vivaldi', name: 'Vivaldi' },
         { id: 'opera', name: 'Opera' },
-        { id: 'chromium', name: 'Chromium' }
+        { id: 'chromium', name: 'Chromium' },
     ];
 
     const handleFileSelect = async (e: React.MouseEvent) => {
@@ -71,12 +73,19 @@ export const DatabaseForm = ({
         setIsCreatingNew(true);
 
         window.electron?.importBrowserPasswords(selectedBrowserIds)
-            .then(passwords => {
-                setBrowserPasswords(passwords?.passwords || []);
+            .then(result => {
+                if (!result.success) {
+                    throw new Error(result.error);
+                }
+                setBrowserPasswords(result.passwords || []);
             })
             .catch(err => {
                 console.error('Failed to import browser passwords:', err);
-                setError('Failed to import browser passwords');
+                if (err.message?.includes('Python is required')) {
+                    setError('Python is required to import Firefox passwords. Please install Python and try again.');
+                } else {
+                    setError('Failed to import browser passwords. Check the console for details.');
+                }
             });
     };
 
