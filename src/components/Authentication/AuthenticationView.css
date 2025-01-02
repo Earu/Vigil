@@ -475,21 +475,6 @@
     background-color: var(--overlay-medium);
 }
 
-.cancel-button {
-    width: 100%;
-    padding: 10px;
-    border: none;
-    border-radius: 4px;
-    background-color: var(--error-color);
-    color: white;
-    cursor: pointer;
-    transition: opacity 0.2s;
-}
-
-.cancel-button:hover {
-    opacity: 0.9;
-}
-
 /* Browser Selection Modal */
 .browser-select-modal {
     background-color: var(--bg-dark);
