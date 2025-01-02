@@ -15,7 +15,7 @@ export function createWindow() {
             sandbox: true,
             webSecurity: true,
             allowRunningInsecureContent: false,
-            preload: path.join(__dirname, '..', 'preload.js')
+            preload: path.join(__dirname, 'preload.js')
         }
     });
 
