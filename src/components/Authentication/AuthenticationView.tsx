@@ -28,6 +28,7 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
     const [databasePath, setDatabasePath] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [initialBiometricsEnabled, setInitialBiometricsEnabled] = useState(false);
+    const [browserPasswords, setBrowserPasswords] = useState<Array<{ url: string; username: string; password: string }> | undefined>(undefined);
     const passwordInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -134,6 +135,8 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
                             passwordInputRef={passwordInputRef}
                             setIsCreatingNew={setIsCreatingNew}
                             initialBiometricsEnabled={initialBiometricsEnabled}
+                            browserPasswords={browserPasswords}
+                            setBrowserPasswords={setBrowserPasswords}
                         />
                     ) : (
                         <DatabaseForm
@@ -141,6 +144,7 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
                             setDatabasePath={setDatabasePath}
                             setIsCreatingNew={setIsCreatingNew}
                             setError={setError}
+                            setBrowserPasswords={setBrowserPasswords}
                         />
                     )}
                 </div>

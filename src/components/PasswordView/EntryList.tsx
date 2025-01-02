@@ -106,9 +106,10 @@ export const EntryList = ({
 								{entry.url ? (
 									<img
 										src={`https://www.google.com/s2/favicons?domain=${KeepassDatabaseService.getUrlHostname(entry.url)}&sz=32`}
-										alt=""
+										alt={entry.title}
 										className="favicon"
 										onError={(e) => {
+											e.preventDefault();
 											(e.target as HTMLImageElement).style.display = 'none';
 										}}
 									/>

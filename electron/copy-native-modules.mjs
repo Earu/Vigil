@@ -57,14 +57,15 @@ if (!fs.existsSync(destDir)) {
 }
 
 // Copy node native modules
-for (const module of modulesToCopy) {
+for (const moduleName of modulesToCopy) {
     try {
-        const sourcePath = getModulePath(module);
-        const destPath = path.join(destDir, path.basename(sourcePath));
-        fs.copyFileSync(sourcePath, destPath);
-        console.log(`Copied ${module} native module to ${destPath}`);
-    } catch (err) {
-        console.error(`Failed to copy ${module}:`, err);
+        const modulePath = getModulePath(moduleName);
+        const fileName = path.basename(modulePath);
+        const targetPath = path.join(process.cwd(), 'dist-electron', fileName);
+        fs.copyFileSync(modulePath, targetPath);
+        console.log(`Copied ${fileName} to dist-electron`);
+    } catch (error) {
+        console.error(`Failed to copy ${moduleName}:`, error);
         process.exit(1);
     }
 }
