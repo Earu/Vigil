@@ -106,34 +106,34 @@ button:focus-visible {
 @media (prefers-color-scheme: light) {
 	:root {
 		/* Background colors - Light theme */
-		--bg-primary: #ffffff;
-		--bg-secondary: #f3f4f6;
-		--bg-tertiary: #e5e7eb;
-		--bg-dark: #d1d5db;
+		--bg-primary: #f8fafc;
+		--bg-secondary: #f1f5f9;
+		--bg-tertiary: #e2e8f0;
+		--bg-dark: #cbd5e1;
 		--bg-light: #ffffff;
 
 		/* Text colors - Light theme */
-		--text-primary: #111827;
-		--text-secondary: #374151;
-		--text-tertiary: #6b7280;
-		--text-muted: #9ca3af;
-		--text-light: #4b5563;
+		--text-primary: #0f172a;
+		--text-secondary: #1e293b;
+		--text-tertiary: #475569;
+		--text-muted: #64748b;
+		--text-light: #334155;
 
 		/* Border colors - Light theme */
-		--border-primary: rgba(0, 0, 0, 0.1);
-		--border-secondary: rgba(0, 0, 0, 0.15);
-		--border-hover: rgba(0, 0, 0, 0.2);
+		--border-primary: rgba(51, 65, 85, 0.1);
+		--border-secondary: rgba(51, 65, 85, 0.15);
+		--border-hover: rgba(51, 65, 85, 0.2);
 
 		/* Overlay colors - Light theme */
-		--overlay-light: rgba(0, 0, 0, 0.02);
-		--overlay-medium: rgba(0, 0, 0, 0.05);
-		--overlay-dark: rgba(0, 0, 0, 0.1);
+		--overlay-light: rgba(51, 65, 85, 0.02);
+		--overlay-medium: rgba(51, 65, 85, 0.05);
+		--overlay-dark: rgba(51, 65, 85, 0.1);
 
-		/* Alert colors - Light theme */
-		--alert-error-bg: rgba(239, 68, 68, 0.1);
-		--alert-error-border: rgba(239, 68, 68, 0.2);
-		--alert-warning-bg: rgba(245, 158, 11, 0.1);
-		--alert-warning-border: rgba(245, 158, 11, 0.2);
+		/* Alert colors - Light theme - More vibrant */
+		--alert-error-bg: rgba(239, 68, 68, 0.15);
+		--alert-error-border: rgba(239, 68, 68, 0.25);
+		--alert-warning-bg: rgba(245, 158, 11, 0.15);
+		--alert-warning-border: rgba(245, 158, 11, 0.25);
 
 		color: var(--text-primary);
 		background-color: var(--bg-primary);
