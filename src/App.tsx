@@ -8,12 +8,15 @@ import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
 import { AuthenticationView } from './components/Authentication/AuthenticationView';
 import { KeepassDatabaseService } from './services/KeepassDatabaseService';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { Settings } from './components/Settings/Settings';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
 	const [showInitialBreachReport, setShowInitialBreachReport] = useState(false);
+	const [showSettings, setShowSettings] = useState(false);
 
 	useEffect(() => {
 		const handleLockEvent = () => {
@@ -61,33 +64,38 @@ function App() {
 		}
 	};
 
-	if (database) {
-		return (
-			<>
-				<TitleBar
-					inPasswordView={true}
-					onLock={handleLock}
-					searchQuery={searchQuery}
-					onSearch={setSearchQuery}
-				/>
-				<PasswordView
-					database={database}
-					searchQuery={searchQuery}
-					onDatabaseChange={handleDatabaseChange}
-					showInitialBreachReport={showInitialBreachReport}
-				/>
-				<ToastContainer />
-			</>
-		);
-	}
-
-	return (
+	const content = database ? (
+		<>
+			<TitleBar
+				inPasswordView={true}
+				onLock={handleLock}
+				searchQuery={searchQuery}
+				onSearch={setSearchQuery}
+				onOpenSettings={() => setShowSettings(true)}
+			/>
+			<PasswordView
+				database={database}
+				searchQuery={searchQuery}
+				onDatabaseChange={handleDatabaseChange}
+				showInitialBreachReport={showInitialBreachReport}
+			/>
+			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
+			<ToastContainer />
+		</>
+	) : (
 		<div className="app">
 			<Background />
-			<TitleBar />
+			<TitleBar onOpenSettings={() => setShowSettings(true)} />
 			<AuthenticationView onDatabaseOpen={handleDatabaseOpen} />
+			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
 			<ToastContainer />
 		</div>
+	);
+
+	return (
+		<ThemeProvider>
+			{content}
+		</ThemeProvider>
 	);
 }
 
