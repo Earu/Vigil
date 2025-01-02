@@ -5,7 +5,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .main-content {
@@ -18,10 +18,10 @@
 }
 
 .database-form {
-    background-color: #0a0a0a;
+    background-color: var(--bg-dark);
     padding: 2.5rem;
     border-radius: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-primary);
     text-align: center;
     box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
     width: 100%;
@@ -32,7 +32,7 @@
     width: 4rem;
     height: 4rem;
     margin: 0 auto 1.5rem;
-    background: linear-gradient(135deg, #ffffff, #cccccc);
+    background: linear-gradient(135deg, var(--color-white), var(--text-light));
     border-radius: 0.75rem;
     display: flex;
     align-items: center;
@@ -42,21 +42,21 @@
 .lock-icon {
     width: 2rem;
     height: 2rem;
-    color: black;
+    color: var(--color-black);
 }
 
 .database-form h1 {
     margin: 0 0 1rem 0;
     font-size: 1.5rem;
     font-weight: 600;
-    background: linear-gradient(to right, #ffffff, #cccccc);
+    background: linear-gradient(to right, var(--color-white), var(--text-light));
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 
 .database-form p {
-    color: #cccccc;
+    color: var(--text-light);
     margin-bottom: 1.5rem;
 }
 
@@ -71,13 +71,13 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.75rem 1.5rem;
-    background: linear-gradient(135deg, #ffffff, #cccccc);
-    color: black;
+    background: linear-gradient(135deg, var(--color-white), var(--text-light));
+    color: var(--color-black);
     border-radius: 0.75rem;
     cursor: pointer;
     font-weight: 500;
     transition: all 0.2s ease;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-primary);
 }
 
 .file-input-label:hover {
@@ -96,17 +96,17 @@
     justify-content: center;
     gap: 0.5rem;
     padding: 0.75rem 1.5rem;
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background: var(--overlay-medium);
+    color: var(--text-primary);
     border-radius: 0.75rem;
     cursor: pointer;
     font-weight: 500;
     transition: all 0.2s ease;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--border-secondary);
 }
 
 .create-new-button:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--overlay-dark);
     transform: translateY(-1px);
 }
 
@@ -135,14 +135,14 @@
     font-size: 1.5rem;
     font-weight: 500;
     padding: 2rem;
-    border: 2px dashed rgba(255, 255, 255, 0.2);
+    border: 2px dashed var(--border-secondary);
     border-radius: 1rem;
 }
 
 .upload-icon {
     width: 3rem;
     height: 3rem;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--text-muted);
 }
 
 /* Password Form Styles */
@@ -156,17 +156,17 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--overlay-light);
     padding: 0.75rem 1rem;
     border-radius: 0.75rem;
     font-size: 0.875rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-primary);
 }
 
 .clear-file {
     background: none;
     border: none;
-    color: #cccccc;
+    color: var(--text-light);
     cursor: pointer;
     font-size: 1.25rem;
     padding: 0.25rem;
@@ -175,7 +175,7 @@
 }
 
 .clear-file:hover {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .password-input-container {
@@ -188,19 +188,19 @@
     width: 100%;
     padding: 0.75rem 1rem;
     padding-right: 2.5rem;
-    background-color: #080808;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-primary);
     border-radius: 0.75rem;
-    color: white;
+    color: var(--text-primary);
     font-size: 0.875rem;
     transition: all 0.2s ease;
 }
 
 .password-input:focus {
     outline: none;
-    border-color: #ffffff;
-    background-color: #0f0f0f;
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
+    border-color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    box-shadow: 0 0 0 4px var(--overlay-light);
 }
 
 .toggle-password {
@@ -208,7 +208,7 @@
     right: 0.75rem;
     background: none;
     border: none;
-    color: #cccccc;
+    color: var(--text-light);
     cursor: pointer;
     padding: 0.25rem;
     display: flex;
@@ -218,7 +218,7 @@
 }
 
 .toggle-password:hover {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .toggle-password svg {
@@ -227,7 +227,7 @@
 }
 
 .error-message {
-    color: #ff0000;
+    color: var(--color-error);
     font-size: 0.875rem;
     margin-top: -0.5rem;
 }
@@ -240,9 +240,9 @@
 .cancel-button {
     flex: 1;
     padding: 0.75rem 1.5rem;
-    background: rgba(255, 255, 255, 0.1);
-    color: #cccccc;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--overlay-medium);
+    color: var(--text-light);
+    border: 1px solid var(--border-primary);
     border-radius: 0.75rem;
     cursor: pointer;
     font-weight: 500;
@@ -250,7 +250,7 @@
 }
 
 .cancel-button:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--overlay-dark);
 }
 
 .unlock-button {
@@ -260,19 +260,19 @@
     justify-content: center;
     gap: 0.5rem;
     padding: 0.75rem 1.5rem;
-    background: linear-gradient(135deg, #ffffff, #cccccc);
-    color: black;
+    background: linear-gradient(135deg, var(--color-white), var(--text-light));
+    color: var(--color-black);
     border: none;
     border-radius: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-primary);
 }
 
 .unlock-button:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 12px var(--overlay-dark);
 }
 
 .unlock-button.loading {
@@ -314,28 +314,28 @@
 .text-input {
     width: 100%;
     padding: 0.75rem 1rem;
-    background-color: #080808;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-primary);
     border-radius: 0.75rem;
-    color: white;
+    color: var(--text-primary);
     font-size: 0.875rem;
     transition: all 0.2s ease;
 }
 
 .text-input:focus {
     outline: none;
-    border-color: #ffffff;
-    background-color: #0f0f0f;
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1);
+    border-color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    box-shadow: 0 0 0 4px var(--overlay-light);
 }
 
 .auth-toggle {
     display: flex;
     gap: 0.5rem;
     padding: 0.25rem;
-    background-color: #080808;
+    background-color: var(--bg-dark);
     border-radius: 0.75rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-primary);
 }
 
 .auth-option {
@@ -347,7 +347,7 @@
     padding: 0.75rem;
     background: none;
     border: none;
-    color: #cccccc;
+    color: var(--text-light);
     border-radius: 0.5rem;
     cursor: pointer;
     font-size: 0.875rem;
@@ -355,12 +355,12 @@
 }
 
 .auth-option:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: var(--overlay-medium);
 }
 
 .auth-option.active {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background-color: var(--overlay-medium);
+    color: var(--text-primary);
 }
 
 .auth-icon {
@@ -375,14 +375,14 @@
     gap: 0.5rem;
     width: 100%;
     padding: 0.75rem 1.5rem;
-    background: linear-gradient(135deg, #22c55e, #16a34a);
-    color: white;
+    background: linear-gradient(135deg, var(--color-success), #16a34a);
+    color: var(--color-white);
     border: none;
     border-radius: 0.75rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s ease;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-primary);
 }
 
 .biometric-unlock-button:hover {
@@ -408,17 +408,17 @@
     justify-content: center;
     gap: 0.5rem;
     padding: 0.75rem 1.5rem;
-    background: rgba(255, 255, 255, 0.1);
-    color: #ffffff;
+    background: var(--overlay-medium);
+    color: var(--text-primary);
     border-radius: 0.75rem;
     cursor: pointer;
     font-weight: 500;
     transition: all 0.2s ease;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--border-secondary);
 }
 
 .import-browser-button:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--overlay-dark);
     transform: translateY(-1px);
 }
 
@@ -441,7 +441,7 @@
 }
 
 .browser-select-dialog {
-    background-color: var(--background-color);
+    background-color: var(--bg-dark);
     border-radius: 8px;
     padding: 20px;
     min-width: 300px;
@@ -451,7 +451,7 @@
 .browser-select-dialog h3 {
     margin: 0 0 20px 0;
     text-align: center;
-    color: var(--text-color);
+    color: var(--text-primary);
 }
 
 .browser-options {
@@ -463,16 +463,16 @@
 
 .browser-option {
     padding: 10px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border-primary);
     border-radius: 4px;
-    background-color: var(--background-color);
-    color: var(--text-color);
+    background-color: var(--bg-dark);
+    color: var(--text-primary);
     cursor: pointer;
     transition: background-color 0.2s;
 }
 
 .browser-option:hover {
-    background-color: var(--hover-color);
+    background-color: var(--overlay-medium);
 }
 
 .cancel-button {
@@ -492,9 +492,9 @@
 
 /* Browser Selection Modal */
 .browser-select-modal {
-    background-color: #0a0a0a;
+    background-color: var(--bg-dark);
     border-radius: 1rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-primary);
     width: 100%;
     max-width: 500px;
     margin: 1rem;
@@ -509,7 +509,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 1.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid var(--border-primary);
     flex-shrink: 0;
 }
 
@@ -517,13 +517,13 @@
     margin: 0;
     font-size: 1.25rem;
     font-weight: 600;
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .close-button {
     background: none;
     border: none;
-    color: #cccccc;
+    color: var(--text-light);
     font-size: 1.5rem;
     cursor: pointer;
     padding: 0.25rem;
@@ -532,7 +532,7 @@
 }
 
 .close-button:hover {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .modal-content {
@@ -542,7 +542,7 @@
 
 .modal-content p {
     margin: 0 0 1rem 0;
-    color: #cccccc;
+    color: var(--text-light);
 }
 
 .browser-toggles {
@@ -556,15 +556,15 @@
     align-items: center;
     gap: 0.75rem;
     padding: 0.75rem;
-    background-color: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: var(--overlay-light);
+    border: 1px solid var(--border-primary);
     border-radius: 0.75rem;
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .browser-toggle:hover {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: var(--overlay-medium);
 }
 
 .browser-toggle input[type="checkbox"] {
@@ -596,7 +596,7 @@
 }
 
 .toggle-label {
-    color: #ffffff;
+    color: var(--text-primary);
     font-size: 0.875rem;
     font-weight: 500;
 }
@@ -606,15 +606,15 @@
     justify-content: flex-end;
     gap: 1rem;
     padding: 1.5rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid var(--border-primary);
     flex-shrink: 0;
 }
 
 .secondary-button {
     padding: 0.75rem 1.5rem;
-    background: rgba(255, 255, 255, 0.1);
-    color: #cccccc;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--overlay-medium);
+    color: var(--text-light);
+    border: 1px solid var(--border-primary);
     border-radius: 0.75rem;
     cursor: pointer;
     font-weight: 500;
@@ -622,13 +622,13 @@
 }
 
 .secondary-button:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--overlay-dark);
 }
 
 .primary-button {
     padding: 0.75rem 1.5rem;
-    background: linear-gradient(135deg, #ffffff, #cccccc);
-    color: black;
+    background: linear-gradient(135deg, var(--color-white), var(--text-light));
+    color: var(--color-black);
     border: none;
     border-radius: 0.75rem;
     font-weight: 500;
@@ -638,5 +638,5 @@
 
 .primary-button:hover {
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 12px var(--overlay-dark);
 }
