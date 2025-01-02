@@ -10,7 +10,7 @@
 }
 
 .toast {
-	background: var(--color-black);
+	background: var(--bg-dark);
 	color: var(--text-secondary);
 	font-size: 14px;
 	display: flex;
@@ -33,7 +33,7 @@
 }
 
 .toast.info {
-    border-left: 4px solid #3b82f6;
+    border-left: 4px solid var(--text-primary);
 }
 
 .toast.warning {

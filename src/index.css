@@ -105,16 +105,64 @@ button:focus-visible {
 
 @media (prefers-color-scheme: light) {
 	:root {
-		color: #000000;
-		background-color: #ffffff;
-	}
+		/* Background colors - Light theme */
+		--bg-primary: #ffffff;
+		--bg-secondary: #f3f4f6;
+		--bg-tertiary: #e5e7eb;
+		--bg-dark: #d1d5db;
+		--bg-light: #ffffff;
 
-	a:hover {
-		color: #333333;
+		/* Text colors - Light theme */
+		--text-primary: #111827;
+		--text-secondary: #374151;
+		--text-tertiary: #6b7280;
+		--text-muted: #9ca3af;
+		--text-light: #4b5563;
+
+		/* Border colors - Light theme */
+		--border-primary: rgba(0, 0, 0, 0.1);
+		--border-secondary: rgba(0, 0, 0, 0.15);
+		--border-hover: rgba(0, 0, 0, 0.2);
+
+		/* Overlay colors - Light theme */
+		--overlay-light: rgba(0, 0, 0, 0.02);
+		--overlay-medium: rgba(0, 0, 0, 0.05);
+		--overlay-dark: rgba(0, 0, 0, 0.1);
+
+		/* Alert colors - Light theme */
+		--alert-error-bg: rgba(239, 68, 68, 0.1);
+		--alert-error-border: rgba(239, 68, 68, 0.2);
+		--alert-warning-bg: rgba(245, 158, 11, 0.1);
+		--alert-warning-border: rgba(245, 158, 11, 0.2);
+
+		color: var(--text-primary);
+		background-color: var(--bg-primary);
 	}
 
 	button {
-		background-color: #f9f9f9;
+		background-color: var(--bg-secondary);
+		color: var(--text-primary);
+		border-color: var(--border-primary);
+	}
+
+	button:hover {
+		border-color: var(--border-hover);
+	}
+
+	::-webkit-scrollbar-track {
+		background: rgba(0, 0, 0, 0.05);
+	}
+
+	::-webkit-scrollbar-thumb {
+		background: rgba(0, 0, 0, 0.2);
+	}
+
+	::-webkit-scrollbar-thumb:hover {
+		background: rgba(0, 0, 0, 0.3);
+	}
+
+	* {
+		scrollbar-color: rgba(0, 0, 0, 0.2) rgba(0, 0, 0, 0.05);
 	}
 }
 
