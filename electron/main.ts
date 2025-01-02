@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, powerMonitor } from 'electron';
 import { createWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
 import { handleFileOpen } from './src/file-operations';
@@ -11,9 +11,19 @@ declare global {
     }
 }
 
+let mainWindow: BrowserWindow | null = null;
 app.whenReady().then(() => {
     setupIpcHandlers();
-    createWindow();
+    mainWindow = createWindow();
+
+    // Set up power monitor events
+    powerMonitor.on('suspend', () => {
+        mainWindow?.webContents.send('trigger-lock');
+    });
+
+    powerMonitor.on('lock-screen', () => {
+        mainWindow?.webContents.send('trigger-lock');
+    });
 });
 
 app.on('window-all-closed', () => {
