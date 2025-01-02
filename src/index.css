@@ -5,9 +5,53 @@
 	line-height: 1.5;
 	font-weight: 400;
 
+	/* Base colors */
+	--color-white: #ffffff;
+	--color-black: #000000;
+
+	/* Background colors */
+	--bg-primary: #242424;
+	--bg-secondary: #1a1a1a;
+	--bg-tertiary: #0f0f0f;
+	--bg-dark: #080808;
+	--bg-light: #f9f9f9;
+
+	/* Text colors */
+	--text-primary: rgba(255, 255, 255, 0.87);
+	--text-secondary: #e5e7eb;
+	--text-tertiary: #94a3b8;
+	--text-muted: #6b7280;
+	--text-light: #cccccc;
+
+	/* Border colors */
+	--border-primary: rgba(255, 255, 255, 0.1);
+	--border-secondary: rgba(255, 255, 255, 0.2);
+	--border-hover: rgba(255, 255, 255, 0.3);
+
+	/* Status colors */
+	--color-error: #dc3545;
+	--color-warning: #f59e0b;
+	--color-success: #10b981;
+
+	/* MacOS window controls */
+	--macos-close: #ff5f57;
+	--macos-minimize: #ffbd2e;
+	--macos-maximize: #28c940;
+
+	/* Overlay colors */
+	--overlay-light: rgba(255, 255, 255, 0.05);
+	--overlay-medium: rgba(255, 255, 255, 0.1);
+	--overlay-dark: rgba(255, 255, 255, 0.15);
+
+	/* Alert colors */
+	--alert-error-bg: rgba(239, 68, 68, 0.1);
+	--alert-error-border: rgba(239, 68, 68, 0.2);
+	--alert-warning-bg: rgba(245, 158, 11, 0.1);
+	--alert-warning-border: rgba(245, 158, 11, 0.2);
+
 	color-scheme: light dark;
-	color: rgba(255, 255, 255, 0.87);
-	background-color: #242424;
+	color: var(--text-primary);
+	background-color: var(--bg-primary);
 
 	font-synthesis: none;
 	text-rendering: optimizeLegibility;
