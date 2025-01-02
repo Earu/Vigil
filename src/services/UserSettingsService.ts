@@ -2,6 +2,7 @@ export type Theme = 'dark' | 'light' | 'system';
 
 interface UserSettings {
     theme: Theme;
+    hibpApiKey?: string;
 }
 
 const SETTINGS_KEY = 'vigil_user_settings';
@@ -21,7 +22,8 @@ class UserSettingsService {
 
         // Default settings
         return {
-            theme: 'dark'
+            theme: 'dark',
+            hibpApiKey: undefined
         };
     }
 
@@ -35,6 +37,15 @@ class UserSettingsService {
 
     setTheme(theme: Theme): void {
         this.settings.theme = theme;
+        this.saveSettings();
+    }
+
+    getHibpApiKey(): string | undefined {
+        return this.settings.hibpApiKey;
+    }
+
+    setHibpApiKey(apiKey: string | undefined): void {
+        this.settings.hibpApiKey = apiKey;
         this.saveSettings();
     }
 
