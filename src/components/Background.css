@@ -3,13 +3,13 @@
 	inset: 0;
 	overflow: hidden;
 	z-index: 0;
-	background-color: #0f0f0f;
+	background-color: var(--bg-tertiary);
 }
 
 .mesh-gradient {
 	position: absolute;
 	inset: -50%;
-	background: #0f0f0f;
+	background: var(--bg-tertiary);
 	transform: scale(2);
 }
 
@@ -18,16 +18,16 @@
 	inset: 0;
 	opacity: 0.4;
 	background-image:
-		repeating-linear-gradient(45deg,
-			rgba(255, 255, 255, 0.015) 0px,
-			rgba(255, 255, 255, 0.015) 1px,
-			transparent 1px,
-			transparent 4px),
-		repeating-linear-gradient(135deg,
-			rgba(255, 255, 255, 0.015) 0px,
-			rgba(255, 255, 255, 0.015) 1px,
-			transparent 1px,
-			transparent 4px);
+			repeating-linear-gradient(45deg,
+				rgba(255, 255, 255, 0.015) 0px,
+				rgba(255, 255, 255, 0.015) 1px,
+				transparent 1px,
+				transparent 4px),
+			repeating-linear-gradient(135deg,
+				rgba(255, 255, 255, 0.015) 0px,
+				rgba(255, 255, 255, 0.015) 1px,
+				transparent 1px,
+				transparent 4px);
 	background-size: 8px 8px;
 	pointer-events: none;
 }
@@ -35,5 +35,5 @@
 .overlay {
 	position: absolute;
 	inset: 0;
-	background: #080808;
+	background: var(--bg-dark);
 }
