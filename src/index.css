@@ -59,6 +59,42 @@
 	-moz-osx-font-smoothing: grayscale;
 }
 
+/* Light theme styles */
+:root.light-theme {
+	/* Background colors - Light theme */
+	--bg-primary: #f8fafc;
+	--bg-secondary: #f1f5f9;
+	--bg-tertiary: #e2e8f0;
+	--bg-dark: #cbd5e1;
+	--bg-light: #ffffff;
+
+	/* Text colors - Light theme */
+	--text-primary: #0f172a;
+	--text-secondary: #1e293b;
+	--text-tertiary: #475569;
+	--text-muted: #64748b;
+	--text-light: #334155;
+
+	/* Border colors - Light theme */
+	--border-primary: rgba(51, 65, 85, 0.1);
+	--border-secondary: rgba(51, 65, 85, 0.15);
+	--border-hover: rgba(51, 65, 85, 0.2);
+
+	/* Overlay colors - Light theme */
+	--overlay-light: rgba(51, 65, 85, 0.02);
+	--overlay-medium: rgba(51, 65, 85, 0.05);
+	--overlay-dark: rgba(51, 65, 85, 0.1);
+
+	/* Alert colors - Light theme - More vibrant */
+	--alert-error-bg: rgba(239, 68, 68, 0.15);
+	--alert-error-border: rgba(239, 68, 68, 0.25);
+	--alert-warning-bg: rgba(245, 158, 11, 0.15);
+	--alert-warning-border: rgba(245, 158, 11, 0.25);
+
+	color: var(--text-primary);
+	background-color: var(--bg-primary);
+}
+
 a {
 	font-weight: 500;
 	color: #ffffff;
@@ -103,69 +139,6 @@ button:focus-visible {
 	outline: 4px auto -webkit-focus-ring-color;
 }
 
-@media (prefers-color-scheme: light) {
-	:root {
-		/* Background colors - Light theme */
-		--bg-primary: #f8fafc;
-		--bg-secondary: #f1f5f9;
-		--bg-tertiary: #e2e8f0;
-		--bg-dark: #cbd5e1;
-		--bg-light: #ffffff;
-
-		/* Text colors - Light theme */
-		--text-primary: #0f172a;
-		--text-secondary: #1e293b;
-		--text-tertiary: #475569;
-		--text-muted: #64748b;
-		--text-light: #334155;
-
-		/* Border colors - Light theme */
-		--border-primary: rgba(51, 65, 85, 0.1);
-		--border-secondary: rgba(51, 65, 85, 0.15);
-		--border-hover: rgba(51, 65, 85, 0.2);
-
-		/* Overlay colors - Light theme */
-		--overlay-light: rgba(51, 65, 85, 0.02);
-		--overlay-medium: rgba(51, 65, 85, 0.05);
-		--overlay-dark: rgba(51, 65, 85, 0.1);
-
-		/* Alert colors - Light theme - More vibrant */
-		--alert-error-bg: rgba(239, 68, 68, 0.15);
-		--alert-error-border: rgba(239, 68, 68, 0.25);
-		--alert-warning-bg: rgba(245, 158, 11, 0.15);
-		--alert-warning-border: rgba(245, 158, 11, 0.25);
-
-		color: var(--text-primary);
-		background-color: var(--bg-primary);
-	}
-
-	button {
-		background-color: var(--bg-secondary);
-		color: var(--text-primary);
-		border-color: var(--border-primary);
-	}
-
-	button:hover {
-		border-color: var(--border-hover);
-	}
-
-	::-webkit-scrollbar-track {
-		background: rgba(0, 0, 0, 0.05);
-	}
-
-	::-webkit-scrollbar-thumb {
-		background: rgba(0, 0, 0, 0.2);
-	}
-
-	::-webkit-scrollbar-thumb:hover {
-		background: rgba(0, 0, 0, 0.3);
-	}
-
-	* {
-		scrollbar-color: rgba(0, 0, 0, 0.2) rgba(0, 0, 0, 0.05);
-	}
-}
-
 /* Add these scrollbar styles at the end of the file */
 /* For Webkit browsers (Chrome, Safari, etc.) */
 ::-webkit-scrollbar {
@@ -190,4 +163,21 @@ button:focus-visible {
 * {
 	scrollbar-width: thin;
 	scrollbar-color: rgba(148, 163, 184, 0.2) rgba(0, 0, 0, 0.2);
+}
+
+/* Light theme scrollbar styles */
+:root.light-theme ::-webkit-scrollbar-track {
+	background: rgba(0, 0, 0, 0.05);
+}
+
+:root.light-theme ::-webkit-scrollbar-thumb {
+	background: rgba(0, 0, 0, 0.2);
+}
+
+:root.light-theme ::-webkit-scrollbar-thumb:hover {
+	background: rgba(0, 0, 0, 0.3);
+}
+
+:root.light-theme * {
+	scrollbar-color: rgba(0, 0, 0, 0.2) rgba(0, 0, 0, 0.05);
 }

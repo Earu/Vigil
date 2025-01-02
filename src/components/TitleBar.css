@@ -212,3 +212,35 @@
 .title-bar.macos .search-container {
 	margin: 0 8px;
 }
+
+.settings-button {
+	width: 46px;
+	height: calc(100% - 2px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	border: none;
+	color: var(--text-primary);
+	opacity: 0.8;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	-webkit-app-region: no-drag;
+	margin-top: 1px;
+	padding: 0;
+}
+
+.settings-button:hover {
+	background: var(--overlay-medium);
+}
+
+.settings-button svg {
+	width: 16px;
+	height: 16px;
+}
+
+.settings-button.macos-settings {
+	position: absolute;
+	right: 0;
+	top: 0;
+}
