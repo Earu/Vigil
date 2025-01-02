@@ -16,7 +16,7 @@ export default defineConfig({
 				/\.wasm$/,
 				/\.node$/,
 				'keytar',
-				'@node-rs/argon2'
+				'@node-rs/argon2',
 			],
 		},
 		assetsDir: 'assets'

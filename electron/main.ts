@@ -4,25 +4,12 @@ import fs from 'fs'
 import * as argon2 from '@node-rs/argon2';
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'crypto';
 import { execSync } from 'child_process';
+import keytar from './get-keytar';
 
 let Passport: any;
 if (process.platform === 'win32') {
     const { Passport: WindowsPassport } = require('passport-desktop');
     Passport = WindowsPassport;
-}
-
-// Import keytar dynamically based on environment
-let keytar: typeof import('keytar');
-
-try {
-	if (process.env.NODE_ENV === 'development') {
-		keytar = require('keytar');
-	} else {
-		const keytarPath = path.join(__dirname, 'native_modules', 'keytar.node');
-		keytar = require(keytarPath);
-	}
-} catch (error) {
-	console.error('Failed to load native modules:', error);
 }
 
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
@@ -86,6 +73,11 @@ async function loadLastDatabasePath(): Promise<string | null> {
 
 let biometricsAvailableCache: boolean | null = null;
 async function isBiometricsAvailable(): Promise<boolean> {
+	if (!keytar) {
+		console.warn('Keytar is not available');
+		return false;
+	}
+
 	if (biometricsAvailableCache !== null) {
 		return biometricsAvailableCache;
 	}
@@ -206,7 +198,6 @@ function createWindow() {
 	// Add this handler for when the window is ready
 	win.webContents.on('did-finish-load', () => {
 		if (pendingFileOpen) {
-			console.log('[Main] Sending pending file-opened event');
 			win.webContents.send('file-opened', pendingFileOpen);
 			pendingFileOpen = null;
 		}
@@ -239,7 +230,7 @@ function createWindow() {
 				ipcMain.removeHandler(channel);
 			} catch (error) {
 				// Handler might already be removed
-				console.log(`Handler ${channel} already removed`);
+				console.warn(`Handler ${channel} already removed`);
 			}
 		};
 	});
@@ -395,7 +386,7 @@ ipcMain.handle('has-biometrics-enabled', async (_, dbPath: string) => {
 		}
 
 		const key = await generateUniqueKey(dbPath);
-		const hasPassword = await keytar.getPassword(SERVICE_NAME, key);
+		const hasPassword = await keytar?.getPassword(SERVICE_NAME, key);
 		return { success: true, enabled: !!hasPassword };
 	} catch (error) {
 		console.error('Failed to check biometrics status:', error);
@@ -498,7 +489,7 @@ ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) 
 
 		const key = await generateUniqueKey(dbPath);
 		const encryptedPassword = await encryptPassword(password);
-		await keytar.setPassword(SERVICE_NAME, key, encryptedPassword);
+		await keytar?.setPassword(SERVICE_NAME, key, encryptedPassword);
 		return { success: true };
 	} catch (error) {
 		console.error('Failed to enable biometrics:', error);
@@ -517,7 +508,7 @@ ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
 		}
 
 		const key = await generateUniqueKey(dbPath);
-		const encryptedPassword = await keytar.getPassword(SERVICE_NAME, key);
+		const encryptedPassword = await keytar?.getPassword(SERVICE_NAME, key);
 		if (!encryptedPassword) {
 			return { success: false, error: 'No password found for this database' };
 		}
@@ -533,7 +524,7 @@ ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
 ipcMain.handle('disable-biometrics', async (_, dbPath: string) => {
 	try {
 		const key = await generateUniqueKey(dbPath);
-		await keytar.deletePassword(SERVICE_NAME, key);
+		await keytar?.deletePassword(SERVICE_NAME, key);
 		return { success: true };
 	} catch (error) {
 		console.error('Failed to disable biometrics:', error);
@@ -555,7 +546,6 @@ ipcMain.handle('open-external', async (_, url: string) => {
 	await shell.openExternal(url);
 });
 
-// Add platform detection handler
 ipcMain.handle('get-platform', () => "win32");
 
 // Register as default handler for kdbx files

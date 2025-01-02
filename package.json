@@ -6,9 +6,9 @@
 	"author": "Ryan",
 	"scripts": {
 		"dev": "vite",
-		"build": "tsc -b && vite build",
+		"build": "tsc && vite build && electron-builder",
 		"preview": "vite preview",
-		"electron:dev": "concurrently \"vite\" \"node electron/build.mjs && node electron/copy-native-modules.mjs && cross-env NODE_ENV=development electron dist-electron/main.js\"",
+		"electron:dev": "node electron/build.mjs && node electron/copy-native-modules.mjs && concurrently \"vite\" \"cross-env NODE_ENV=development electron dist-electron/main.js\"",
 		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder"
 	},
 	"dependencies": {
@@ -51,6 +51,7 @@
 			"dist-electron/**/*",
 			"package.json"
 		],
+		"asar": true,
 		"extraMetadata": {
 			"main": "dist-electron/main.js"
 		},
