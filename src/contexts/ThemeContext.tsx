@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-
-type Theme = 'dark' | 'light' | 'system';
+import { Theme, userSettingsService } from '../services/UserSettingsService';
 
 interface ThemeContextType {
     theme: Theme;
@@ -10,10 +9,7 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-    const [theme, setTheme] = useState<Theme>(() => {
-        const savedTheme = localStorage.getItem('theme');
-        return (savedTheme as Theme) || 'dark';
-    });
+    const [theme, setTheme] = useState<Theme>(() => userSettingsService.getTheme());
 
     useEffect(() => {
         const handleThemeChange = () => {
@@ -25,7 +21,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
             }
         };
 
-        localStorage.setItem('theme', theme);
+        userSettingsService.setTheme(theme);
         handleThemeChange();
 
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
