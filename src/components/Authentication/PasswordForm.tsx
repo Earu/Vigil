@@ -313,6 +313,11 @@ export const PasswordForm = ({
                 throw new Error(result?.error || 'Failed to save database');
             }
 
+            if (result.filePath) {
+                await window.electron?.saveLastDatabasePath(result.filePath);
+                KeepassDatabaseService.setPath(result.filePath);
+            }
+
             onDatabaseOpen(KeepassDatabaseService.convertKdbxToDatabase(db), db);
         } catch (err) {
             console.error('Failed to create database:', err);
