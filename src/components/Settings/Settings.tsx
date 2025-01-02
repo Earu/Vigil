@@ -1,6 +1,9 @@
 import { useTheme } from '../../contexts/ThemeContext';
 import { CloseIcon } from '../../icons';
 import { DarkThemeIcon, LightThemeIcon, SystemThemeIcon } from '../../icons/SettingsIcon';
+import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
+import { userSettingsService } from '../../services/UserSettingsService';
+import { useState } from 'react';
 import './Settings.css';
 
 interface SettingsProps {
@@ -10,8 +13,16 @@ interface SettingsProps {
 
 export function Settings({ isOpen, onClose }: SettingsProps) {
     const { theme, setTheme } = useTheme();
+    const [apiKey, setApiKey] = useState<string>(userSettingsService.getHibpApiKey() || '');
+    const [showApiKey, setShowApiKey] = useState(false);
 
     if (!isOpen) return null;
+
+    const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const newApiKey = e.target.value;
+        setApiKey(newApiKey);
+        userSettingsService.setHibpApiKey(newApiKey || undefined);
+    };
 
     return (
         <div className="settings-overlay" onClick={onClose}>
@@ -49,6 +60,34 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                                     System Theme
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                    <div className="settings-section">
+                        <h3>Security</h3>
+                        <div className="api-key-input">
+                            <label htmlFor="hibp-api-key">Have I Been Pwned API Key</label>
+                            <div className="input-with-toggle">
+                                <input
+                                    type={showApiKey ? 'text' : 'password'}
+                                    id="hibp-api-key"
+                                    value={apiKey}
+                                    onChange={handleApiKeyChange}
+                                    placeholder="Enter your HIBP API key"
+                                />
+                                <button
+                                    className="toggle-visibility"
+                                    onClick={() => setShowApiKey(!showApiKey)}
+                                    type="button"
+                                >
+                                    {showApiKey ? <HidePasswordIcon /> : <ShowPasswordIcon />}
+                                </button>
+                            </div>
+                            <p className="api-key-help">
+                                Get your API key from{' '}
+                                <a href="https://haveibeenpwned.com/API/Key" target="_blank" rel="noopener noreferrer" onClick={() => window.electron?.openExternal('https://haveibeenpwned.com/API/Key')}>
+                                    haveibeenpwned.com
+                                </a>
+                            </p>
                         </div>
                     </div>
                 </div>
