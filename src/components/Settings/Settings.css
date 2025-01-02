@@ -1,70 +1,66 @@
 .settings-overlay {
     position: fixed;
-    top: 0;
+    top: 48px;
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: rgba(0, 0, 0, 0.75);
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
     z-index: 1000;
+    backdrop-filter: blur(4px);
 }
 
 .settings-dialog {
     background-color: var(--bg-dark);
-    border-radius: 12px;
-    width: 100%;
-    max-width: 480px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+    border-radius: 0.75rem;
+    width: 90%;
+    max-width: 600px;
+    max-height: calc(100vh - 64px - 48px);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     border: 1px solid var(--border-primary);
+    margin-top: -24px;
 }
 
 .settings-header {
-    padding: 16px 24px;
+    padding: 1.25rem;
     border-bottom: 1px solid var(--border-primary);
+    background-color: var(--bg-dark);
     display: flex;
     align-items: center;
     justify-content: space-between;
+    height: 64px;
+    box-sizing: border-box;
 }
 
 .settings-header h2 {
     margin: 0;
-    font-size: 18px;
+    font-size: 1rem;
     font-weight: 600;
-    color: var(--text-primary);
-}
-
-.close-button {
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: none;
-    border: none;
-    color: var(--text-tertiary);
-    cursor: pointer;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-}
-
-.close-button:hover {
-    background-color: var(--overlay-medium);
     color: var(--text-secondary);
 }
 
-.close-button svg {
-    width: 16px;
-    height: 16px;
+.settings-header .close-button {
+    width: 28px;
+    height: 28px;
+    padding: 0.5rem;
+    border-radius: 8px;
 }
 
 .settings-content {
-    padding: 24px;
+    padding: 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    background-color: rgba(0, 0, 0, 0.1);
 }
 
 .settings-section {
-    margin-bottom: 24px;
+    margin-bottom: 1.5rem;
 }
 
 .settings-section:last-child {
@@ -72,40 +68,40 @@
 }
 
 .settings-section h3 {
-    margin: 0 0 16px 0;
-    font-size: 14px;
-    font-weight: 600;
+    margin: 0 0 1rem 0;
+    font-size: 0.75rem;
+    font-weight: 500;
     color: var(--text-tertiary);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.025em;
 }
 
 .theme-selector {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 1rem;
 }
 
 .theme-selector label {
-    font-size: 14px;
+    font-size: 0.875rem;
     color: var(--text-secondary);
 }
 
 .theme-options {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: 0.75rem;
 }
 
 .theme-option {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
-    padding: 12px;
+    gap: 0.75rem;
+    padding: 1rem;
     background-color: var(--overlay-light);
     border: 1px solid var(--border-primary);
-    border-radius: 8px;
+    border-radius: 0.75rem;
     color: var(--text-tertiary);
     cursor: pointer;
     transition: all 0.2s ease;
@@ -115,6 +111,7 @@
     background-color: var(--overlay-medium);
     border-color: var(--border-secondary);
     color: var(--text-secondary);
+    transform: translateY(-1px);
 }
 
 .theme-option.active {
@@ -124,6 +121,6 @@
 }
 
 .theme-option svg {
-    width: 20px;
-    height: 20px;
+    width: 1.5rem;
+    height: 1.5rem;
 }
