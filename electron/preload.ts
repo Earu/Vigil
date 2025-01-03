@@ -26,6 +26,7 @@ const api: IElectronAPI = {
 	getPlatform: () => ipcRenderer.invoke('get-platform'),
 	on: (channel: string, callback: Function) => ipcRenderer.on(channel, (_, ...args) => callback(...args)),
 	off: (channel: string, callback: Function) => ipcRenderer.off(channel, (_, ...args) => callback(...args)),
+	checkEmailBreaches: (email: string, apiKey: string) => ipcRenderer.invoke('check-email-breaches', email, apiKey),
 }
 
 contextBridge.exposeInMainWorld('electron', api)

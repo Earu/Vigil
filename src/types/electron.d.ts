@@ -21,6 +21,7 @@ export interface IElectronAPI {
 	getPlatform: () => Promise<string>;
 	on: (channel: string, callback: (...args: any[]) => void) => void;
 	off: (channel: string, callback: (...args: any[]) => void) => void;
+	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;
 }
 
 declare global {
