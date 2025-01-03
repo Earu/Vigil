@@ -92,6 +92,67 @@ export class BreachCheckService {
     private static lastEmailRequestTime = 0;
     private static countedEmails: Set<string> = new Set();
     private static emailProgress = { checked: 0, total: 0 };
+    private static toastId: string | null = null;
+
+    private static updateProgressToast(): void {
+        const isCheckingPasswords = this.progress.total > 0;
+        const isCheckingEmails = this.emailProgress.total > 0;
+
+        if (!isCheckingPasswords && !isCheckingEmails) {
+            if (this.toastId) {
+                (window as any).updateToast?.(this.toastId, {
+                    message: 'Breach check completed',
+                    type: 'success',
+                    duration: 3000
+                });
+                this.toastId = null;
+            }
+            return;
+        }
+
+        const message = isCheckingPasswords && isCheckingEmails
+            ? `Checking database for breaches (${this.progress.checked}/${this.progress.total} passwords, ${this.emailProgress.checked}/${this.emailProgress.total} emails)`
+            : isCheckingPasswords
+                ? `Checking passwords for breaches (${this.progress.checked}/${this.progress.total})`
+                : `Checking emails for breaches (${this.emailProgress.checked}/${this.emailProgress.total})`;
+
+        if (!this.toastId) {
+            this.toastId = (window as any).showToast?.({
+                message,
+                type: 'info',
+                duration: 0 // Persistent until complete
+            });
+        } else {
+            (window as any).updateToast?.(this.toastId, {
+                message,
+                type: 'info',
+                duration: 0
+            });
+        }
+    }
+
+    private static incrementProgress(entryId: string): void {
+        if (!this.countedEntries.has(entryId)) {
+            this.countedEntries.add(entryId);
+            this.progress.checked++;
+            this.updateProgressToast();
+        }
+    }
+
+    private static incrementEmailProgress(entryId: string): void {
+        if (!this.countedEmails.has(entryId)) {
+            this.countedEmails.add(entryId);
+            this.emailProgress.checked++;
+            this.updateProgressToast();
+        }
+    }
+
+    public static getProgress(): { passwords: { checked: number; total: number }; emails: { checked: number; total: number } } {
+        return {
+            passwords: { ...this.progress },
+            emails: { ...this.emailProgress }
+        };
+    }
 
     private static async checkPassword(password: string | kdbxweb.ProtectedValue): Promise<PasswordStatus> {
         // Ensure we don't exceed rate limits
@@ -114,13 +175,6 @@ export class BreachCheckService {
             total += this.countTotalEntries(subgroup);
         }
         return total;
-    }
-
-    private static incrementProgress(entryId: string): void {
-        if (!this.countedEntries.has(entryId)) {
-            this.countedEntries.add(entryId);
-            this.progress.checked++;
-        }
     }
 
     public static async checkEntry(databasePath: string, entry: Entry): Promise<boolean> {
@@ -159,6 +213,7 @@ export class BreachCheckService {
             const totalEntries = this.countTotalEntries(group);
             this.countedEntries.clear();
             this.progress = { checked: 0, total: totalEntries };
+            this.updateProgressToast();
         }
 
         try {
@@ -188,6 +243,7 @@ export class BreachCheckService {
             if (isRootGroup) {
                 this.countedEntries.clear();
                 this.progress = { checked: 0, total: 0 };
+                this.updateProgressToast();
             }
 
             return hasBreached;
@@ -196,6 +252,14 @@ export class BreachCheckService {
             if (isRootGroup) {
                 this.countedEntries.clear();
                 this.progress = { checked: 0, total: 0 };
+                if (this.toastId) {
+                    (window as any).updateToast?.(this.toastId, {
+                        message: 'Error checking passwords for breaches',
+                        type: 'error',
+                        duration: 3000
+                    });
+                    this.toastId = null;
+                }
             }
             throw error;
         }
@@ -285,13 +349,6 @@ export class BreachCheckService {
         return emailRegex.test(email);
     }
 
-    private static incrementEmailProgress(entryId: string): void {
-        if (!this.countedEmails.has(entryId)) {
-            this.countedEmails.add(entryId);
-            this.emailProgress.checked++;
-        }
-    }
-
     private static async checkEmailEntry(databasePath: string, entry: Entry): Promise<HibpBreach[]> {
         if (!this.isValidEmail(entry.username)) {
             return [];
@@ -334,6 +391,7 @@ export class BreachCheckService {
             const totalEntries = this.countTotalEntries(group);
             this.countedEmails.clear();
             this.emailProgress = { checked: 0, total: totalEntries };
+            this.updateProgressToast();
         }
 
         try {
@@ -368,6 +426,7 @@ export class BreachCheckService {
             if (isRootGroup) {
                 this.countedEmails.clear();
                 this.emailProgress = { checked: 0, total: 0 };
+                this.updateProgressToast();
             }
 
             return hasBreached;
@@ -376,6 +435,14 @@ export class BreachCheckService {
             if (isRootGroup) {
                 this.countedEmails.clear();
                 this.emailProgress = { checked: 0, total: 0 };
+                if (this.toastId) {
+                    (window as any).updateToast?.(this.toastId, {
+                        message: 'Error checking emails for breaches',
+                        type: 'error',
+                        duration: 3000
+                    });
+                    this.toastId = null;
+                }
             }
             throw error;
         }
