@@ -79,22 +79,21 @@ function App() {
 				onDatabaseChange={handleDatabaseChange}
 				showInitialBreachReport={showInitialBreachReport}
 			/>
-			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
-			<ToastContainer />
+
 		</>
 	) : (
 		<div className="app">
 			<Background />
 			<TitleBar onOpenSettings={() => setShowSettings(true)} />
 			<AuthenticationView onDatabaseOpen={handleDatabaseOpen} />
-			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
-			<ToastContainer />
 		</div>
 	);
 
 	return (
 		<ThemeProvider>
 			{content}
+			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
+			<ToastContainer />
 		</ThemeProvider>
 	);
 }
