@@ -1,6 +1,6 @@
-import { ipcMain } from 'electron';
+import { ipcMain, Notification, app } from 'electron';
 import { hashPassword } from './crypto';
-import { clearClipboard, openExternal, getPlatform } from './utils';
+import { clearClipboard, openExternal, getPlatform, getAppIconPath } from './utils';
 import {
     saveFile,
     saveToFile,
@@ -18,6 +18,7 @@ import {
     disableBiometrics
 } from './biometrics';
 import { checkEmailBreaches } from './hibp';
+import path from 'path';
 
 export function setupIpcHandlers(): void {
     // Crypto handlers
@@ -91,4 +92,15 @@ export function setupIpcHandlers(): void {
     });
 
     ipcMain.handle('get-platform', () => getPlatform());
+
+    // Notification handler
+    ipcMain.handle('show-notification', async (_, { title, body }: { title: string, body: string }) => {
+        const notification = new Notification({
+            title,
+            body,
+            icon: getAppIconPath(),
+            silent: false
+        });
+        notification.show();
+    });
 }

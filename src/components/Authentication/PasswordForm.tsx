@@ -92,10 +92,9 @@ export const PasswordForm = ({
                 if (hasCheckedPasswordEntries && !allPasswordEntriesCached) {
                     const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
                     if (hasBreaches) {
-                        (window as any).showToast?.({
-                            message: 'Some passwords in this database were found in data breaches',
-                            type: 'warning',
-                            duration: 10000
+                        window.electron?.showNotification({
+                            title: 'Password Security Alert',
+                            body: `Some passwords in ${databasePath} were found in data breaches`
                         });
                     }
                 }
@@ -106,10 +105,9 @@ export const PasswordForm = ({
                 if (hasCheckedEmailEntries && !allEmailEntriesCached && hasApikey) {
                     const hasBreaches = await BreachCheckService.checkGroupEmails(databasePath, database.root);
                     if (hasBreaches) {
-                        (window as any).showToast?.({
-                            message: 'Some emails in this database were found in data breaches',
-                            type: 'warning',
-                            duration: 10000
+                        window.electron?.showNotification({
+                            title: 'Email Security Alert',
+                            body: `Some emails in ${databasePath} were found in data breaches`
                         });
                     }
                 }
