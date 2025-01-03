@@ -1,0 +1,207 @@
+.settings-overlay {
+    position: fixed;
+    top: 48px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.settings-dialog {
+    background-color: var(--bg-dark);
+    border-radius: 0.75rem;
+    width: 90%;
+    max-width: 600px;
+    max-height: calc(100vh - 64px - 48px);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border-primary);
+    margin-top: -24px;
+}
+
+.settings-header {
+    padding: 1.25rem;
+    border-bottom: 1px solid var(--border-primary);
+    background-color: var(--bg-dark);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+    box-sizing: border-box;
+}
+
+.settings-header h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.settings-header .close-button {
+    width: 28px;
+    height: 28px;
+    padding: 0.5rem;
+    border-radius: 8px;
+}
+
+.settings-content {
+    padding: 1.25rem;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    background-color: rgba(0, 0, 0, 0.1);
+    box-sizing: border-box;
+}
+
+.settings-section {
+    margin-bottom: 1.5rem;
+}
+
+.settings-section:last-child {
+    margin-bottom: 0;
+}
+
+.settings-section h3 {
+    margin: 0 0 1rem 0;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.theme-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.theme-selector label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.theme-options {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
+}
+
+.theme-option {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background-color: var(--overlay-light);
+    border: 1px solid var(--border-primary);
+    border-radius: 0.75rem;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.theme-option:hover {
+    background-color: var(--overlay-medium);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+    transform: translateY(-1px);
+}
+
+.theme-option.active {
+    background-color: var(--overlay-medium);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+}
+
+.theme-option svg {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+.api-key-input {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.api-key-input label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.input-with-toggle {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input-with-toggle input {
+    padding: 0.75rem;
+    padding-right: 2.5rem;
+    border: 1px solid var(--border-primary);
+    border-radius: 0.75rem;
+    background-color: var(--overlay-light);
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    width: 100%;
+    box-sizing: border-box;
+    transition: all 0.2s ease;
+}
+
+.input-with-toggle input:hover {
+    border-color: var(--border-secondary);
+    background-color: var(--overlay-medium);
+}
+
+.input-with-toggle input:focus {
+    outline: none;
+    border-color: var(--border-hover);
+    background-color: var(--overlay-medium);
+}
+
+.toggle-visibility {
+    position: absolute;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+    transition: color 0.2s ease;
+}
+
+.toggle-visibility:hover {
+    color: var(--text-secondary);
+}
+
+.toggle-visibility svg {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.api-key-help {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    margin: 0;
+}
+
+.api-key-help a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.api-key-help a:hover {
+    color: var(--text-primary);
+}

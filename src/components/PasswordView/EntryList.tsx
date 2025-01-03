@@ -129,8 +129,11 @@ export const EntryList = ({
 														<BreachWarningIcon className="breach-icon" />
 													</span>
 												)}
-												{!status?.isPwned && status?.strength && status.strength.score < 3 && (
-													<span className="weak-password-indicator" title={status.strength.feedback.warning || 'Weak password detected'}>
+												{!status?.isPwned && ((status?.strength && status?.strength?.score < 3) || status?.breachedEmail) && (
+													<span className="weak-password-indicator" title={
+														status?.breachedEmail ? 'Email address found in data breaches' :
+														status?.strength?.feedback.warning || 'Weak password detected'
+													}>
 														<SecurityShieldIcon className="weak-password-icon" />
 													</span>
 												)}
