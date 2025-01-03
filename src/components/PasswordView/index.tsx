@@ -7,6 +7,7 @@ import { BreachReport } from './BreachReport';
 import { BreachCheckService, BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import './PasswordView.css';
+import { userSettingsService } from '../../services/UserSettingsService';
 
 interface PasswordViewProps {
 	database: Database;
@@ -50,6 +51,12 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		};
 
 		const updateEmailBreachStatus = () => {
+			const hasApikey = userSettingsService.getHibpApiKey() != null;
+			if (!hasApikey) {
+				setIsCheckingEmails(false);
+				return;
+			}
+
 			const { breached } = BreachCheckService.findBreachedEmails(database.root);
 			setBreachedEmailEntries(breached);
 
