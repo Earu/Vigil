@@ -4,6 +4,7 @@ import { BreachStatusStore } from './BreachStatusStore';
 import { EmailBreachStatusStore } from './EmailBreachStatusStore';
 import * as kdbxweb from 'kdbxweb';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
+import type { PasswordStrength } from './BreachStatusStore';
 
 export interface HibpBreach {
     Name: string;
@@ -189,10 +190,12 @@ export class BreachCheckService {
         // If not in cache or expired, check the password
         try {
             const result = await this.checkPassword(entry.password);
+            const emailBreaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username);
             BreachStatusStore.setEntryStatus(databasePath, entry.id, {
                 isPwned: result.isPwned,
                 count: result.pwnedCount,
-                strength: result.strength
+                strength: result.strength,
+                breachedEmail: emailBreaches !== null && emailBreaches.length > 0
             });
             this.incrementProgress(entry.id);
 
@@ -265,8 +268,30 @@ export class BreachCheckService {
         }
     }
 
-    public static getEntryBreachStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number } | null {
+    public static getEntryBreachStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength; breachedEmail?: boolean } | null {
         return BreachStatusStore.getEntryStatus(databasePath, entryId);
+    }
+
+    public static hasBreachedEmails(group: Group): boolean {
+        const databasePath = KeepassDatabaseService.getPath();
+        if (!databasePath) return false;
+
+        // Check entries in current group
+        for (const entry of group.entries) {
+            const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+            if (status?.breachedEmail) {
+                return true;
+            }
+        }
+
+        // Check subgroups
+        for (const subgroup of group.groups) {
+            if (this.hasBreachedEmails(subgroup)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public static clearCache(databasePath: string): void {
@@ -370,7 +395,9 @@ export class BreachCheckService {
         }
 
         try {
-            const breaches = await HaveIBeenPwnedService.checkEmailBreaches(entry.username);
+            let breaches = await HaveIBeenPwnedService.checkEmailBreaches(entry.username);
+            breaches = breaches.filter(breach => new Date(breach.BreachDate) > entry.modified); // only keep relevant breaches
+
             EmailBreachStatusStore.setEntryEmailStatus(databasePath, entry.id, entry.username, breaches);
             this.lastEmailRequestTime = Date.now();
             this.incrementEmailProgress(entry.id);
@@ -400,6 +427,18 @@ export class BreachCheckService {
                 if (this.isValidEmail(entry.username)) {
                     try {
                         const breaches = await this.checkEmailEntry(databasePath, entry);
+                        if (breaches.length > 0) {
+                            // Update the breach status to include breachedEmail
+                            const currentStatus = BreachStatusStore.getEntryStatus(databasePath, entry.id) || {
+                                isPwned: false,
+                                count: 0,
+                                strength: { score: 0, feedback: { warning: '', suggestions: [] } }
+                            };
+                            BreachStatusStore.setEntryStatus(databasePath, entry.id, {
+                                ...currentStatus,
+                                breachedEmail: true
+                            });
+                        }
                         hasBreached = hasBreached || breaches.length > 0;
                     } catch (error) {
                         // Continue checking other entries even if one fails
