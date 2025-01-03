@@ -45,6 +45,7 @@ export async function checkEmailBreaches(email: string, apiKey: string): Promise
             });
 
             request.on('error', (error) => {
+				console.log('Error checking email breach status:', error);
                 reject(error);
             });
 
@@ -52,6 +53,6 @@ export async function checkEmailBreaches(email: string, apiKey: string): Promise
         });
     } catch (error) {
         console.error('Error checking email breach status:', error);
-        throw error;
+        return [];
     }
 }

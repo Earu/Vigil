@@ -61,9 +61,8 @@ export class HaveIBeenPwnedService {
 
         try {
             return await window.electron?.checkEmailBreaches(email, apiKey) ?? [];
-        } catch (error) {
-            console.error('Error checking email breach status:', error);
-            throw error;
+        } catch {
+            return [];
         }
     }
 
