@@ -84,14 +84,12 @@ export class BreachCheckService {
     // Rate limiting: max 1 request per 1.5 seconds for passwords
     private static readonly REQUEST_DELAY = 1500;
     private static lastRequestTime = 0;
-    private static toastId: string | null = null;
     private static countedEntries: Set<string> = new Set();
     private static progress = { checked: 0, total: 0 };
 
     // Rate limiting: max 10 requests per minute for emails
     private static readonly EMAIL_REQUEST_DELAY = 6000; // 6 seconds between requests
     private static lastEmailRequestTime = 0;
-    private static emailToastId: string | null = null;
     private static countedEmails: Set<string> = new Set();
     private static emailProgress = { checked: 0, total: 0 };
 
@@ -122,26 +120,6 @@ export class BreachCheckService {
         if (!this.countedEntries.has(entryId)) {
             this.countedEntries.add(entryId);
             this.progress.checked++;
-            this.updateToast(this.progress.checked, this.progress.total);
-        }
-    }
-
-    private static updateToast(checked: number, total: number): void {
-        if (total === 0) return;
-
-        const message = `Checking passwords for breaches (${checked}/${total})`;
-        if (this.toastId) {
-            (window as any).updateToast?.(this.toastId, {
-                message,
-                type: 'info',
-                duration: 0 // Keep it visible
-            });
-        } else {
-            this.toastId = (window as any).showToast?.({
-                message,
-                type: 'info',
-                duration: 0 // Keep it visible
-            });
         }
     }
 
@@ -181,13 +159,6 @@ export class BreachCheckService {
             const totalEntries = this.countTotalEntries(group);
             this.countedEntries.clear();
             this.progress = { checked: 0, total: totalEntries };
-
-            // Show initial toast immediately
-            this.toastId = (window as any).showToast?.({
-                message: `Starting password breach check (0/${totalEntries})`,
-                type: 'info',
-                duration: 0 // Keep it visible
-            });
         }
 
         try {
@@ -217,16 +188,6 @@ export class BreachCheckService {
             if (isRootGroup) {
                 this.countedEntries.clear();
                 this.progress = { checked: 0, total: 0 };
-
-                // Show completion toast
-                if (this.toastId) {
-                    (window as any).updateToast?.(this.toastId, {
-                        message: 'Completed checking passwords for breaches',
-                        type: 'success',
-                        duration: 10000 // Show for 10 seconds then dismiss
-                    });
-                    this.toastId = null;
-                }
             }
 
             return hasBreached;
@@ -235,16 +196,6 @@ export class BreachCheckService {
             if (isRootGroup) {
                 this.countedEntries.clear();
                 this.progress = { checked: 0, total: 0 };
-
-                // Show error toast
-                if (this.toastId) {
-                    (window as any).updateToast?.(this.toastId, {
-                        message: 'Error checking passwords for breaches',
-                        type: 'error',
-                        duration: 3000 // Show for 3 seconds then dismiss
-                    });
-                    this.toastId = null;
-                }
             }
             throw error;
         }
@@ -258,12 +209,6 @@ export class BreachCheckService {
         BreachStatusStore.clearDatabase(databasePath);
     }
 
-    /**
-     * Finds breached and weak entries from the cache for a given group
-     * @param group The group to check
-     * @param parentGroup Optional parent group (defaults to the group itself)
-     * @returns Object containing breached and weak entries, along with cache status
-     */
     public static findBreachedAndWeakEntries(group: Group, parentGroup: Group = group): BreachCheckResult {
         const databasePath = KeepassDatabaseService.getPath();
         if (!databasePath) return {
@@ -321,11 +266,6 @@ export class BreachCheckService {
         };
     }
 
-    /**
-     * Checks if a group has any weak passwords
-     * @param group The group to check
-     * @returns boolean indicating if the group has any weak passwords
-     */
     public static hasWeakPasswords(group: Group): boolean {
         const databasePath = KeepassDatabaseService.getPath();
         if (!databasePath) return false;
@@ -345,30 +285,10 @@ export class BreachCheckService {
         return emailRegex.test(email);
     }
 
-    private static updateEmailToast(checked: number, total: number): void {
-        if (total === 0) return;
-
-        const message = `Checking emails for breaches (${checked}/${total})`;
-        if (this.emailToastId) {
-            (window as any).updateToast?.(this.emailToastId, {
-                message,
-                type: 'info',
-                duration: 0 // Keep it visible
-            });
-        } else {
-            this.emailToastId = (window as any).showToast?.({
-                message,
-                type: 'info',
-                duration: 0 // Keep it visible
-            });
-        }
-    }
-
     private static incrementEmailProgress(entryId: string): void {
         if (!this.countedEmails.has(entryId)) {
             this.countedEmails.add(entryId);
             this.emailProgress.checked++;
-            this.updateEmailToast(this.emailProgress.checked, this.emailProgress.total);
         }
     }
 
@@ -414,13 +334,6 @@ export class BreachCheckService {
             const totalEntries = this.countTotalEntries(group);
             this.countedEmails.clear();
             this.emailProgress = { checked: 0, total: totalEntries };
-
-            // Show initial toast immediately
-            this.emailToastId = (window as any).showToast?.({
-                message: `Starting email breach check (0/${totalEntries})`,
-                type: 'info',
-                duration: 0 // Keep it visible
-            });
         }
 
         try {
@@ -455,16 +368,6 @@ export class BreachCheckService {
             if (isRootGroup) {
                 this.countedEmails.clear();
                 this.emailProgress = { checked: 0, total: 0 };
-
-                // Show completion toast
-                if (this.emailToastId) {
-                    (window as any).updateToast?.(this.emailToastId, {
-                        message: 'Completed checking emails for breaches',
-                        type: 'success',
-                        duration: 10000 // Show for 10 seconds then dismiss
-                    });
-                    this.emailToastId = null;
-                }
             }
 
             return hasBreached;
@@ -473,16 +376,6 @@ export class BreachCheckService {
             if (isRootGroup) {
                 this.countedEmails.clear();
                 this.emailProgress = { checked: 0, total: 0 };
-
-                // Show error toast
-                if (this.emailToastId) {
-                    (window as any).updateToast?.(this.emailToastId, {
-                        message: 'Error checking emails for breaches',
-                        type: 'error',
-                        duration: 3000 // Show for 3 seconds then dismiss
-                    });
-                    this.emailToastId = null;
-                }
             }
             throw error;
         }

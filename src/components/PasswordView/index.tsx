@@ -63,41 +63,6 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	}, [database, isCheckingBreaches, isCheckingEmails]);
 
 	useEffect(() => {
-		const checkBreaches = async () => {
-			if (isCheckingBreaches) {
-				try {
-					const databasePath = KeepassDatabaseService.getPath();
-					if (databasePath) {
-						await BreachCheckService.checkGroup(databasePath, database.root);
-						setIsCheckingBreaches(false);
-					}
-				} catch (error) {
-					console.error('Error checking breaches:', error);
-					setIsCheckingBreaches(false);
-				}
-			}
-		};
-
-		const checkEmails = async () => {
-			if (isCheckingEmails) {
-				try {
-					const databasePath = KeepassDatabaseService.getPath();
-					if (databasePath) {
-						await BreachCheckService.checkGroupEmails(databasePath, database.root);
-						setIsCheckingEmails(false);
-					}
-				} catch (error) {
-					console.error('Error checking email breaches:', error);
-					setIsCheckingEmails(false);
-				}
-			}
-		};
-
-		checkBreaches();
-		checkEmails();
-	}, [database, isCheckingBreaches, isCheckingEmails]);
-
-	useEffect(() => {
 		const updatedGroup = KeepassDatabaseService.findGroupInDatabase(selectedGroup.id, database.root);
 		if (updatedGroup) {
 			setSelectedGroup(updatedGroup);
