@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Background } from './components/Background';
 import { PasswordView } from './components/PasswordView';
 import * as kdbxweb from 'kdbxweb';
@@ -8,12 +8,29 @@ import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
 import { AuthenticationView } from './components/Authentication/AuthenticationView';
 import { KeepassDatabaseService } from './services/KeepassDatabaseService';
+import { ThemeProvider } from './contexts/ThemeContext';
+import { Settings } from './components/Settings/Settings';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
 	const [searchQuery, setSearchQuery] = useState('');
 	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
 	const [showInitialBreachReport, setShowInitialBreachReport] = useState(false);
+	const [showSettings, setShowSettings] = useState(false);
+
+	useEffect(() => {
+		const handleLockEvent = () => {
+			if (database) {
+				handleLock();
+			}
+		};
+
+		window.electron?.on('trigger-lock', handleLockEvent);
+
+		return () => {
+			window.electron?.off('trigger-lock', handleLockEvent);
+		};
+	}, [database]);
 
 	const handleDatabaseOpen = (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
 		setDatabase(database);
@@ -47,33 +64,37 @@ function App() {
 		}
 	};
 
-	if (database) {
-		return (
-			<>
-				<TitleBar
-					inPasswordView={true}
-					onLock={handleLock}
-					searchQuery={searchQuery}
-					onSearch={setSearchQuery}
-				/>
-				<PasswordView
-					database={database}
-					searchQuery={searchQuery}
-					onDatabaseChange={handleDatabaseChange}
-					showInitialBreachReport={showInitialBreachReport}
-				/>
-				<ToastContainer />
-			</>
-		);
-	}
+	const content = database ? (
+		<>
+			<TitleBar
+				inPasswordView={true}
+				onLock={handleLock}
+				searchQuery={searchQuery}
+				onSearch={setSearchQuery}
+				onOpenSettings={() => setShowSettings(true)}
+			/>
+			<PasswordView
+				database={database}
+				searchQuery={searchQuery}
+				onDatabaseChange={handleDatabaseChange}
+				showInitialBreachReport={showInitialBreachReport}
+			/>
 
-	return (
+		</>
+	) : (
 		<div className="app">
 			<Background />
-			<TitleBar />
+			<TitleBar onOpenSettings={() => setShowSettings(true)} />
 			<AuthenticationView onDatabaseOpen={handleDatabaseOpen} />
-			<ToastContainer />
 		</div>
+	);
+
+	return (
+		<ThemeProvider>
+			{content}
+			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
+			<ToastContainer />
+		</ThemeProvider>
 	);
 }
 

@@ -5,6 +5,7 @@ import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
+import { userSettingsService } from '../../services/UserSettingsService';
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -64,6 +65,58 @@ export const PasswordForm = ({
         }
     }, [selectedFile, passwordInputRef]);
 
+    const startBreachCheck = async (database: Database, db: kdbxweb.Kdbx, databasePath: string) => {
+        // Check cache status
+        const {
+            breached: breachedPasswords,
+            weak: weakPasswords,
+            hasCheckedEntries: hasCheckedPasswordEntries,
+            allEntriesCached: allPasswordEntriesCached
+        } = BreachCheckService.findBreachedAndWeakEntries(database.root);
+
+        const {
+            breached: breachedEmails,
+            hasCheckedEmails: hasCheckedEmailEntries,
+            allEmailsCached: allEmailEntriesCached
+        } = BreachCheckService.findBreachedEmails(database.root);
+
+        // If we have any cached results with breaches, show them immediately
+        if (breachedPasswords.length > 0 || weakPasswords.length > 0 || breachedEmails.length > 0) {
+            onDatabaseOpen(database, db, true);
+        }
+
+        // Run both checks in parallel if needed
+        await Promise.all([
+            // Check passwords
+            (async () => {
+                if (hasCheckedPasswordEntries && !allPasswordEntriesCached) {
+                    const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
+                    if (hasBreaches) {
+                        window.electron?.showNotification({
+                            title: 'Password Security Alert',
+                            body: `Some passwords in ${databasePath} were found in data breaches`
+                        });
+                    }
+                }
+            })(),
+            // Check emails
+            (async () => {
+                const hasApikey = userSettingsService.getHibpApiKey() != null;
+                if (hasCheckedEmailEntries && !allEmailEntriesCached && hasApikey) {
+                    const hasBreaches = await BreachCheckService.checkGroupEmails(databasePath, database.root);
+                    if (hasBreaches) {
+                        window.electron?.showNotification({
+                            title: 'Email Security Alert',
+                            body: `Some emails in ${databasePath} were found in data breaches`
+                        });
+                    }
+                }
+            })()
+        ]);
+
+        onDatabaseOpen(database, db, true);
+    }
+
     const handleBiometricUnlock = async () => {
         if (!selectedFile || !databasePath || !window.electron || !isBiometricsEnabled) return;
 
@@ -101,27 +154,7 @@ export const PasswordForm = ({
             KeepassDatabaseService.setPath(databasePath);
             onDatabaseOpen(database, db);
 
-            // Check cache status
-            const { breached, weak, hasCheckedEntries, allEntriesCached } = BreachCheckService.findBreachedAndWeakEntries(database.root);
-
-            // If we have any cached results with breaches, show them immediately
-            if (breached.length > 0 || weak.length > 0) {
-                onDatabaseOpen(database, db, true);
-            }
-
-            // Only run full check if we have entries but not all are cached
-            if (hasCheckedEntries && !allEntriesCached) {
-                const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
-                if (hasBreaches) {
-                    (window as any).showToast?.({
-                        message: 'Some passwords in this database were found in data breaches',
-                        type: 'warning',
-                        duration: 10000
-                    });
-                    onDatabaseOpen(database, db, true);
-                }
-            }
-
+            await startBreachCheck(database, db, databasePath);
             await window.electron.saveLastDatabasePath(databasePath);
         } catch (err) {
             console.error('Failed to unlock database with biometrics:', err);
@@ -242,26 +275,7 @@ export const PasswordForm = ({
 
             // Start breach checking in the background
             if (databasePath) {
-                // Check cache status
-                const { breached, weak, hasCheckedEntries, allEntriesCached } = BreachCheckService.findBreachedAndWeakEntries(database.root);
-
-                // If we have any cached results with breaches, show them immediately
-                if (breached.length > 0 || weak.length > 0) {
-                    onDatabaseOpen(database, db, true);
-                }
-
-                // Only run full check if we have entries but not all are cached
-                if (hasCheckedEntries && !allEntriesCached) {
-                    const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
-                    if (hasBreaches) {
-                        (window as any).showToast?.({
-                            message: 'Some passwords in this database were found in data breaches',
-                            type: 'warning',
-                            duration: 10000
-                        });
-                        onDatabaseOpen(database, db, true);
-                    }
-                }
+                await startBreachCheck(database, db, databasePath);
             }
         } catch (err) {
             console.error('Failed to unlock database:', err);

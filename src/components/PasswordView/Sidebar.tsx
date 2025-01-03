@@ -37,6 +37,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	const [isDragOver, setIsDragOver] = useState(false);
 	const [hasBreachedEntries, setHasBreachedEntries] = useState(false);
 	const [hasWeakPasswords, setHasWeakPasswords] = useState(false);
+	const [hasBreachedEmails, setHasBreachedEmails] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const hasSubgroups = group.groups.length > 0;
 
@@ -47,6 +48,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 				const isBreached = await BreachCheckService.checkGroup(path, group);
 				setHasBreachedEntries(isBreached);
 				setHasWeakPasswords(BreachCheckService.hasWeakPasswords(group));
+				setHasBreachedEmails(BreachCheckService.hasBreachedEmails(group));
 			}
 		};
 		checkGroupStatus();
@@ -194,8 +196,8 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 									<BreachWarningIcon className="breach-icon" />
 								</span>
 							)}
-							{!hasBreachedEntries && hasWeakPasswords && (
-								<span className="group-weak-password-indicator" title="Contains weak passwords">
+							{!hasBreachedEntries && (hasWeakPasswords || hasBreachedEmails) && (
+								<span className="group-weak-password-indicator" title="Contains weak passwords or breached email addresses">
 									<SecurityShieldIcon className="weak-password-icon" />
 								</span>
 							)}

@@ -1,6 +1,6 @@
 .title-bar {
 	height: 48px;
-	background: #000000;
+	background: var(--bg-dark);
 	display: flex;
 	align-items: center;
 	-webkit-app-region: drag;
@@ -10,16 +10,16 @@
 	left: 0;
 	right: 0;
 	top: 0;
-	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	border-bottom: 1px solid var(--border-primary);
 }
 
 .title-bar.macos {
-	padding-left: 0; /* Remove the extra padding */
+	padding-left: 0;
 }
 
 .title-bar.in-password-view {
-	background: #080808;
-	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	background: var(--bg-dark);
+	border-bottom: 1px solid var(--border-primary);
 	height: 48px;
 }
 
@@ -31,7 +31,7 @@
 	display: flex;
 	gap: 8px;
 	-webkit-app-region: no-drag;
-	z-index: 2; /* Ensure traffic lights are above other elements */
+	z-index: 2;
 }
 
 .macos-window-controls .window-control {
@@ -46,15 +46,15 @@
 }
 
 .macos-window-controls .window-control.close {
-	background-color: #ff5f57;
+	background-color: var(--macos-close);
 }
 
 .macos-window-controls .window-control.minimize {
-	background-color: #ffbd2e;
+	background-color: var(--macos-minimize);
 }
 
 .macos-window-controls .window-control.maximize {
-	background-color: #28c940;
+	background-color: var(--macos-maximize);
 }
 
 .macos-window-controls .window-control:hover {
@@ -73,7 +73,7 @@
 }
 
 .title-bar-text {
-	color: #ffffff;
+	color: var(--text-primary);
 	font-size: 2rem;
 	opacity: 0.9;
 	flex-shrink: 0;
@@ -101,13 +101,11 @@
 	box-sizing: border-box;
 }
 
-/* Specific adjustments for macOS */
 .title-bar.macos .title-bar-controls {
 	z-index: 1;
 	gap: 24px;
 }
 
-/* Keep the logo and title close to traffic lights on macOS */
 .title-bar.macos .title-bar-drag-area {
 	position: relative;
 	justify-content: flex-start;
@@ -127,9 +125,9 @@
 	padding: 0 12px;
 	font-family: inherit;
 	font-size: 13px;
-	color: #ffffff;
-	background-color: #1a1a1a;
-	border: 1px solid rgba(255, 255, 255, 0.1);
+	color: var(--text-primary);
+	background-color: var(--bg-secondary);
+	border: 1px solid var(--border-primary);
 	border-radius: 6px;
 	transition: all 0.2s ease;
 	-webkit-app-region: no-drag;
@@ -137,8 +135,8 @@
 
 .search-input:focus {
 	outline: none;
-	background-color: #222222;
-	border-color: rgba(255, 255, 255, 0.2);
+	background-color: var(--bg-primary);
+	border-color: var(--border-secondary);
 }
 
 .lock-button {
@@ -149,9 +147,9 @@
 	padding: 0 16px;
 	font-family: inherit;
 	font-size: 13px;
-	color: #fff;
-	background-color: #1a1a1a;
-	border: 1px solid rgba(255, 255, 255, 0.1);
+	color: var(--text-primary);
+	background-color: var(--bg-secondary);
+	border: 1px solid var(--border-primary);
 	border-radius: 6px;
 	cursor: pointer;
 	transition: all 0.2s ease;
@@ -161,15 +159,15 @@
 }
 
 .lock-button:hover {
-	background-color: #222222;
-	border-color: rgba(255, 255, 255, 0.2);
+	background-color: var(--bg-primary);
+	border-color: var(--border-secondary);
 }
 
 .lock-button .lock-icon {
 	width: 12px;
 	height: 12px;
 	flex-shrink: 0;
-	color: white;
+	color: var(--text-primary);
 }
 
 .window-controls {
@@ -188,7 +186,7 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	color: #fff;
+	color: var(--text-primary);
 	opacity: 0.8;
 	cursor: pointer;
 	padding: 0;
@@ -198,11 +196,11 @@
 }
 
 .window-control:hover {
-	background: rgba(255, 255, 255, 0.1);
+	background: var(--overlay-medium);
 }
 
 .window-control.close:hover {
-	background: #e81123;
+	background: var(--color-error);
 }
 
 .title-bar-logo {
@@ -211,7 +209,38 @@
 	margin-right: 8px;
 }
 
-/* Remove the macOS-specific search container styles since we want consistent sizing */
 .title-bar.macos .search-container {
 	margin: 0 8px;
+}
+
+.settings-button {
+	width: 46px;
+	height: calc(100% - 2px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+	border: none;
+	color: var(--text-primary);
+	opacity: 0.8;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	-webkit-app-region: no-drag;
+	margin-top: 1px;
+	padding: 0;
+}
+
+.settings-button:hover {
+	background: var(--overlay-medium);
+}
+
+.settings-button svg {
+	width: 16px;
+	height: 16px;
+}
+
+.settings-button.macos-settings {
+	position: absolute;
+	right: 0;
+	top: 0;
 }

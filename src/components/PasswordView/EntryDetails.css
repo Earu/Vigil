@@ -5,7 +5,7 @@
 .strength-bar-container {
     width: 100%;
     height: 4px;
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: var(--border-primary);
     border-radius: 2px;
     overflow: hidden;
     margin-bottom: 0.5rem;
@@ -24,7 +24,7 @@
 
 .strength-warning {
     font-size: 0.75rem;
-    color: #dc2626;
+    color: var(--color-error);
     margin-top: 0.25rem;
 }
 
@@ -36,7 +36,7 @@
 
 .strength-suggestions li {
     font-size: 0.75rem;
-    color: #94a3b8;
+    color: var(--text-tertiary);
     margin-bottom: 0.25rem;
 }
 

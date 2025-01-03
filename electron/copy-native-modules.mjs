@@ -51,7 +51,7 @@ function getModulePath(moduleName) {
 }
 
 // Create the destination directory if it doesn't exist
-const destDir = path.join(process.cwd(), 'dist-electron', 'native_modules')
+const destDir = path.join(process.cwd(), 'dist-electron')
 if (!fs.existsSync(destDir)) {
     fs.mkdirSync(destDir, { recursive: true });
 }

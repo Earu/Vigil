@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LogoIcon, LockIcon, MinimizeIcon, MaximizeIcon, CloseIcon } from '../icons';
+import { SettingsIcon } from '../icons/SettingsIcon';
 import './TitleBar.css';
 
 interface TitleBarProps {
@@ -7,9 +8,10 @@ interface TitleBarProps {
 	onLock?: () => void;
 	searchQuery?: string;
 	onSearch?: (query: string) => void;
+	onOpenSettings?: () => void;
 }
 
-export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }: TitleBarProps) {
+export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, onOpenSettings }: TitleBarProps) {
 	const [isMaximized, setIsMaximized] = useState(false);
 	const [isMacOS, setIsMacOS] = useState(false);
 
@@ -71,6 +73,9 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }:
 			</div>
 			{!isMacOS && (
 				<div className="window-controls">
+					<button className="settings-button" onClick={onOpenSettings} title="Settings">
+						<SettingsIcon />
+					</button>
 					<button className="window-control minimize" onClick={handleMinimize}>
 						<MinimizeIcon />
 					</button>
@@ -81,6 +86,11 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch }:
 						<CloseIcon />
 					</button>
 				</div>
+			)}
+			{isMacOS && (
+				<button className="settings-button macos-settings" onClick={onOpenSettings} title="Settings">
+					<SettingsIcon />
+				</button>
 			)}
 		</div>
 	);
