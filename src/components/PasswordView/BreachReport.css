@@ -282,3 +282,26 @@
     height: 2px;
     background-color: var(--text-secondary);
 }
+
+.breach-details {
+    margin-top: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.breach-detail {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.breach-name {
+    font-weight: 500;
+}
+
+.breach-date {
+    color: var(--text-quaternary);
+}

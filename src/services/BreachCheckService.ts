@@ -1,6 +1,7 @@
 import { HaveIBeenPwnedService } from './HaveIBeenPwnedService';
 import { Entry, Group } from '../types/database';
 import { BreachStatusStore } from './BreachStatusStore';
+import { EmailBreachStatusStore } from './EmailBreachStatusStore';
 import * as kdbxweb from 'kdbxweb';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
 
@@ -68,20 +69,31 @@ export interface EmailCheckResult {
     allEmailsCached: boolean;
 }
 
+export interface BreachedEmailEntry extends BreachedEntry {
+    breaches: HibpBreach[];
+    modified: Date;
+}
+
+export interface EmailBreachCheckResult {
+    breached: BreachedEmailEntry[];
+    hasCheckedEmails: boolean;
+    allEmailsCached: boolean;
+}
+
 export class BreachCheckService {
     // Rate limiting: max 1 request per 1.5 seconds for passwords
     private static readonly REQUEST_DELAY = 1500;
-    // Rate limiting: max 10 requests per minute for emails
-    private static readonly EMAIL_REQUEST_DELAY = 6000; // 6 seconds between requests
-    private static readonly EMAIL_MAX_REQUESTS = 10;
     private static lastRequestTime = 0;
-    private static lastEmailRequestTime = 0;
-    private static emailRequestCount = 0;
     private static toastId: string | null = null;
     private static countedEntries: Set<string> = new Set();
     private static progress = { checked: 0, total: 0 };
-    private static emailBreachCache: Map<string, { email: string, breaches: HibpBreach[], timestamp: number }> = new Map();
-    private static readonly EMAIL_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
+
+    // Rate limiting: max 10 requests per minute for emails
+    private static readonly EMAIL_REQUEST_DELAY = 6000; // 6 seconds between requests
+    private static lastEmailRequestTime = 0;
+    private static emailToastId: string | null = null;
+    private static countedEmails: Set<string> = new Set();
+    private static emailProgress = { checked: 0, total: 0 };
 
     private static async checkPassword(password: string | kdbxweb.ProtectedValue): Promise<PasswordStatus> {
         // Ensure we don't exceed rate limits
@@ -333,128 +345,208 @@ export class BreachCheckService {
         return emailRegex.test(email);
     }
 
-    private static async checkEmailForEntry(email: string, entryId: string, modifiedDate: Date): Promise<HibpBreach[]> {
-        // Check cache first
-        const cached = this.emailBreachCache.get(entryId);
-        if (cached && cached.email === email && (Date.now() - cached.timestamp) < this.EMAIL_CACHE_DURATION) {
-            return cached.breaches;
+    private static updateEmailToast(checked: number, total: number): void {
+        if (total === 0) return;
+
+        const message = `Checking emails for breaches (${checked}/${total})`;
+        if (this.emailToastId) {
+            (window as any).updateToast?.(this.emailToastId, {
+                message,
+                type: 'info',
+                duration: 0 // Keep it visible
+            });
+        } else {
+            this.emailToastId = (window as any).showToast?.({
+                message,
+                type: 'info',
+                duration: 0 // Keep it visible
+            });
         }
-
-        // Get breaches from shared cache or make request
-        const breaches = await this.getEmailBreaches(email);
-
-        // Filter breaches based on entry modification date
-        const recentBreaches = breaches.filter(breach => {
-            const breachDate = new Date(breach.ModifiedDate).getTime();
-            return breachDate > modifiedDate.getTime();
-        });
-
-        // Update cache
-        this.emailBreachCache.set(entryId, {
-            email,
-            breaches: recentBreaches,
-            timestamp: Date.now()
-        });
-
-        return recentBreaches;
     }
 
-    private static emailBreachRequests = new Map<string, Promise<HibpBreach[]>>();
+    private static incrementEmailProgress(entryId: string): void {
+        if (!this.countedEmails.has(entryId)) {
+            this.countedEmails.add(entryId);
+            this.emailProgress.checked++;
+            this.updateEmailToast(this.emailProgress.checked, this.emailProgress.total);
+        }
+    }
 
-    private static async getEmailBreaches(email: string): Promise<HibpBreach[]> {
-        // Check if we already have a pending request for this email
-        const pendingRequest = this.emailBreachRequests.get(email);
-        if (pendingRequest) {
-            return pendingRequest;
+    private static async checkEmailEntry(databasePath: string, entry: Entry): Promise<HibpBreach[]> {
+        if (!this.isValidEmail(entry.username)) {
+            return [];
         }
 
-        // Reset request count if it's been more than a minute
+        // Check cache first
+        const cachedStatus = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username);
+
+        if (cachedStatus !== null) {
+            this.incrementEmailProgress(entry.id);
+            return cachedStatus;
+        }
+
+        // Ensure we don't exceed rate limits
         const now = Date.now();
-        if (now - this.lastEmailRequestTime > 60000) {
-            this.emailRequestCount = 0;
-        }
-
-        // Check rate limits
-        if (this.emailRequestCount >= this.EMAIL_MAX_REQUESTS) {
-            throw new Error('Email check rate limit exceeded. Please try again later.');
-        }
-
         const timeSinceLastRequest = now - this.lastEmailRequestTime;
         if (timeSinceLastRequest < this.EMAIL_REQUEST_DELAY) {
             await new Promise(resolve => setTimeout(resolve, this.EMAIL_REQUEST_DELAY - timeSinceLastRequest));
         }
 
-        // Create new request promise
-        const breachPromise = (async () => {
-            try {
-                const breaches = await HaveIBeenPwnedService.checkEmailBreaches(email);
-
-                // Update rate limiting
-                this.lastEmailRequestTime = Date.now();
-                this.emailRequestCount++;
-
-                return breaches;
-            } catch (error) {
-                console.error('Error checking email breaches:', error);
-                throw error;
-            } finally {
-                // Clean up the request from the map
-                this.emailBreachRequests.delete(email);
-            }
-        })();
-
-        // Store the promise in the map
-        this.emailBreachRequests.set(email, breachPromise);
-
-        return breachPromise;
-    }
-
-    public static async checkEmails(group: Group): Promise<EmailCheckResult> {
-        const checkedEmails: EmailBreachResult[] = [];
-        let hasCheckedEmails = false;
-        let allEmailsCached = true;
-
-        // Helper function to check emails in a group
-        const checkGroupEmails = async (group: Group) => {
-            for (const entry of group.entries) {
-                if (entry.username && this.isValidEmail(entry.username)) {
-                    try {
-                        const breaches = await this.checkEmailForEntry(entry.username, entry.id, entry.modified);
-                        if (breaches.length > 0) {
-                            checkedEmails.push({
-                                email: entry.username,
-                                entryId: entry.id,
-                                breaches
-                            });
-                            hasCheckedEmails = true;
-                        }
-                    } catch (error) {
-                        console.error(`Error checking email for entry ${entry.id}:`, error);
-                        allEmailsCached = false;
-                    }
-                }
-            }
-
-            // Check subgroups
-            for (const subgroup of group.groups) {
-                await checkGroupEmails(subgroup);
-            }
-        };
-
         try {
-            await checkGroupEmails(group);
-            return {
-                checkedEmails,
-                hasCheckedEmails,
-                allEmailsCached
-            };
+            const breaches = await HaveIBeenPwnedService.checkEmailBreaches(entry.username);
+            EmailBreachStatusStore.setEntryEmailStatus(databasePath, entry.id, entry.username, breaches);
+            this.lastEmailRequestTime = Date.now();
+            this.incrementEmailProgress(entry.id);
+            return breaches;
         } catch (error) {
-            console.error('Error checking emails:', error);
+            // Don't cache errors - we want to retry later
+            this.incrementEmailProgress(entry.id);
             throw error;
         }
     }
 
-    public static clearEmailCache(): void {
-        this.emailBreachCache.clear();
+    public static async checkGroupEmails(databasePath: string, group: Group): Promise<boolean> {
+        let hasBreached = false;
+        const isRootGroup = group.name === 'All Entries';
+
+        // Start checking status if this is the root call
+        if (isRootGroup) {
+            const totalEntries = this.countTotalEntries(group);
+            this.countedEmails.clear();
+            this.emailProgress = { checked: 0, total: totalEntries };
+
+            // Show initial toast immediately
+            this.emailToastId = (window as any).showToast?.({
+                message: `Starting email breach check (0/${totalEntries})`,
+                type: 'info',
+                duration: 0 // Keep it visible
+            });
+        }
+
+        try {
+            // Check entries one at a time to respect rate limits
+            for (const entry of group.entries) {
+                if (this.isValidEmail(entry.username)) {
+                    try {
+                        const breaches = await this.checkEmailEntry(databasePath, entry);
+                        hasBreached = hasBreached || breaches.length > 0;
+                    } catch (error) {
+                        // Continue checking other entries even if one fails
+                        console.error('Error checking email entry:', error);
+                    }
+                } else {
+                    // Skip non-email entries but still count them for progress
+                    this.incrementEmailProgress(entry.id);
+                }
+            }
+
+            // Check subgroups one at a time
+            for (const subgroup of group.groups) {
+                try {
+                    const isBreached = await this.checkGroupEmails(databasePath, subgroup);
+                    hasBreached = hasBreached || isBreached;
+                } catch (error) {
+                    // Continue checking other groups even if one fails
+                    console.error('Error checking group:', error);
+                }
+            }
+
+            // Stop checking status if this is the root call
+            if (isRootGroup) {
+                this.countedEmails.clear();
+                this.emailProgress = { checked: 0, total: 0 };
+
+                // Show completion toast
+                if (this.emailToastId) {
+                    (window as any).updateToast?.(this.emailToastId, {
+                        message: 'Completed checking emails for breaches',
+                        type: 'success',
+                        duration: 10000 // Show for 10 seconds then dismiss
+                    });
+                    this.emailToastId = null;
+                }
+            }
+
+            return hasBreached;
+        } catch (error) {
+            // Make sure we stop the status if there's an error
+            if (isRootGroup) {
+                this.countedEmails.clear();
+                this.emailProgress = { checked: 0, total: 0 };
+
+                // Show error toast
+                if (this.emailToastId) {
+                    (window as any).updateToast?.(this.emailToastId, {
+                        message: 'Error checking emails for breaches',
+                        type: 'error',
+                        duration: 3000 // Show for 3 seconds then dismiss
+                    });
+                    this.emailToastId = null;
+                }
+            }
+            throw error;
+        }
+    }
+
+    public static findBreachedEmails(group: Group, parentGroup: Group = group): EmailBreachCheckResult {
+        const databasePath = KeepassDatabaseService.getPath();
+        if (!databasePath) return {
+            breached: [],
+            hasCheckedEmails: false,
+            allEmailsCached: false
+        };
+
+        const breached: BreachedEmailEntry[] = [];
+        let hasCheckedEmails = false;
+        let allEmailsCached = true;
+
+        // Check entries in current group
+        group.entries.forEach(entry => {
+            if (!this.isValidEmail(entry.username)) {
+                return;
+            }
+
+            const breaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username);
+            hasCheckedEmails = true;
+
+            if (breaches === null) {
+                allEmailsCached = false;
+                return;
+            }
+
+            if (breaches.length > 0) {
+                const entryInfo: BreachedEmailEntry = {
+                    entry,
+                    group: parentGroup,
+                    count: breaches.length,
+                    breaches,
+                    modified: entry.modified
+                };
+
+                // Check if any breach is newer than the entry's last modification
+                const hasRecentBreach = breaches.some(breach => {
+                    const breachDate = new Date(breach.BreachDate);
+                    return breachDate > entry.modified;
+                });
+
+                if (hasRecentBreach) {
+                    breached.push(entryInfo);
+                }
+            }
+        });
+
+        // Check subgroups
+        group.groups.forEach(subgroup => {
+            const subResults = this.findBreachedEmails(subgroup, subgroup);
+            breached.push(...subResults.breached);
+            hasCheckedEmails = hasCheckedEmails || subResults.hasCheckedEmails;
+            allEmailsCached = allEmailsCached && subResults.allEmailsCached;
+        });
+
+        return {
+            breached,
+            hasCheckedEmails,
+            allEmailsCached
+        };
     }
 }
