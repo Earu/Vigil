@@ -1,4 +1,4 @@
-interface PasswordStrength {
+export interface PasswordStrength {
     score: number;
     feedback: {
         warning: string;
@@ -11,6 +11,7 @@ interface BreachStatus {
     count: number;
     strength: PasswordStrength;
     timestamp: number;
+    breachedEmail?: boolean;
 }
 
 interface EntryBreachStatus {
@@ -35,7 +36,7 @@ export class BreachStatusStore {
         localStorage.setItem(this.STORE_KEY, JSON.stringify(store));
     }
 
-    public static setEntryStatus(databasePath: string, entryId: string, status: { isPwned: boolean; count: number; strength: PasswordStrength }): void {
+    public static setEntryStatus(databasePath: string, entryId: string, status: { isPwned: boolean; count: number; strength: PasswordStrength; breachedEmail?: boolean }): void {
         const store = this.getStore();
         if (!store[databasePath]) {
             store[databasePath] = {};
@@ -49,7 +50,7 @@ export class BreachStatusStore {
         this.saveStore(store);
     }
 
-    public static getEntryStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength } | null {
+    public static getEntryStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength; breachedEmail?: boolean } | null {
         const store = this.getStore();
         const status = store[databasePath]?.[entryId];
 
@@ -62,11 +63,8 @@ export class BreachStatusStore {
             return null;
         }
 
-        return {
-            isPwned: status.isPwned,
-            count: status.count,
-            strength: status.strength
-        };
+        const { isPwned, count, strength, breachedEmail } = status;
+        return { isPwned, count, strength, breachedEmail };
     }
 
     public static clearDatabase(databasePath: string): void {
