@@ -1,5 +1,6 @@
 import zxcvbn from 'zxcvbn';
 import { userSettingsService } from './UserSettingsService';
+import { HibpBreach } from './BreachCheckService';
 
 export class HaveIBeenPwnedService {
     private static readonly HIBP_API_URL = 'https://api.pwnedpasswords.com';
@@ -52,7 +53,7 @@ export class HaveIBeenPwnedService {
      * Checks if an email address has been exposed in known data breaches
      * Requires a HIBP API key
      */
-    public static async checkEmailBreaches(email: string): Promise<any[]> {
+    public static async checkEmailBreaches(email: string): Promise<HibpBreach[]> {
         const apiKey = userSettingsService.getHibpApiKey();
         if (!apiKey) {
             return [];
