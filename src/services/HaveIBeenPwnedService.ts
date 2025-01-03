@@ -3,7 +3,6 @@ import { userSettingsService } from './UserSettingsService';
 
 export class HaveIBeenPwnedService {
     private static readonly HIBP_API_URL = 'https://api.pwnedpasswords.com';
-    private static readonly HIBP_BREACH_API_URL = 'https://haveibeenpwned.com/api/v3';
 
     /**
      * Checks if a password has been exposed in known data breaches
@@ -60,22 +59,7 @@ export class HaveIBeenPwnedService {
         }
 
         try {
-            const response = await fetch(`${this.HIBP_BREACH_API_URL}/breachedaccount/${encodeURIComponent(email)}`, {
-                headers: {
-                    'hibp-api-key': apiKey,
-                    'User-Agent': 'Vigil Password Manager'
-                }
-            });
-
-            if (response.status === 404) {
-                return []; // No breaches found
-            }
-
-            if (!response.ok) {
-                throw new Error('Failed to check email breach status');
-            }
-
-            return await response.json();
+            return await window.electron?.checkEmailBreaches(email, apiKey) ?? [];
         } catch (error) {
             console.error('Error checking email breach status:', error);
             throw error;
