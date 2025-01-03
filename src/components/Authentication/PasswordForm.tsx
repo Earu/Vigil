@@ -5,6 +5,7 @@ import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
+import { userSettingsService } from '../../services/UserSettingsService';
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -101,7 +102,8 @@ export const PasswordForm = ({
             })(),
             // Check emails
             (async () => {
-                if (hasCheckedEmailEntries && !allEmailEntriesCached) {
+                const hasApikey = userSettingsService.getHibpApiKey() != null;
+                if (hasCheckedEmailEntries && !allEmailEntriesCached && hasApikey) {
                     const hasBreaches = await BreachCheckService.checkGroupEmails(databasePath, database.root);
                     if (hasBreaches) {
                         (window as any).showToast?.({
