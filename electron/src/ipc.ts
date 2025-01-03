@@ -17,6 +17,7 @@ import {
     getBiometricPassword,
     disableBiometrics
 } from './biometrics';
+import { checkEmailBreaches } from './hibp';
 
 export function setupIpcHandlers(): void {
     // Crypto handlers
@@ -73,6 +74,11 @@ export function setupIpcHandlers(): void {
 
     ipcMain.handle('disable-biometrics', async (_, dbPath: string) => {
         return await disableBiometrics(dbPath);
+    });
+
+    // HIBP handlers
+    ipcMain.handle('check-email-breaches', async (_, email: string, apiKey: string) => {
+        return await checkEmailBreaches(email, apiKey);
     });
 
     // Utility handlers
