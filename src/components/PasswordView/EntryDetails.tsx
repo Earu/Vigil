@@ -8,6 +8,7 @@ import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, Gen
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
+import { PasswordStrength } from '../../services/BreachStatusStore';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -76,7 +77,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const [isEditing, setIsEditing] = useState(isNew);
 	const [clipboardTimer, setClipboardTimer] = useState<number>(0);
 	const [copiedField, setCopiedField] = useState<string>('');
-	const [breachStatus, setBreachStatus] = useState<{ isPwned: boolean; count: number } | null>(null);
+	const [breachStatus, setBreachStatus] = useState<{ isPwned: boolean; count: number; breachedEmail?: boolean; strength: PasswordStrength } | null>(null);
 	const [passwordStrength, setPasswordStrength] = useState<{
 		score: number;
 		feedback: {
@@ -250,6 +251,16 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					<div className="breach-warning-content">
 						<h3>Password Compromised</h3>
 						<p>This password has appeared in {breachStatus.count.toLocaleString()} data {breachStatus.count === 1 ? 'breach' : 'breaches'}. You should change it as soon as possible.</p>
+					</div>
+				</div>
+			)}
+
+			{!breachStatus?.isPwned && !isNew && !isEditing && editedEntry.username && breachStatus?.breachedEmail && (
+				<div className="weak-password-warning-header">
+					<SecurityShieldIcon className="weak-password-warning-icon" />
+					<div className="weak-password-warning-content">
+						<h3>Email Address Exposed</h3>
+						<p>The email address associated with this entry has been found in recent data breaches. Consider using a different email address or monitoring for suspicious activity.</p>
 					</div>
 				</div>
 			)}

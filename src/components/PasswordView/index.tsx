@@ -4,9 +4,10 @@ import { Sidebar } from './Sidebar';
 import { EntryList } from './EntryList';
 import { EntryDetails } from './EntryDetails';
 import { BreachReport } from './BreachReport';
-import { BreachCheckService, BreachedEntry } from '../../services/BreachCheckService';
+import { BreachCheckService, BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import './PasswordView.css';
+import { userSettingsService } from '../../services/UserSettingsService';
 
 interface PasswordViewProps {
 	database: Database;
@@ -21,8 +22,10 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
 	const [breachedEntries, setBreachedEntries] = useState<BreachedEntry[]>([]);
 	const [weakEntries, setWeakEntries] = useState<BreachedEntry[]>([]);
+	const [breachedEmailEntries, setBreachedEmailEntries] = useState<BreachedEmailEntry[]>([]);
 	const [showBreachReport, setShowBreachReport] = useState(false);
 	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
+	const [isCheckingEmails, setIsCheckingEmails] = useState(false);
 	const [sidebarWidth, setSidebarWidth] = useState(400);
 	const [detailsWidth, setDetailsWidth] = useState(400);
 	const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
@@ -32,6 +35,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		if (showInitialBreachReport) {
 			setShowBreachReport(true);
 			setIsCheckingBreaches(true);
+			setIsCheckingEmails(true);
 		}
 	}, [showInitialBreachReport]);
 
@@ -46,8 +50,24 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 			}
 		};
 
+		const updateEmailBreachStatus = () => {
+			const hasApikey = userSettingsService.getHibpApiKey() != null;
+			if (!hasApikey) {
+				setIsCheckingEmails(false);
+				return;
+			}
+
+			const { breached } = BreachCheckService.findBreachedEmails(database.root);
+			setBreachedEmailEntries(breached);
+
+			if (isCheckingEmails && breached.length > 0) {
+				setIsCheckingEmails(false);
+			}
+		};
+
 		updateBreachStatus();
-	}, [database, isCheckingBreaches]);
+		updateEmailBreachStatus();
+	}, [database, isCheckingBreaches, isCheckingEmails]);
 
 	useEffect(() => {
 		const updatedGroup = KeepassDatabaseService.findGroupInDatabase(selectedGroup.id, database.root);
@@ -221,17 +241,21 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					/>
 				)}
 			</div>
-			{(showBreachReport && (breachedEntries.length > 0 || isCheckingBreaches)) && (
+			{(showBreachReport && (breachedEntries.length > 0 || breachedEmailEntries.length > 0 || isCheckingBreaches || isCheckingEmails)) && (
 				<BreachReport
 					database={database}
 					breachedEntries={breachedEntries}
 					weakEntries={weakEntries}
+					breachedEmailEntries={breachedEmailEntries}
 					isChecking={isCheckingBreaches}
+					isCheckingEmails={isCheckingEmails}
 					onClose={() => {
 						setShowBreachReport(false);
 						setBreachedEntries([]);
 						setWeakEntries([]);
+						setBreachedEmailEntries([]);
 						setIsCheckingBreaches(false);
+						setIsCheckingEmails(false);
 					}}
 				/>
 			)}
