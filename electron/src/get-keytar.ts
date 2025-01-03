@@ -7,7 +7,7 @@ try {
 	if (process.env.NODE_ENV === 'development') {
 		keytar = require('keytar');
 	} else {
-		const keytarPath = join(__dirname, 'native_modules', 'keytar.node');
+		const keytarPath = join(__dirname, 'keytar.node');
 		keytar = require(keytarPath);
 	}
 } catch (error) {
