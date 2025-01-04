@@ -19,9 +19,10 @@ interface SettingsProps {
     setAutoLockEnabled: (enabled: boolean) => void;
     autoLockDuration: number;
     setAutoLockDuration: (duration: number) => void;
+    onDatabaseChange?: () => void;
 }
 
-export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLockEnabled, autoLockDuration, setAutoLockDuration }: SettingsProps) {
+export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLockEnabled, autoLockDuration, setAutoLockDuration, onDatabaseChange }: SettingsProps) {
     const { theme, setTheme } = useTheme();
     const [apiKey, setApiKey] = useState<string>(userSettingsService.getHibpApiKey() || '');
     const [showApiKey, setShowApiKey] = useState(false);
@@ -62,6 +63,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
 
                 await CsvImportService.importToDatabase(passwords, kdbxDb);
                 setShowImportModal(false);
+                onDatabaseChange?.();
 
                 (window as any).showToast?.({
                     message: `Successfully imported ${passwords.length} passwords`,
