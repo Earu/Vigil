@@ -11,33 +11,19 @@ declare global {
     }
 }
 
-let mainWindow: BrowserWindow | null = null;
+function triggerLock() {
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (!mainWindow?.isDestroyed()) {
+        mainWindow?.webContents.send('trigger-lock');
+    }
+}
+
 app.whenReady().then(() => {
     setupIpcHandlers();
-    mainWindow = createWindow();
+    createWindow();
 
-    powerMonitor.on('suspend', () => {
-        if (!mainWindow?.isDestroyed()) {
-            mainWindow?.webContents.send('trigger-lock');
-        }
-    });
-
-    powerMonitor.on('lock-screen', () => {
-        if (!mainWindow?.isDestroyed()) {
-            mainWindow?.webContents.send('trigger-lock');
-        }
-    });
-
-    powerMonitor.on('unlock-screen', () => {
-        if (!mainWindow?.isDestroyed()) {
-            mainWindow?.webContents.send('trigger-lock');
-        }
-    });
-
-    powerMonitor.on('resume', () => {
-        if (!mainWindow?.isDestroyed()) {
-            mainWindow?.webContents.send('trigger-lock');
-        }
+    ["suspend", "lock-screen", "unlock-screen", "resume"].forEach(evName => {
+        powerMonitor.on(evName as any, triggerLock);
     });
 });
 
