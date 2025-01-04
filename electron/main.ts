@@ -16,13 +16,28 @@ app.whenReady().then(() => {
     setupIpcHandlers();
     mainWindow = createWindow();
 
-    // Set up power monitor events
     powerMonitor.on('suspend', () => {
-        mainWindow?.webContents.send('trigger-lock');
+        if (!mainWindow?.isDestroyed()) {
+            mainWindow?.webContents.send('trigger-lock');
+        }
     });
 
     powerMonitor.on('lock-screen', () => {
-        mainWindow?.webContents.send('trigger-lock');
+        if (!mainWindow?.isDestroyed()) {
+            mainWindow?.webContents.send('trigger-lock');
+        }
+    });
+
+    powerMonitor.on('unlock-screen', () => {
+        if (!mainWindow?.isDestroyed()) {
+            mainWindow?.webContents.send('trigger-lock');
+        }
+    });
+
+    powerMonitor.on('resume', () => {
+        if (!mainWindow?.isDestroyed()) {
+            mainWindow?.webContents.send('trigger-lock');
+        }
     });
 });
 
