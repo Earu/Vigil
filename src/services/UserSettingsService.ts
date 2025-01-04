@@ -3,6 +3,8 @@ export type Theme = 'dark' | 'light' | 'system';
 interface UserSettings {
     theme: Theme;
     hibpApiKey?: string;
+    autoLockEnabled: boolean;
+    autoLockDuration: number;
 }
 
 const SETTINGS_KEY = 'vigil_user_settings';
@@ -23,7 +25,9 @@ class UserSettingsService {
         // Default settings
         return {
             theme: 'dark',
-            hibpApiKey: undefined
+            hibpApiKey: undefined,
+            autoLockEnabled: false,
+            autoLockDuration: 20
         };
     }
 
@@ -46,6 +50,24 @@ class UserSettingsService {
 
     setHibpApiKey(apiKey: string | undefined): void {
         this.settings.hibpApiKey = apiKey;
+        this.saveSettings();
+    }
+
+    getAutoLockEnabled(): boolean {
+        return this.settings.autoLockEnabled;
+    }
+
+    setAutoLockEnabled(enabled: boolean): void {
+        this.settings.autoLockEnabled = enabled;
+        this.saveSettings();
+    }
+
+    getAutoLockDuration(): number {
+        return this.settings.autoLockDuration;
+    }
+
+    setAutoLockDuration(duration: number): void {
+        this.settings.autoLockDuration = duration;
         this.saveSettings();
     }
 

@@ -582,6 +582,8 @@ export class KeepassDatabaseService {
                 throw new Error('Database not loaded');
             }
 
+            kdbxDb.meta.name = database.name;
+
             const root = kdbxDb.getDefaultGroup();
             if (root) {
                 this.updateGroup(database.root, root, kdbxDb);
