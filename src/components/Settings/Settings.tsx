@@ -15,9 +15,13 @@ interface SettingsProps {
     isOpen: boolean;
     onClose: () => void;
     kdbxDb: kdbxweb.Kdbx | null;
+    autoLockEnabled: boolean;
+    setAutoLockEnabled: (enabled: boolean) => void;
+    autoLockDuration: number;
+    setAutoLockDuration: (duration: number) => void;
 }
 
-export function Settings({ isOpen, onClose, kdbxDb }: SettingsProps) {
+export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLockEnabled, autoLockDuration, setAutoLockDuration }: SettingsProps) {
     const { theme, setTheme } = useTheme();
     const [apiKey, setApiKey] = useState<string>(userSettingsService.getHibpApiKey() || '');
     const [showApiKey, setShowApiKey] = useState(false);
@@ -134,6 +138,37 @@ export function Settings({ isOpen, onClose, kdbxDb }: SettingsProps) {
 
                     <div className="settings-section">
                         <h3>Security</h3>
+                        <div className="auto-lock-controls">
+                            <div className="auto-lock-toggle">
+                                <label htmlFor="auto-lock-enabled">Enable automatic locking</label>
+                                <input
+                                    type="checkbox"
+                                    id="auto-lock-enabled"
+                                    checked={autoLockEnabled}
+                                    onChange={(e) => {
+                                        setAutoLockEnabled(e.target.checked);
+                                        userSettingsService.setAutoLockEnabled(e.target.checked);
+                                    }}
+                                />
+                            </div>
+                            <div className={`auto-lock-duration ${autoLockEnabled ? 'enabled' : ''}`}>
+                                <label htmlFor="auto-lock-duration">Duration (minutes)</label>
+                                <input
+                                    type="number"
+                                    id="auto-lock-duration"
+                                    value={autoLockDuration}
+                                    min="1"
+                                    max="480"
+                                    disabled={!autoLockEnabled}
+                                    onChange={(e) => {
+                                        const value = Math.max(1, Math.min(480, parseInt(e.target.value) || 20));
+                                        setAutoLockDuration(value);
+                                        userSettingsService.setAutoLockDuration(value);
+                                    }}
+                                />
+                            </div>
+                            <p className="auto-lock-help">When enabled, the database will automatically lock after the specified period of time</p>
+                        </div>
                         <div className="api-key-input">
                             <label htmlFor="hibp-api-key">Have I Been Pwned API Key</label>
                             <div className="input-with-toggle">
