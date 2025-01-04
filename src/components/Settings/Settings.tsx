@@ -3,6 +3,8 @@ import { CloseIcon } from '../../icons';
 import { DarkThemeIcon, LightThemeIcon, SystemThemeIcon } from '../../icons/SettingsIcon';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
+import { BreachStatusStore } from '../../services/BreachStatusStore';
+import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { useState } from 'react';
 import './Settings.css';
 
@@ -88,6 +90,23 @@ export function Settings({ isOpen, onClose }: SettingsProps) {
                                     haveibeenpwned.com
                                 </a>
                             </p>
+                            <div className="cache-controls">
+                                <button
+                                    className="clear-cache-button"
+                                    onClick={() => {
+                                        BreachStatusStore.clearAll();
+                                        EmailBreachStatusStore.clearAll();
+                                        (window as any).showToast?.({
+                                            message: 'Breach check cache cleared',
+                                            type: 'success',
+                                            duration: 3000
+                                        });
+                                    }}
+                                >
+                                    Clear Cache
+                                </button>
+                                <p className="cache-help">Clears stored breach check results</p>
+                            </div>
                         </div>
                     </div>
                 </div>
