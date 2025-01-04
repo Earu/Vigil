@@ -11,18 +11,19 @@ declare global {
     }
 }
 
-let mainWindow: BrowserWindow | null = null;
+function triggerLock() {
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (!mainWindow?.isDestroyed()) {
+        mainWindow?.webContents.send('trigger-lock');
+    }
+}
+
 app.whenReady().then(() => {
     setupIpcHandlers();
-    mainWindow = createWindow();
+    createWindow();
 
-    // Set up power monitor events
-    powerMonitor.on('suspend', () => {
-        mainWindow?.webContents.send('trigger-lock');
-    });
-
-    powerMonitor.on('lock-screen', () => {
-        mainWindow?.webContents.send('trigger-lock');
+    ["suspend", "lock-screen", "unlock-screen", "resume"].forEach(evName => {
+        powerMonitor.on(evName as any, triggerLock);
     });
 });
 

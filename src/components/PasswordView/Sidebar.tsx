@@ -14,6 +14,7 @@ interface SidebarProps {
 	onGroupNameChange?: (group: Group, newName: string) => void;
 	onMoveGroup?: (group: Group, newParent: Group) => void;
 	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
+	onDatabaseChange?: (database: Database) => void;
 }
 
 interface GroupItemProps {
@@ -258,11 +259,70 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	);
 };
 
-export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry }: SidebarProps) => {
+export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry, onDatabaseChange }: SidebarProps) => {
+	const [isEditingTitle, setIsEditingTitle] = useState(false);
+	const [editedTitle, setEditedTitle] = useState(database.name);
+	const titleInputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (isEditingTitle && titleInputRef.current) {
+			titleInputRef.current.focus();
+			titleInputRef.current.select();
+		}
+	}, [isEditingTitle]);
+
+	useEffect(() => {
+		setEditedTitle(database.name);
+	}, [database.name]);
+
+	const handleTitleSubmit = () => {
+		const newTitle = editedTitle.trim();
+		if (newTitle && newTitle !== database.name) {
+			const updatedDatabase = { ...database, name: newTitle };
+			onDatabaseChange?.(updatedDatabase);
+		} else {
+			setEditedTitle(database.name);
+		}
+		setIsEditingTitle(false);
+	};
+
+	const handleTitleKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key === 'Enter') {
+			e.preventDefault();
+			handleTitleSubmit();
+		} else if (e.key === 'Escape') {
+			setEditedTitle(database.name);
+			setIsEditingTitle(false);
+		}
+		e.stopPropagation();
+	};
+
 	return (
 		<div className="sidebar">
 			<div className="sidebar-header">
-				<h2 className="database-title">{database.name}</h2>
+				{isEditingTitle ? (
+					<input
+						ref={titleInputRef}
+						className="database-title-input"
+						value={editedTitle}
+						onChange={(e) => setEditedTitle(e.target.value)}
+						onBlur={handleTitleSubmit}
+						onKeyDown={handleTitleKeyDown}
+						onClick={(e) => e.stopPropagation()}
+					/>
+				) : (
+					<h2
+						className="database-title"
+						onClick={() => {
+							setEditedTitle(database.name);
+							setIsEditingTitle(true);
+						}}
+						title="Click to edit database name"
+					>
+						{database.name}
+						<EditActionIcon className="edit-icon" />
+					</h2>
+				)}
 			</div>
 			<div className="groups-container">
 				<GroupItem
