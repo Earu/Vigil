@@ -235,3 +235,155 @@
     font-size: 0.75rem;
     color: var(--text-tertiary);
 }
+
+.database-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.import-csv-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background-color: var(--overlay-light);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 0.75rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    width: 100%;
+    transition: all 0.2s ease;
+}
+
+.import-csv-button:hover {
+    background-color: var(--overlay-medium);
+    border-color: var(--border-secondary);
+    transform: translateY(-1px);
+}
+
+.import-csv-button .import-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.database-help {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    margin: 0;
+}
+
+.settings-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+.settings-import-modal {
+    background-color: var(--bg-dark);
+    border-radius: 0.75rem;
+    border: 1px solid var(--border-primary);
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.settings-modal-header {
+    padding: 1.25rem;
+    border-bottom: 1px solid var(--border-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.settings-modal-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.settings-modal-content {
+    padding: 1.25rem;
+}
+
+.settings-modal-content p {
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.settings-modal-content .help-text {
+    margin-top: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text-tertiary);
+}
+
+.settings-modal-footer {
+    padding: 1.25rem;
+    border-top: 1px solid var(--border-primary);
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+}
+
+.settings-modal-footer button {
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.settings-secondary-button {
+    background-color: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-primary);
+}
+
+.settings-secondary-button:hover {
+    background-color: var(--overlay-light);
+    border-color: var(--border-secondary);
+}
+
+.settings-primary-button {
+    background: linear-gradient(135deg, var(--color-white), var(--text-light));
+    color: var(--color-black);
+    border: none;
+    font-weight: 500;
+}
+
+.settings-primary-button:hover {
+    background-color: var(--accent-hover);
+    transform: translateY(-1px);
+}
+
+.settings-modal-header .close-button {
+    padding: 0.15rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.settings-modal-header .close-button:hover {
+    color: var(--text-primary);
+}
+
+.settings-modal-header .close-button svg {
+    width: 0.75rem;
+    height: 0.75rem;
+}
