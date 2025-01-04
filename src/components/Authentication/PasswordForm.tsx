@@ -91,7 +91,7 @@ export const PasswordForm = ({
             (async () => {
                 if (hasCheckedPasswordEntries && !allPasswordEntriesCached) {
                     const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
-                    if (hasBreaches) {
+                    if (hasBreaches && KeepassDatabaseService.getPath() === databasePath) {
                         window.electron?.showNotification({
                             title: 'Password Security Alert',
                             body: `Some passwords in ${databasePath} were found in data breaches`
@@ -104,7 +104,7 @@ export const PasswordForm = ({
                 const hasApikey = userSettingsService.getHibpApiKey() != null;
                 if (hasCheckedEmailEntries && !allEmailEntriesCached && hasApikey) {
                     const hasBreaches = await BreachCheckService.checkGroupEmails(databasePath, database.root);
-                    if (hasBreaches) {
+                    if (hasBreaches && KeepassDatabaseService.getPath() === databasePath) {
                         window.electron?.showNotification({
                             title: 'Email Security Alert',
                             body: `Some emails in ${databasePath} were found in data breaches`
@@ -114,7 +114,10 @@ export const PasswordForm = ({
             })()
         ]);
 
-        onDatabaseOpen(database, db, true);
+        // Only reopen if the database hasn't been locked
+        if (KeepassDatabaseService.getPath() === databasePath) {
+            onDatabaseOpen(database, db, true);
+        }
     }
 
     const handleBiometricUnlock = async () => {
