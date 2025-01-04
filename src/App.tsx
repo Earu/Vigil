@@ -94,7 +94,7 @@ function App() {
 	return (
 		<ThemeProvider>
 			{content}
-			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} />
+			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} kdbxDb={kdbxDb} />
 			<ToastContainer />
 		</ThemeProvider>
 	);

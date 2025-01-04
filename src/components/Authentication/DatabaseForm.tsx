@@ -1,5 +1,6 @@
 import { BrowseAuthIcon, ImportAuthIcon } from '../../icons/auth/AuthIcons';
 import { useState } from 'react';
+import { CsvImportService } from '../../services/CsvImportService';
 
 interface DatabaseFormProps {
     setSelectedFile: (file: File | null) => void;
@@ -41,7 +42,6 @@ export const DatabaseForm = ({
     };
 
     const handleCsvImport = async () => {
-        // Create a file input element
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.csv';
@@ -51,93 +51,17 @@ export const DatabaseForm = ({
             if (!file) return;
 
             try {
-                const text = await file.text();
-                const lines = text.split(/\r?\n/).filter(line => line.trim());
-
-                if (lines.length === 0) {
-                    throw new Error('CSV file is empty');
-                }
-
-                const passwords: Array<{ url: string; username: string; password: string }> = [];
-                const headerLine = parseCSVLine(lines[0]);
-                const headers = headerLine.map(h => h.toLowerCase());
-
-                const urlIndex = headers.findIndex(h => h === 'url' || h === 'origin');
-                const usernameIndex = headers.findIndex(h => h === 'username' || h === 'username field' || h === 'usernamevalue');
-                const passwordIndex = headers.findIndex(h => h === 'password' || h === 'password field' || h === 'passwordvalue');
-
-                if (passwordIndex === -1 || (urlIndex === -1 && usernameIndex === -1)) {
-                    console.log('Could not find required columns. Headers found:', headers);
-                    throw new Error('Could not find required columns (url/origin, username, password) in the CSV file');
-                }
-
-                // Parse based on known CSV formats
-                for (let i = 1; i < lines.length; i++) {
-                    const values = parseCSVLine(lines[i]);
-                    if (values.length === 0) {
-                        console.log(`Skipping empty line ${i + 1}`);
-                        continue;
-                    }
-
-                    const url = urlIndex !== -1 ? values[urlIndex] : "";
-                    const username = usernameIndex !== -1 ? values[usernameIndex] : "";
-                    const password = values[passwordIndex];
-
-                    if (!password) {
-                        continue;
-                    }
-
-                    passwords.push({ url, username, password });
-                }
-
-                if (passwords.length === 0) {
-                    throw new Error('No valid password entries found in CSV');
-                }
-
-                console.log(`Successfully imported ${passwords.length} passwords from CSV (${lines.length - 1} total entries)`);
+                const passwords = await CsvImportService.importFromCsv(file);
+                setBrowserPasswords(passwords);
                 setShowImportModal(false);
                 setIsCreatingNew(true);
-                setBrowserPasswords(passwords);
             } catch (err) {
                 console.error('Failed to import CSV:', err);
                 setError(err instanceof Error ? err.message : 'Failed to import CSV file');
             }
         };
 
-        // Trigger the file picker
         input.click();
-    };
-
-    // Helper function to parse CSV lines properly handling quoted fields
-    const parseCSVLine = (line: string): string[] => {
-        const result: string[] = [];
-        let current = '';
-        let inQuotes = false;
-
-        for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-
-            if (char === '"') {
-                if (inQuotes && line[i + 1] === '"') {
-                    // Handle escaped quotes
-                    current += '"';
-                    i++;
-                } else {
-                    // Toggle quote state
-                    inQuotes = !inQuotes;
-                }
-            } else if (char === ',' && !inQuotes) {
-                // End of field
-                result.push(current.trim());
-                current = '';
-            } else {
-                current += char;
-            }
-        }
-
-        // Add the last field
-        result.push(current.trim());
-        return result;
     };
 
     return (
