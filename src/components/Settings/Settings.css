@@ -205,3 +205,33 @@
 .api-key-help a:hover {
     color: var(--text-primary);
 }
+
+.cache-controls {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-primary);
+}
+
+.clear-cache-button {
+    padding: 0.75rem;
+    background-color: var(--overlay-light);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: 0.75rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    width: 100%;
+    transition: all 0.2s ease;
+}
+
+.clear-cache-button:hover {
+    background-color: var(--overlay-medium);
+    border-color: var(--border-secondary);
+    transform: translateY(-1px);
+}
+
+.cache-help {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
