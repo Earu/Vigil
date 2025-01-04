@@ -95,6 +95,33 @@ export class BreachCheckService {
     private static emailProgress = { checked: 0, total: 0 };
     private static toastId: string | null = null;
 
+    // Cancellation support
+    private static isCancelled = false;
+
+    public static cancelChecks(): void {
+        this.isCancelled = true;
+        this.clearProgress();
+    }
+
+    private static clearProgress(): void {
+        this.countedEntries.clear();
+        this.countedEmails.clear();
+        this.progress = { checked: 0, total: 0 };
+        this.emailProgress = { checked: 0, total: 0 };
+        if (this.toastId) {
+            (window as any).updateToast?.(this.toastId, {
+                message: 'Breach check cancelled',
+                type: 'info',
+                duration: 3000
+            });
+            this.toastId = null;
+        }
+    }
+
+    private static resetCancellation(): void {
+        this.isCancelled = false;
+    }
+
     private static updateProgressToast(): void {
         const isCheckingPasswords = this.progress.total > 0;
         const isCheckingEmails = this.emailProgress.total > 0;
@@ -213,6 +240,7 @@ export class BreachCheckService {
 
         // Start checking status if this is the root call
         if (isRootGroup) {
+            this.resetCancellation();
             const totalEntries = this.countTotalEntries(group);
             this.countedEntries.clear();
             this.progress = { checked: 0, total: totalEntries };
@@ -222,6 +250,9 @@ export class BreachCheckService {
         try {
             // Check entries one at a time to respect rate limits
             for (const entry of group.entries) {
+                if (this.isCancelled) {
+                    return false;
+                }
                 try {
                     const isBreached = await this.checkEntry(databasePath, entry);
                     hasBreached = hasBreached || isBreached;
@@ -233,6 +264,9 @@ export class BreachCheckService {
 
             // Check subgroups one at a time
             for (const subgroup of group.groups) {
+                if (this.isCancelled) {
+                    return false;
+                }
                 try {
                     const isBreached = await this.checkGroup(databasePath, subgroup);
                     hasBreached = hasBreached || isBreached;
@@ -243,7 +277,7 @@ export class BreachCheckService {
             }
 
             // Stop checking status if this is the root call
-            if (isRootGroup) {
+            if (isRootGroup && !this.isCancelled) {
                 this.countedEntries.clear();
                 this.progress = { checked: 0, total: 0 };
                 this.updateProgressToast();
@@ -253,16 +287,7 @@ export class BreachCheckService {
         } catch (error) {
             // Make sure we stop the status if there's an error
             if (isRootGroup) {
-                this.countedEntries.clear();
-                this.progress = { checked: 0, total: 0 };
-                if (this.toastId) {
-                    (window as any).updateToast?.(this.toastId, {
-                        message: 'Error checking passwords for breaches',
-                        type: 'error',
-                        duration: 3000
-                    });
-                    this.toastId = null;
-                }
+                this.clearProgress();
             }
             throw error;
         }
@@ -415,6 +440,7 @@ export class BreachCheckService {
 
         // Start checking status if this is the root call
         if (isRootGroup) {
+            this.resetCancellation();
             const totalEntries = this.countTotalEntries(group);
             this.countedEmails.clear();
             this.emailProgress = { checked: 0, total: totalEntries };
@@ -424,6 +450,9 @@ export class BreachCheckService {
         try {
             // Check entries one at a time to respect rate limits
             for (const entry of group.entries) {
+                if (this.isCancelled) {
+                    return false;
+                }
                 if (this.isValidEmail(entry.username)) {
                     try {
                         const breaches = await this.checkEmailEntry(databasePath, entry);
@@ -452,6 +481,9 @@ export class BreachCheckService {
 
             // Check subgroups one at a time
             for (const subgroup of group.groups) {
+                if (this.isCancelled) {
+                    return false;
+                }
                 try {
                     const isBreached = await this.checkGroupEmails(databasePath, subgroup);
                     hasBreached = hasBreached || isBreached;
@@ -462,7 +494,7 @@ export class BreachCheckService {
             }
 
             // Stop checking status if this is the root call
-            if (isRootGroup) {
+            if (isRootGroup && !this.isCancelled) {
                 this.countedEmails.clear();
                 this.emailProgress = { checked: 0, total: 0 };
                 this.updateProgressToast();
@@ -472,16 +504,7 @@ export class BreachCheckService {
         } catch (error) {
             // Make sure we stop the status if there's an error
             if (isRootGroup) {
-                this.countedEmails.clear();
-                this.emailProgress = { checked: 0, total: 0 };
-                if (this.toastId) {
-                    (window as any).updateToast?.(this.toastId, {
-                        message: 'Error checking emails for breaches',
-                        type: 'error',
-                        duration: 3000
-                    });
-                    this.toastId = null;
-                }
+                this.clearProgress();
             }
             throw error;
         }
