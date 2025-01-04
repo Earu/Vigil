@@ -10,6 +10,7 @@ import { AuthenticationView } from './components/Authentication/AuthenticationVi
 import { KeepassDatabaseService } from './services/KeepassDatabaseService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
+import { BreachCheckService } from './services/BreachCheckService';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -43,6 +44,7 @@ function App() {
 		setKdbxDb(null);
 		setShowInitialBreachReport(false);
 		KeepassDatabaseService.setPath(undefined);
+		BreachCheckService.cancelChecks();
 	};
 
 	const handleDatabaseChange = async (updatedDatabase: Database) => {
