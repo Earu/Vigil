@@ -213,6 +213,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					onGroupNameChange={handleGroupNameChange}
 					onMoveGroup={handleMoveGroup}
 					onMoveEntry={handleMoveEntry}
+					onDatabaseChange={onDatabaseChange}
 				/>
 				<div
 					className={`resize-handle left ${isResizing === 'left' ? 'resizing' : ''}`}
