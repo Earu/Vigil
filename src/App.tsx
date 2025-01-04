@@ -11,6 +11,7 @@ import { KeepassDatabaseService } from './services/KeepassDatabaseService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
 import { BreachCheckService } from './services/BreachCheckService';
+import { userSettingsService } from './services/UserSettingsService';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -18,6 +19,8 @@ function App() {
 	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
 	const [showInitialBreachReport, setShowInitialBreachReport] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
+	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
+	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
 
 	useEffect(() => {
 		const handleLockEvent = () => {
@@ -32,6 +35,25 @@ function App() {
 			window.electron?.off('trigger-lock', handleLockEvent);
 		};
 	}, [database]);
+
+	// Auto-lock timer effect
+	useEffect(() => {
+		if (!database || !autoLockEnabled) {
+			return;
+		}
+
+		const autoLockDuration = userSettingsService.getAutoLockDuration() * 60 * 1000; // Convert minutes to milliseconds
+		const timer = setTimeout(() => {
+			handleLock();
+			(window as any).showToast?.({
+				message: 'Database was locked automatically',
+				type: 'warning',
+				duration: 3000
+			});
+		}, autoLockDuration);
+
+		return () => clearTimeout(timer);
+	}, [database, autoLockEnabled, autoLockDuration]);
 
 	const handleDatabaseOpen = (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
 		setDatabase(database);
@@ -81,7 +103,6 @@ function App() {
 				onDatabaseChange={handleDatabaseChange}
 				showInitialBreachReport={showInitialBreachReport}
 			/>
-
 		</>
 	) : (
 		<div className="app">
@@ -94,7 +115,21 @@ function App() {
 	return (
 		<ThemeProvider>
 			{content}
-			<Settings isOpen={showSettings} onClose={() => setShowSettings(false)} kdbxDb={kdbxDb} />
+			<Settings 
+				isOpen={showSettings} 
+				onClose={() => setShowSettings(false)} 
+				kdbxDb={kdbxDb}
+				autoLockEnabled={autoLockEnabled}
+				setAutoLockEnabled={(enabled) => {
+					setAutoLockEnabled(enabled);
+					userSettingsService.setAutoLockEnabled(enabled);
+				}}
+				autoLockDuration={autoLockDuration}
+				setAutoLockDuration={(duration) => {
+					setAutoLockDuration(duration);
+					userSettingsService.setAutoLockDuration(duration);
+				}}
+			/>
 			<ToastContainer />
 		</ThemeProvider>
 	);
