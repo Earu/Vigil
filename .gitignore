@@ -43,3 +43,8 @@ native/**/cmake_install.cmake
 
 # Argon2
 public
+
+# Browser extension
+browser-extension/dist
+browser-extension/web-ext-artifacts
+browser-extension/node_modules
