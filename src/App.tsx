@@ -21,6 +21,7 @@ function App() {
 	const [showSettings, setShowSettings] = useState(false);
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
+	const [recentlyLocked, setRecentlyLocked] = useState(false);
 
 	useEffect(() => {
 		const handleLockEvent = () => {
@@ -67,6 +68,8 @@ function App() {
 		setShowInitialBreachReport(false);
 		KeepassDatabaseService.setPath(undefined);
 		BreachCheckService.cancelChecks();
+		setRecentlyLocked(true);
+		setTimeout(() => setRecentlyLocked(false), 1000);
 	};
 
 	const handleDatabaseChange = async (updatedDatabase: Database) => {
@@ -108,7 +111,10 @@ function App() {
 		<div className="app">
 			<Background />
 			<TitleBar onOpenSettings={() => setShowSettings(true)} />
-			<AuthenticationView onDatabaseOpen={handleDatabaseOpen} />
+			<AuthenticationView 
+				onDatabaseOpen={handleDatabaseOpen} 
+				recentlyLocked={recentlyLocked} 
+			/>
 		</div>
 	);
 

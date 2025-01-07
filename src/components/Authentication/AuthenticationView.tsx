@@ -9,6 +9,7 @@ import './AuthenticationView.css';
 
 interface AuthenticationViewProps {
     onDatabaseOpen: (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => void;
+    recentlyLocked?: boolean;
 }
 
 function triggerBiometricUnlock() {
@@ -21,7 +22,10 @@ function triggerBiometricUnlock() {
     }
 }
 
-export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) => {
+export const AuthenticationView: React.FC<AuthenticationViewProps> = ({ 
+    onDatabaseOpen, 
+    recentlyLocked 
+}) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -63,7 +67,7 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
                     setDatabasePath(result.databasePath);
                     setInitialBiometricsEnabled(result.biometricsEnabled);
 
-                    if (result.biometricsEnabled) {
+                    if (result.biometricsEnabled && !recentlyLocked) {
                         setTimeout(() => triggerBiometricUnlock(), 100);
                     }
                 }
