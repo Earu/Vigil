@@ -1,13 +1,14 @@
 {
     "manifest_version": 2,
-    "name": "Password Manager Autofill",
+    "name": "Vigil Autofill",
     "version": "1.0",
-    "description": "Autofill passwords and credentials from your password manager",
+    "description": "Autofill passwords and credentials from your Vigil",
     "permissions": [
         "activeTab",
         "storage",
         "tabs",
-        "<all_urls>"
+        "<all_urls>",
+        "nativeMessaging"
     ],
     "background": {
         "scripts": [
@@ -29,7 +30,7 @@
     },
     "browser_specific_settings": {
         "gecko": {
-            "id": "password-manager@yourdomain.com",
+            "id": "autofill@vigil.app",
             "strict_min_version": "57.0"
         }
     }

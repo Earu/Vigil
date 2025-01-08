@@ -12,27 +12,6 @@ interface AuthenticationViewProps {
     recentlyLocked?: boolean;
 }
 
-interface StoredCredential {
-    url: string;
-    username?: string;
-    email?: string;
-    password: string;
-    lastUsed: Date;
-}
-
-const credentialService = {
-    async getCredentialsForDomain(domain: string): Promise<StoredCredential[]> {
-        // Implement fetching credentials for the specific domain
-        // This would typically query your secure storage
-        return [];
-    },
-
-    async saveCredentials(credentials: StoredCredential): Promise<void> {
-        // Implement saving new credentials
-        // This would typically store in your secure storage
-    }
-};
-
 function triggerBiometricUnlock() {
     const passwordForm = document.querySelector('.password-form') as HTMLElement;
     if (passwordForm) {

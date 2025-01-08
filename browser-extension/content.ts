@@ -47,14 +47,13 @@ function detectFormFields(): FormFields {
             formFields.passwords.push(input);
             logger.debug('content', 'Found password field:', input);
         } else if (input.type === 'text' || input.type === 'email') {
-            const fields = ['email', 'user', 'login'];
+            const fields = ['mail', 'user', 'login', 'identifier', 'username'];
             const inputFields = [input.name, input.id, input.placeholder, input.autocomplete];
 
             for (const inputField of inputFields) {
                 if (fields.includes(inputField.toLowerCase())) {
                     formFields.usernames.push(input);  
-                    logger.debug('content', 'Found username field:', input);
-                    break;     
+                    logger.debug('content', 'Found username field:', inputField, input);   
                 }
             }
         }
@@ -73,7 +72,7 @@ function getCurrentDomain(): string {
 document.addEventListener('focusin', async (e: FocusEvent) => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT') {
-        logger.info('content', 'Input field focused:', target);
+        logger.debug('content', 'Input field focused:', target);
         
         try {
             const response: Credentials = await browserAPI.runtime.sendMessage({
@@ -88,14 +87,14 @@ document.addEventListener('focusin', async (e: FocusEvent) => {
                 if (response.username) {
                     for (const username of fields.usernames) {
                         username.value = response.username;
-                        logger.info('content', 'Autofilled username field');
+                        logger.debug('content', 'Autofilled username field');
                     }
                 }
 
                 if (response.password) {
                     for (const password of fields.passwords) {
                         password.value = response.password;
-                        logger.info('content', 'Autofilled password field');
+                        logger.debug('content', 'Autofilled password field');
                     }
                 }
             }
