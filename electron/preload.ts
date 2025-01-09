@@ -1,5 +1,5 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { IElectronAPI } from '../src/types/electron'
+import { contextBridge, ipcRenderer, BrowserWindow } from 'electron';
+import { IElectronAPI } from '../src/types/electron';
 
 const api: IElectronAPI = {
 	minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
@@ -27,7 +27,11 @@ const api: IElectronAPI = {
 	on: (channel: string, callback: Function) => ipcRenderer.on(channel, (_, ...args) => callback(...args)),
 	off: (channel: string, callback: Function) => ipcRenderer.off(channel, (_, ...args) => callback(...args)),
 	checkEmailBreaches: (email: string, apiKey: string) => ipcRenderer.invoke('check-email-breaches', email, apiKey),
-	showNotification: (options) => ipcRenderer.invoke('show-notification', options)
+	showNotification: (options) => ipcRenderer.invoke('show-notification', options),
+	sendToExtension: (message: any) => ipcRenderer.invoke('send-to-extension', message),
+	respondToExtension: (requestId: string, response: any) => ipcRenderer.invoke('respond-to-extension', requestId, response),
+	trustConnection: (ws: any) => ipcRenderer.invoke('trust-connection', ws),
+	untrustConnection: (ws: any) => ipcRenderer.invoke('untrust-connection', ws)
 }
 
 contextBridge.exposeInMainWorld('electron', api)

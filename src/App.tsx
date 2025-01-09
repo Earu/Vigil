@@ -12,6 +12,8 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
 import { BreachCheckService } from './services/BreachCheckService';
 import { userSettingsService } from './services/UserSettingsService';
+import { ExtensionAuthModal } from './components/Authentication/ExtensionAuthModal';
+import { ExtensionService } from './services/ExtensionService';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -22,6 +24,9 @@ function App() {
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
 	const [recentlyLocked, setRecentlyLocked] = useState(false);
+	const [showAuthPrompt, setShowAuthPrompt] = useState(false);
+	const [pendingExtensionRequest, setPendingExtensionRequest] = useState<{requestId: string, connectionId: string} | null>(null);
+	const [hasBiometrics, setHasBiometrics] = useState(false);
 
 	useEffect(() => {
 		const handleLockEvent = () => {
@@ -30,12 +35,98 @@ function App() {
 			}
 		};
 
+		const handleExtensionMessage = async (message: any) => {
+			console.log(message, database, kdbxDb);
+			if (!database || !kdbxDb) {
+				window.electron?.respondToExtension(message.requestId, {
+					error: 'No database is currently open'
+				});
+				return;
+			}
+
+			try {
+				switch (message.type) {
+					case 'GET_AVAILABLE_ENTRIES': {
+						const availableEntries = await ExtensionService.handleGetAvailableEntries(database);
+						window.electron?.respondToExtension(message.requestId, {
+							data: availableEntries
+						});
+						break;
+					}
+					case 'GET_CREDENTIALS': {
+						const credentials = await ExtensionService.handleGetCredentials(database, message.data.id);
+						window.electron?.respondToExtension(message.requestId, {
+							data: credentials
+						});
+						break;
+					}
+				}
+			} catch (error: any) {
+				window.electron?.respondToExtension(message.requestId, {
+					error: error.message
+				});
+			}
+		};
+
+		const handleAuthRequest = async (request: { requestId: string, connectionId: string }) => {
+			if (!database || !kdbxDb) {
+				window.electron?.respondToExtension(request.requestId, {
+					error: 'No database is currently open'
+				});
+				return;
+			}
+
+			const dbPath = KeepassDatabaseService.getPath();
+			if (!dbPath) {
+				window.electron?.respondToExtension(request.requestId, {
+					error: 'No database path available'
+				});
+				return;
+			}
+
+			const hasBiometrics = await window.electron?.hasBiometricsEnabled(dbPath);
+			setPendingExtensionRequest(request);
+			setHasBiometrics(!!hasBiometrics?.enabled);
+			setShowAuthPrompt(true);
+		};
+
 		window.electron?.on('trigger-lock', handleLockEvent);
+		window.electron?.on('extension-message', handleExtensionMessage);
+		window.electron?.on('request-authentication', handleAuthRequest);
 
 		return () => {
 			window.electron?.off('trigger-lock', handleLockEvent);
+			window.electron?.off('extension-message', handleExtensionMessage);
+			window.electron?.off('request-authentication', handleAuthRequest);
 		};
-	}, [database]);
+	}, [database, kdbxDb]);
+
+	const handleAuthenticationSuccess = async (password?: string) => {
+		if (pendingExtensionRequest && database) {
+			try {
+				if (password) {
+					const dbPath = KeepassDatabaseService.getPath();
+					if (!dbPath) throw new Error('No database path available');
+					await ExtensionService.verifyDatabaseAccess(dbPath, password);
+				}
+
+				await ExtensionService.handleAuthenticationSuccess(pendingExtensionRequest.connectionId);
+			} catch (error) {
+				await ExtensionService.handleAuthenticationFailure(pendingExtensionRequest.requestId);
+				throw error; // Re-throw to let the modal handle the error
+			}
+		}
+		setShowAuthPrompt(false);
+		setPendingExtensionRequest(null);
+	};
+
+	const handleAuthenticationFailure = async () => {
+		if (pendingExtensionRequest) {
+			await ExtensionService.handleAuthenticationFailure(pendingExtensionRequest.requestId);
+		}
+		setShowAuthPrompt(false);
+		setPendingExtensionRequest(null);
+	};
 
 	// Auto-lock timer effect
 	useEffect(() => {
@@ -106,14 +197,21 @@ function App() {
 				onDatabaseChange={handleDatabaseChange}
 				showInitialBreachReport={showInitialBreachReport}
 			/>
+			{showAuthPrompt && (
+				<ExtensionAuthModal
+					onAllow={handleAuthenticationSuccess}
+					onDisallow={handleAuthenticationFailure}
+					hasBiometrics={hasBiometrics}
+				/>
+			)}
 		</>
 	) : (
 		<div className="app">
 			<Background />
 			<TitleBar onOpenSettings={() => setShowSettings(true)} />
-			<AuthenticationView 
-				onDatabaseOpen={handleDatabaseOpen} 
-				recentlyLocked={recentlyLocked} 
+			<AuthenticationView
+				onDatabaseOpen={handleDatabaseOpen}
+				recentlyLocked={recentlyLocked}
 			/>
 		</div>
 	);
@@ -121,9 +219,9 @@ function App() {
 	return (
 		<ThemeProvider>
 			{content}
-			<Settings 
-				isOpen={showSettings} 
-				onClose={() => setShowSettings(false)} 
+			<Settings
+				isOpen={showSettings}
+				onClose={() => setShowSettings(false)}
 				kdbxDb={kdbxDb}
 				autoLockEnabled={autoLockEnabled}
 				setAutoLockEnabled={(enabled) => {

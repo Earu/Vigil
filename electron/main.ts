@@ -2,14 +2,7 @@ import { app, BrowserWindow, powerMonitor } from 'electron';
 import { createWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
 import { handleFileOpen } from './src/file-operations';
-
-declare global {
-    namespace NodeJS {
-        interface Global {
-            startupFilePath: string | undefined;
-        }
-    }
-}
+import { setupWebSocketServer, setupExtensionIpcHandlers } from './src/extension';
 
 process.on('uncaughtException', (error) => {
     console.error('Uncaught exception:', error);
@@ -19,12 +12,18 @@ function triggerLock() {
     const mainWindow = BrowserWindow.getAllWindows()[0];
     if (!mainWindow?.isDestroyed()) {
         mainWindow?.webContents.send('trigger-lock');
+        // Clear trusted connections when database is locked
+        if (global.trustedConnections) {
+            global.trustedConnections.clear();
+        }
     }
 }
 
 app.whenReady().then(() => {
     setupIpcHandlers();
+    setupExtensionIpcHandlers();
     createWindow();
+    setupWebSocketServer();
 
     ["suspend", "lock-screen", "unlock-screen", "resume"].forEach(evName => {
         powerMonitor.on(evName as any, triggerLock);

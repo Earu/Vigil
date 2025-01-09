@@ -23,6 +23,10 @@ export interface IElectronAPI {
 	off: (channel: string, callback: (...args: any[]) => void) => void;
 	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;
 	showNotification: (options: { title: string, body: string }) => Promise<void>;
+	sendToExtension: (message: any) => Promise<void>;
+	respondToExtension: (requestId: string, response: any) => Promise<void>;
+	trustConnection: (connectionId: string) => Promise<void>;
+	untrustConnection: (connectionId: string) => Promise<void>;
 }
 
 declare global {

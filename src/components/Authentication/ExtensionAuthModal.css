@@ -1,0 +1,112 @@
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.extension-auth-modal {
+    background: var(--background-color);
+    border-radius: 8px;
+    padding: 24px;
+    width: 400px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    text-align: center;
+}
+
+.modal-icon {
+    margin-bottom: 16px;
+}
+
+.modal-icon .lock-icon {
+    width: 48px;
+    height: 48px;
+    color: var(--primary-color);
+}
+
+.extension-auth-modal h2 {
+    margin: 0 0 16px 0;
+    color: var(--text-color);
+}
+
+.extension-auth-modal p {
+    margin: 0 0 24px 0;
+    color: var(--text-secondary-color);
+}
+
+.password-input-container {
+    margin-bottom: 24px;
+}
+
+.password-input-container input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--input-background-color);
+    color: var(--text-color);
+    font-size: 14px;
+}
+
+.password-input-container input.error {
+    border-color: var(--error-color);
+}
+
+.error-message {
+    color: var(--error-color);
+    font-size: 12px;
+    margin-top: 4px;
+    text-align: left;
+}
+
+.error-message.biometric-error {
+    text-align: center;
+    margin-bottom: 24px;
+    font-size: 14px;
+}
+
+.modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.modal-buttons button {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 100px;
+}
+
+.modal-buttons button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.disallow-button {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+}
+
+.disallow-button:not(:disabled):hover {
+    background: var(--hover-color);
+}
+
+.allow-button {
+    background: var(--primary-color);
+    border: none;
+    color: white;
+}
+
+.allow-button:not(:disabled):hover {
+    background: var(--primary-color-dark);
+}

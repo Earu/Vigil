@@ -22,9 +22,9 @@ function triggerBiometricUnlock() {
     }
 }
 
-export const AuthenticationView: React.FC<AuthenticationViewProps> = ({ 
-    onDatabaseOpen, 
-    recentlyLocked 
+export const AuthenticationView: React.FC<AuthenticationViewProps> = ({
+    onDatabaseOpen,
+    recentlyLocked
 }) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isDragging, setIsDragging] = useState(false);
