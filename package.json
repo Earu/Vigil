@@ -19,11 +19,13 @@
 		"passport-desktop": "^0.1.2",
 		"react": "^18.3.1",
 		"react-dom": "^18.3.1",
+		"winreg": "^1.2.5",
 		"zxcvbn": "^4.4.2"
 	},
 	"devDependencies": {
 		"@types/react": "^18.3.17",
 		"@types/react-dom": "^18.3.5",
+		"@types/winreg": "^1.2.36",
 		"@vitejs/plugin-react": "^4.3.4",
 		"concurrently": "^8.2.2",
 		"cross-env": "^7.0.3",

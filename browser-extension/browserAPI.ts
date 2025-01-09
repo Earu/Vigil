@@ -12,28 +12,6 @@ const getBrowser = (): BrowserType => {
     throw new Error('No browser API found');
 };
 
-interface Runtime {
-    sendMessage: <T = any>(message: any) => Promise<T>;
-    onMessage: {
-        addListener: (callback: (message: any, sender: any, sendResponse: any) => void) => void;
-        removeListener: (callback: (message: any, sender: any, sendResponse: any) => void) => void;
-    };
-    connectNative: (application: string) => Port;
-    lastError?: {
-        message: string;
-    };
-}
-
-interface Port {
-    onMessage: {
-        addListener: (callback: (response: any) => void) => void;
-    };
-    onDisconnect: {
-        addListener: (callback: () => void) => void;
-    };
-    postMessage: (message: any) => void;
-}
-
 // Helper function to handle Chrome's callback-based sendMessage
 function chromeSendMessage<T>(message: any): Promise<T> {
     return new Promise((resolve) => {
@@ -58,7 +36,7 @@ export const browserAPI = {
             response = await chromeSendMessage<T>(message);
             return response;
         },
-        
+
         onMessage: {
             addListener: (callback: any) => {
                 const browser = getBrowser();
@@ -69,17 +47,17 @@ export const browserAPI = {
                 browser.runtime.onMessage.removeListener(callback);
             }
         },
-        
+
         connectNative: (application: string) => {
             const browser = getBrowser();
             return browser.runtime.connectNative(application);
         },
-        
+
         get lastError() {
             const browser = getBrowser();
             return browser.runtime.lastError;
         }
     }
 } as {
-    runtime: Runtime;
+    runtime: typeof chrome.runtime | typeof browser.runtime;
 };

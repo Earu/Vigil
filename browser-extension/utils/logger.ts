@@ -32,6 +32,9 @@ class Logger {
             case 'error':
                 console.error(prefix, message, ...args);
                 break;
+            default:
+                console.log(prefix, message, ...args);
+                break;
         }
     }
 
@@ -52,4 +55,4 @@ class Logger {
     }
 }
 
-export const logger = Logger.getInstance(); 
+export const logger = Logger.getInstance();

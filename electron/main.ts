@@ -2,7 +2,6 @@ import { app, BrowserWindow, powerMonitor } from 'electron';
 import { createWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
 import { handleFileOpen } from './src/file-operations';
-import { setupNativeMessaging } from './src/native-messaging';
 
 declare global {
     namespace NodeJS {
@@ -11,6 +10,10 @@ declare global {
         }
     }
 }
+
+process.on('uncaughtException', (error) => {
+    console.error('Uncaught exception:', error);
+});
 
 function triggerLock() {
     const mainWindow = BrowserWindow.getAllWindows()[0];
@@ -21,7 +24,6 @@ function triggerLock() {
 
 app.whenReady().then(() => {
     setupIpcHandlers();
-    setupNativeMessaging();
     createWindow();
 
     ["suspend", "lock-screen", "unlock-screen", "resume"].forEach(evName => {
