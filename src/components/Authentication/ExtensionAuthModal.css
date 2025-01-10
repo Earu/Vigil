@@ -12,101 +12,122 @@
 }
 
 .extension-auth-modal {
-    background: var(--background-color);
-    border-radius: 8px;
-    padding: 24px;
+    background: var(--bg-dark);
+    border-radius: 0.75rem;
+    padding: 2.5rem;
     width: 400px;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.3);
     text-align: center;
+    border: 1px solid var(--border-primary);
 }
 
 .modal-icon {
-    margin-bottom: 16px;
+    width: 4rem;
+    height: 4rem;
+    margin: 0 auto 1.5rem;
+    background: linear-gradient(135deg, var(--color-white), var(--text-light));
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .modal-icon .lock-icon {
-    width: 48px;
-    height: 48px;
-    color: var(--primary-color);
+    width: 2rem;
+    height: 2rem;
+    color: var(--color-black);
 }
 
 .extension-auth-modal h2 {
-    margin: 0 0 16px 0;
-    color: var(--text-color);
+    margin: 0 0 1rem 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    background: linear-gradient(to right, var(--color-white), var(--text-light));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 
 .extension-auth-modal p {
-    margin: 0 0 24px 0;
-    color: var(--text-secondary-color);
+    color: var(--text-light);
+    margin-bottom: 1.5rem;
 }
 
 .password-input-container {
-    margin-bottom: 24px;
+    margin-bottom: 1.5rem;
 }
 
 .password-input-container input {
     width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--input-background-color);
-    color: var(--text-color);
-    font-size: 14px;
+    padding: 0.75rem 1rem;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-primary);
+    border-radius: 0.75rem;
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    transition: all 0.2s ease;
+}
+
+.password-input-container input:focus {
+    outline: none;
+    border-color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    box-shadow: 0 0 0 4px var(--overlay-light);
 }
 
 .password-input-container input.error {
-    border-color: var(--error-color);
+    border-color: var(--color-error);
 }
 
 .error-message {
-    color: var(--error-color);
-    font-size: 12px;
-    margin-top: 4px;
+    color: var(--color-error);
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
     text-align: left;
 }
 
 .error-message.biometric-error {
     text-align: center;
-    margin-bottom: 24px;
-    font-size: 14px;
+    margin-bottom: 1.5rem;
+    font-size: 0.875rem;
 }
 
 .modal-buttons {
     display: flex;
-    justify-content: flex-end;
-    gap: 12px;
+    gap: 1rem;
 }
 
 .modal-buttons button {
-    padding: 8px 16px;
-    border-radius: 4px;
+    flex: 1;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.75rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
-    min-width: 100px;
+    transition: all 0.2s ease;
 }
 
 .modal-buttons button:disabled {
-    opacity: 0.6;
+    opacity: 0.5;
     cursor: not-allowed;
 }
 
 .disallow-button {
-    background: transparent;
-    border: 1px solid var(--border-color);
-    color: var(--text-color);
+    background: var(--overlay-medium);
+    color: var(--text-light);
+    border: 1px solid var(--border-primary);
 }
 
 .disallow-button:not(:disabled):hover {
-    background: var(--hover-color);
+    background: var(--overlay-dark);
 }
 
 .allow-button {
-    background: var(--primary-color);
-    border: none;
-    color: white;
+    background: linear-gradient(135deg, var(--color-white), var(--text-light));
+    color: var(--color-black);
+    border: 1px solid var(--border-primary);
 }
 
 .allow-button:not(:disabled):hover {
-    background: var(--primary-color-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px var(--overlay-dark);
 }

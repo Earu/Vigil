@@ -63,8 +63,11 @@ export const ExtensionAuthModal: React.FC<ExtensionAuthModalProps> = ({
                     <LockAuthIcon className="lock-icon" />
                 </div>
 
-                <h2>Extension Access Request</h2>
-                <p>The browser extension wants to access your password database.</p>
+                <h2>Database Access Request</h2>
+                <p>
+                    An external application is requesting access to your password database.
+                    Only allow access if you trust the application and initiated this request.
+                </p>
 
                 {!hasBiometrics && (
                     <div className="password-input-container">
