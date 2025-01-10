@@ -28,78 +28,93 @@ function App() {
 	const [pendingExtensionRequest, setPendingExtensionRequest] = useState<{requestId: string, connectionId: string} | null>(null);
 	const [hasBiometrics, setHasBiometrics] = useState(false);
 
-	useEffect(() => {
-		const handleLockEvent = () => {
-			if (database) {
-				handleLock();
-			}
-		};
+	const handleLockEvent = () => {
+		if (database) {
+			handleLock();
+		}
+	};
 
-		const handleExtensionMessage = async (message: any) => {
-			console.log(message, database, kdbxDb);
-			if (!database || !kdbxDb) {
-				window.electron?.respondToExtension(message.requestId, {
-					error: 'No database is currently open'
-				});
-				return;
-			}
+	const handleExtensionMessage = async (message: any) => {
+		console.log(message, database, kdbxDb);
 
-			try {
-				switch (message.type) {
-					case 'GET_AVAILABLE_ENTRIES': {
-						const availableEntries = await ExtensionService.handleGetAvailableEntries(database);
-						window.electron?.respondToExtension(message.requestId, {
-							data: availableEntries
-						});
-						break;
-					}
-					case 'GET_CREDENTIALS': {
-						const credentials = await ExtensionService.handleGetCredentials(database, message.data.id);
-						window.electron?.respondToExtension(message.requestId, {
-							data: credentials
-						});
-						break;
-					}
+		if (!database || !kdbxDb) {
+			window.electron?.respondToExtension(message.requestId, {
+				error: 'No database is currently open'
+			});
+			return;
+		}
+
+		try {
+			switch (message.type) {
+				case 'GET_AVAILABLE_ENTRIES': {
+					const availableEntries = await ExtensionService.handleGetAvailableEntries(database);
+					window.electron?.respondToExtension(message.requestId, {
+						data: availableEntries
+					});
+					break;
 				}
-			} catch (error: any) {
-				window.electron?.respondToExtension(message.requestId, {
-					error: error.message
-				});
+				case 'GET_CREDENTIALS': {
+					const credentials = await ExtensionService.handleGetCredentials(database, message.data.id);
+					window.electron?.respondToExtension(message.requestId, {
+						data: credentials
+					});
+					break;
+				}
 			}
-		};
+		} catch (error: any) {
+			window.electron?.respondToExtension(message.requestId, {
+				error: error.message
+			});
+		}
+	};
 
-		const handleAuthRequest = async (request: { requestId: string, connectionId: string }) => {
-			if (!database || !kdbxDb) {
-				window.electron?.respondToExtension(request.requestId, {
-					error: 'No database is currently open'
-				});
-				return;
-			}
+	const handleAuthRequest = async (request: { requestId: string, connectionId: string }) => {
+		console.log(request, database, kdbxDb);
+		if (!database || !kdbxDb) {
+			window.electron?.respondToExtension(request.requestId, {
+				error: 'No database is currently open'
+			});
+			return;
+		}
 
-			const dbPath = KeepassDatabaseService.getPath();
-			if (!dbPath) {
-				window.electron?.respondToExtension(request.requestId, {
-					error: 'No database path available'
-				});
-				return;
-			}
+		const dbPath = KeepassDatabaseService.getPath();
+		if (!dbPath) {
+			window.electron?.respondToExtension(request.requestId, {
+				error: 'No database path available'
+			});
+			return;
+		}
 
-			const hasBiometrics = await window.electron?.hasBiometricsEnabled(dbPath);
-			setPendingExtensionRequest(request);
-			setHasBiometrics(!!hasBiometrics?.enabled);
-			setShowAuthPrompt(true);
-		};
+		const hasBiometrics = await window.electron?.hasBiometricsEnabled(dbPath);
+		setPendingExtensionRequest(request);
+		setHasBiometrics(!!hasBiometrics?.enabled);
+		setShowAuthPrompt(true);
+	};
 
-		window.electron?.on('trigger-lock', handleLockEvent);
-		window.electron?.on('extension-message', handleExtensionMessage);
-		window.electron?.on('request-authentication', handleAuthRequest);
+	// Register events only once when component mounts
+	useEffect(() => {
+		const onTriggerLock = () => handleLockEvent();
+		const onExtensionMessage = (message: any) => handleExtensionMessage(message);
+		const onAuthRequest = (request: { requestId: string, connectionId: string }) => handleAuthRequest(request);
+
+		if (!database) {
+			return () => {
+				window.electron?.off('trigger-lock', onTriggerLock);
+				window.electron?.off('extension-message', onExtensionMessage);
+				window.electron?.off('request-authentication', onAuthRequest);
+			};
+		}
+
+		window.electron?.on('trigger-lock', onTriggerLock);
+		window.electron?.on('extension-message', onExtensionMessage);
+		window.electron?.on('request-authentication', onAuthRequest);
 
 		return () => {
-			window.electron?.off('trigger-lock', handleLockEvent);
-			window.electron?.off('extension-message', handleExtensionMessage);
-			window.electron?.off('request-authentication', handleAuthRequest);
+			window.electron?.off('trigger-lock', onTriggerLock);
+			window.electron?.off('extension-message', onExtensionMessage);
+			window.electron?.off('request-authentication', onAuthRequest);
 		};
-	}, [database, kdbxDb]);
+	}, [database]); // Empty dependency array means this only runs once
 
 	const handleAuthenticationSuccess = async (password?: string) => {
 		if (pendingExtensionRequest && database) {

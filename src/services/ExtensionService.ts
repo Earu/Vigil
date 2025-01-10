@@ -6,6 +6,7 @@ export class ExtensionService {
     static async handleGetAvailableEntries(database: Database) {
         const entries = KeepassDatabaseService.getAllEntriesFromGroup(database.root);
         return entries.map(entry => ({
+            title: entry.title,
             id: entry.id,
             url: entry.url || '',
             username: entry.username

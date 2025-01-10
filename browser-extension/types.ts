@@ -1,12 +1,8 @@
 export interface Credentials {
-  success?: boolean;
+  success: boolean;
   error?: string;
+  username?: string;
   password?: string;
-  entries?: Array<{
-    id: string;
-    url: string;
-    username: string;
-  }>;
 }
 
 export interface FormFields {
@@ -17,5 +13,4 @@ export interface FormFields {
 export interface MessageRequest {
   type: 'GET_CREDENTIALS' | 'GET_AVAILABLE_ENTRIES';
   domain?: string;
-  id?: string;
 }

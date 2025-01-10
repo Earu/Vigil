@@ -1,6 +1,7 @@
 import { Credentials, MessageRequest } from './types';
 import { browserAPI } from './browserAPI';
 import { logger } from './utils/logger';
+import { v4 as uuidv4 } from 'uuid';
 
 interface PendingRequest {
     resolve: (value: any) => void;
@@ -9,15 +10,18 @@ interface PendingRequest {
 }
 
 const pendingRequests = new Map<string, PendingRequest>();
-let requestCounter = 0;
 let ws: WebSocket | null = null;
 let isAuthenticated = false;
 
-function generateRequestId(): string {
-    requestCounter = (requestCounter + 1) % Number.MAX_SAFE_INTEGER;
-    return `${Date.now()}-${requestCounter}`;
+// Cache for available entries
+interface CachedEntry {
+    id: string;
+    url: string;
+    username: string;
+    title: string;
 }
 
+let entriesCache: CachedEntry[] = [];
 function cleanupRequest(requestId: string) {
     const request = pendingRequests.get(requestId);
     if (request) {
@@ -38,7 +42,7 @@ function sendRequest(type: string, data: any): Promise<any> {
             return;
         }
 
-        const requestId = generateRequestId();
+        const requestId = uuidv4();
         const timeout = setTimeout(() => {
             cleanupRequest(requestId);
             reject(new Error('Request timed out'));
@@ -98,7 +102,8 @@ function setupWebSocket() {
                 // Initial request for available entries
                 sendRequest('GET_AVAILABLE_ENTRIES', {})
                     .then((response) => {
-                        logger.debug('background', 'Available entries:', response);
+                        entriesCache = response;
+                        logger.debug('background', 'Available entries cached:', response);
                     })
                     .catch((error) => {
                         logger.error('background', 'Error getting available entries:', error);
@@ -130,6 +135,67 @@ function setupWebSocket() {
 // Initial WebSocket setup
 setupWebSocket();
 
+function getDomainFromUrl(url: string): string | null {
+    try {
+        const parsedUrl = new URL(url);
+        return parsedUrl.hostname.toLowerCase();
+    } catch {
+        return null;
+    }
+}
+
+function extractDomainKeywords(domain: string): string[] {
+    // Remove common TLDs and www
+    return domain
+        .replace(/^www\./, '')
+        .replace(/\.(com|org|net|edu|gov|mil|io|co|uk|de|fr|it|nl|eu)$/, '')
+        .split('.');
+}
+
+function findBestMatchingEntry(domain: string, entries: CachedEntry[]): CachedEntry | null {
+    if (!domain) return null;
+    
+    const requestDomain = domain.toLowerCase();
+    const requestKeywords = extractDomainKeywords(requestDomain);
+    
+    let bestMatch: { entry: CachedEntry, score: number } | null = null;
+
+    for (const entry of entries) {
+        let score = 0;
+
+        // Check URL match
+        if (entry.url) {
+            const entryDomain = getDomainFromUrl(entry.url);
+            if (entryDomain) {
+                if (entryDomain === requestDomain) {
+                    score += 100; // Exact domain match is highest priority
+                } else {
+                    // Check for subdomain matches
+                    if (requestDomain.endsWith(`.${entryDomain}`) || entryDomain.endsWith(`.${requestDomain}`)) {
+                        score += 50;
+                    }
+                }
+            }
+        }
+
+        // Check title match with domain keywords
+        if (entry.title) {
+            const titleLower = entry.title.toLowerCase();
+            for (const keyword of requestKeywords) {
+                if (titleLower.includes(keyword)) {
+                    score += 25;
+                }
+            }
+        }
+
+        if (score > 0 && (!bestMatch || score > bestMatch.score)) {
+            bestMatch = { entry, score };
+        }
+    }
+
+    return bestMatch ? bestMatch.entry : null;
+}
+
 browserAPI.runtime.onMessage.addListener((
     request: MessageRequest,
     sender: any,
@@ -137,12 +203,25 @@ browserAPI.runtime.onMessage.addListener((
 ) => {
     logger.debug('background', 'Received message:', request);
 
-    if (request.type === 'GET_CREDENTIALS' && request.id) {
-        logger.debug('background', 'Getting credentials for entry:', request.id);
+    if (request.type === 'GET_CREDENTIALS') {
+        logger.debug('background', 'Getting credentials for domain:', request.domain);
+
+        if (!request.domain) {
+            sendResponse({ success: false, error: 'No domain provided' });
+            return true;
+        }
+
+        // Find best matching entry from cache based on domain
+        const matchingEntry = findBestMatchingEntry(request.domain, entriesCache);
+        if (!matchingEntry) {
+            sendResponse({ success: false, error: 'No matching credentials found' });
+            return true;
+        }
 
         // Send request to Vigil app through WebSocket with timeout and ID
-        sendRequest('GET_CREDENTIALS', { id: request.id })
+        sendRequest('GET_CREDENTIALS', { id: matchingEntry.id })
             .then((credentials) => {
+                credentials.username = matchingEntry.username;
                 sendResponse({ success: true, ...credentials });
             })
             .catch((error) => {

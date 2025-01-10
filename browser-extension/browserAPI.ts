@@ -24,17 +24,14 @@ function chromeSendMessage<T>(message: any): Promise<T> {
 // Create a unified API interface
 export const browserAPI = {
     runtime: {
-        sendMessage: async <T = any>(message: any): Promise<T> => {
+        sendMessage: <T = any>(message: any): Promise<T> => {
             const browser = getBrowser();
-            let response: T;
             if (typeof browser !== 'undefined') {
                 // Firefox returns a promise
-                response = await (browser as typeof globalThis.browser).runtime.sendMessage(message);
+                return (browser as typeof globalThis.browser).runtime.sendMessage(message);
             }
-
             // Chrome uses callbacks
-            response = await chromeSendMessage<T>(message);
-            return response;
+            return chromeSendMessage<T>(message);
         },
 
         onMessage: {
@@ -58,6 +55,4 @@ export const browserAPI = {
             return browser.runtime.lastError;
         }
     }
-} as {
-    runtime: typeof chrome.runtime | typeof browser.runtime;
-};
+} as const;

@@ -13,6 +13,7 @@
     "devDependencies": {
         "@types/chrome": "^0.0.254",
         "@types/firefox-webext-browser": "^111.0.1",
+        "@types/uuid": "^10.0.0",
         "esbuild": "^0.20.1",
         "typescript": "^5.0.0",
         "web-ext": "^7.8.0"
