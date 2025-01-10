@@ -31,7 +31,8 @@ const api: IElectronAPI = {
 	sendToExtension: (message: any) => ipcRenderer.invoke('send-to-extension', message),
 	respondToExtension: (requestId: string, response: any) => ipcRenderer.invoke('respond-to-extension', requestId, response),
 	trustConnection: (ws: any) => ipcRenderer.invoke('trust-connection', ws),
-	untrustConnection: (ws: any) => ipcRenderer.invoke('untrust-connection', ws)
+	untrustConnection: (ws: any) => ipcRenderer.invoke('untrust-connection', ws),
+	setDatabasePath: (path: string | null) => ipcRenderer.invoke('set-database-path', path)
 }
 
 contextBridge.exposeInMainWorld('electron', api)

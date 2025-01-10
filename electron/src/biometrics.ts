@@ -23,7 +23,7 @@ function generateNewSalt(): string {
     return buffer.toString('hex');
 }
 
-async function getInstallationSalt(): Promise<string> {
+export async function getInstallationSalt(): Promise<string> {
     try {
         if (fs.existsSync(SALT_PATH)) {
             return await fs.promises.readFile(SALT_PATH, 'utf-8');

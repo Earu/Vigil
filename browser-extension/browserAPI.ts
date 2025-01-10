@@ -54,5 +54,21 @@ export const browserAPI = {
             const browser = getBrowser();
             return browser.runtime.lastError;
         }
+    },
+    storage: {
+        local: {
+            get: (key: string) => {
+                const browser = getBrowser();
+                return browser.storage.local.get(key);
+            },
+            set: (items: { [key: string]: any }) => {
+                const browser = getBrowser();
+                return browser.storage.local.set(items);
+            },
+            remove: (key: string) => {
+                const browser = getBrowser();
+                return browser.storage.local.remove(key);
+            }
+        }
     }
 } as const;

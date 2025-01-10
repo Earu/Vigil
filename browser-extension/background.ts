@@ -9,9 +9,17 @@ interface PendingRequest {
     timeout: ReturnType<typeof setTimeout>;
 }
 
+interface StoredSecret {
+    secret: string;
+    timeCreated: number;
+    dbPath: string;
+}
+
+const APP_NAME = 'Vigil Browser Extension';
 const pendingRequests = new Map<string, PendingRequest>();
 let ws: WebSocket | null = null;
 let isAuthenticated = false;
+let currentDbPath: string | null = null;
 
 // Cache for available entries
 interface CachedEntry {
@@ -22,6 +30,66 @@ interface CachedEntry {
 }
 
 let entriesCache: CachedEntry[] = [];
+
+// Add an enum for connection states
+enum ConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+    PermanentlyDisconnected
+}
+
+let connectionState = ConnectionState.Disconnected;
+const RECONNECTABLE_ERRORS = [
+    'No database is currently open',
+    'Another client is currently authenticating',
+    'Main window not available'
+];
+
+async function getStoredSecret(): Promise<StoredSecret | null> {
+    try {
+        const result = await browserAPI.storage.local.get('secret');
+        if (!result.secret) return null;
+
+        // Validate the secret hasn't expired
+        const secret = result.secret as StoredSecret;
+        const now = Date.now();
+        if (now - secret.timeCreated > 24 * 60 * 60 * 1000) { // 24 hours
+            await clearStoredSecret();
+            return null;
+        }
+
+        return secret;
+    } catch (error) {
+        logger.error('background', 'Error getting stored secret:', error);
+        return null;
+    }
+}
+
+async function storeSecret(secret: string, dbPath: string): Promise<void> {
+    try {
+        await browserAPI.storage.local.set({
+            secret: {
+                secret,
+                timeCreated: Date.now(),
+                dbPath
+            }
+        });
+        currentDbPath = dbPath;
+    } catch (error) {
+        logger.error('background', 'Error storing secret:', error);
+    }
+}
+
+async function clearStoredSecret(): Promise<void> {
+    try {
+        await browserAPI.storage.local.remove('secret');
+        currentDbPath = null;
+    } catch (error) {
+        logger.error('background', 'Error clearing stored secret:', error);
+    }
+}
+
 function cleanupRequest(requestId: string) {
     const request = pendingRequests.get(requestId);
     if (request) {
@@ -62,21 +130,68 @@ function sendRequest(type: string, data: any): Promise<any> {
     });
 }
 
+async function authenticate() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket not connected');
+    }
+
+    const storedSecret = await getStoredSecret();
+    const authMessage = {
+        type: 'authenticate',
+        appName: APP_NAME,
+        secret: storedSecret?.secret
+    };
+
+    return new Promise<void>((resolve, reject) => {
+        if (!ws) {
+            reject(new Error('WebSocket not connected'));
+            return;
+        }
+
+        const requestId = uuidv4();
+        const timeout = setTimeout(() => {
+            cleanupRequest(requestId);
+            reject(new Error('Authentication timed out'));
+        }, 60000);
+
+        pendingRequests.set(requestId, {
+            resolve,
+            reject,
+            timeout
+        });
+
+        ws.send(JSON.stringify(authMessage));
+    });
+}
+
 function setupWebSocket() {
     if (ws) {
         ws.close();
     }
 
+    // Don't try to reconnect if we're permanently disconnected
+    if (connectionState === ConnectionState.PermanentlyDisconnected) {
+        return;
+    }
+
+    connectionState = ConnectionState.Connecting;
     ws = new WebSocket('ws://localhost:8437');
     isAuthenticated = false;
 
     ws.onopen = () => {
         logger.debug('background', 'Connected to Vigil app');
+        authenticate().catch((error) => {
+            logger.error('background', 'Authentication failed:', error);
+            if (!RECONNECTABLE_ERRORS.includes(error.message)) {
+                connectionState = ConnectionState.PermanentlyDisconnected;
+            }
+        });
     };
 
     ws.onclose = () => {
         logger.debug('background', 'Disconnected from Vigil app');
         isAuthenticated = false;
+        currentDbPath = null;
 
         // Clear all pending requests when connection is lost
         for (const [requestId, request] of pendingRequests.entries()) {
@@ -84,21 +199,31 @@ function setupWebSocket() {
             cleanupRequest(requestId);
         }
 
-        // Try to reconnect after 5 seconds
-        setTimeout(setupWebSocket, 5000);
+        // Only try to reconnect if we're not permanently disconnected
+        if (connectionState !== ConnectionState.PermanentlyDisconnected) {
+            connectionState = ConnectionState.Disconnected;
+            setTimeout(setupWebSocket, 5000);
+        }
     };
 
     ws.onerror = (error) => {
         logger.error('background', 'WebSocket error:', error);
     };
 
-    ws.onmessage = (event) => {
+    ws.onmessage = async (event) => {
         try {
             const message = JSON.parse(event.data);
             logger.debug('background', 'Received message from Vigil app:', message);
 
             if (message.type === 'ready') {
+                connectionState = ConnectionState.Connected;
                 isAuthenticated = true;
+
+                // Store the secret if provided
+                if (message.data?.secret && message.data?.dbPath) {
+                    await storeSecret(message.data.secret, message.data.dbPath);
+                }
+
                 // Initial request for available entries
                 sendRequest('GET_AVAILABLE_ENTRIES', {})
                     .then((response) => {
@@ -111,8 +236,27 @@ function setupWebSocket() {
                 return;
             }
 
-            if (message.error === 'Not authenticated' || message.error === 'Authentication failed' || message.error === 'Authentication denied by user') {
-                isAuthenticated = false;
+            // Handle authentication errors
+            if (message.error) {
+                const shouldReconnect = RECONNECTABLE_ERRORS.includes(message.error);
+
+                if (message.error === 'Authentication denied by user') {
+                    connectionState = ConnectionState.PermanentlyDisconnected;
+                    await clearStoredSecret();
+                } else if (message.error === 'Not authenticated' ||
+                         message.error === 'Authentication failed' ||
+                         message.error === 'No database is currently open') {
+                    isAuthenticated = false;
+                    await clearStoredSecret();
+                    if (!shouldReconnect) {
+                        connectionState = ConnectionState.PermanentlyDisconnected;
+                    }
+                }
+
+                // If we're permanently disconnected, close the connection
+                if (connectionState === ConnectionState.PermanentlyDisconnected) {
+                    ws?.close();
+                }
             }
 
             if (message.requestId) {
@@ -130,6 +274,12 @@ function setupWebSocket() {
             logger.error('background', 'Error processing message:', error);
         }
     };
+}
+
+// Add a function to reset the connection state
+function resetConnectionState() {
+    connectionState = ConnectionState.Disconnected;
+    setupWebSocket();
 }
 
 // Initial WebSocket setup
@@ -154,10 +304,10 @@ function extractDomainKeywords(domain: string): string[] {
 
 function findBestMatchingEntry(domain: string, entries: CachedEntry[]): CachedEntry | null {
     if (!domain) return null;
-    
+
     const requestDomain = domain.toLowerCase();
     const requestKeywords = extractDomainKeywords(requestDomain);
-    
+
     let bestMatch: { entry: CachedEntry, score: number } | null = null;
 
     for (const entry of entries) {

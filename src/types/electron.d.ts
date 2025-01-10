@@ -27,6 +27,7 @@ export interface IElectronAPI {
 	respondToExtension: (requestId: string, response: any) => Promise<void>;
 	trustConnection: (connectionId: string) => Promise<void>;
 	untrustConnection: (connectionId: string) => Promise<void>;
+	setDatabasePath: (path: string | null) => Promise<void>;
 }
 
 declare global {

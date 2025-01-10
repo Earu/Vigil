@@ -7,12 +7,14 @@ interface ExtensionAuthModalProps {
     onAllow: (password?: string) => void;
     onDisallow: () => void;
     hasBiometrics: boolean;
+    appName: string;
 }
 
 export const ExtensionAuthModal: React.FC<ExtensionAuthModalProps> = ({
     onAllow,
     onDisallow,
-    hasBiometrics
+    hasBiometrics,
+    appName
 }) => {
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -65,7 +67,7 @@ export const ExtensionAuthModal: React.FC<ExtensionAuthModalProps> = ({
 
                 <h2>Database Access Request</h2>
                 <p>
-                    An external application is requesting access to your password database.
+                    <strong>{appName}</strong> is requesting access to your password database.
                     Only allow access if you trust the application and initiated this request.
                 </p>
 

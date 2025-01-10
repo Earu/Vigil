@@ -1,21 +1,30 @@
 import { WebSocket } from 'ws';
 import { BrowserWindow, ipcMain } from 'electron';
 import { ExtensionMessage } from './types';
+import { AuthenticationHandler } from './auth';
+
+const authHandler = AuthenticationHandler.getInstance();
 
 export function handleExtensionMessage(ws: WebSocket, connectionId: string, message: ExtensionMessage) {
-    const mainWindow = BrowserWindow.getAllWindows()[0];
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-
-    // Check authentication for all messages
-    if (!global.trustedConnections?.has(connectionId)) {
+    const appName = authHandler.getConnectionAppName(connectionId);
+    if (!appName) {
         ws.send(JSON.stringify({
-            error: 'Not authenticated',
+            error: 'Connection not authenticated',
             requestId: message.requestId
         }));
         return;
     }
 
     // Forward message to renderer
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (!mainWindow || mainWindow.isDestroyed()) {
+        ws.send(JSON.stringify({
+            error: 'Main window not available',
+            requestId: message.requestId
+        }));
+        return;
+    }
+
     mainWindow.webContents.send('extension-message', message);
 
     // Set up a one-time listener for the response if there's a requestId
@@ -33,15 +42,4 @@ export function handleExtensionMessage(ws: WebSocket, connectionId: string, mess
             ipcMain.removeListener(`extension-response-${message.requestId}`, responseHandler);
         }, 60000);
     }
-}
-
-// IPC handlers for trust management
-export function setupExtensionIpcHandlers() {
-    ipcMain.handle('trust-connection', (_, connectionId: string) => {
-        global.trustedConnections?.add(connectionId);
-    });
-
-    ipcMain.handle('untrust-connection', (_, connectionId: string) => {
-        global.trustedConnections?.delete(connectionId);
-    });
 }

@@ -25,7 +25,7 @@ function App() {
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
 	const [recentlyLocked, setRecentlyLocked] = useState(false);
 	const [showAuthPrompt, setShowAuthPrompt] = useState(false);
-	const [pendingExtensionRequest, setPendingExtensionRequest] = useState<{requestId: string, connectionId: string} | null>(null);
+	const [pendingExtensionRequest, setPendingExtensionRequest] = useState<{requestId: string, connectionId: string, appName: string} | null>(null);
 	const [hasBiometrics, setHasBiometrics] = useState(false);
 
 	const handleLockEvent = () => {
@@ -68,7 +68,7 @@ function App() {
 		}
 	};
 
-	const handleAuthRequest = async (request: { requestId: string, connectionId: string }) => {
+	const handleAuthRequest = async (request: { requestId: string, connectionId: string, appName: string }) => {
 		console.log(request, database, kdbxDb);
 		if (!database || !kdbxDb) {
 			window.electron?.respondToExtension(request.requestId, {
@@ -95,7 +95,7 @@ function App() {
 	useEffect(() => {
 		const onTriggerLock = () => handleLockEvent();
 		const onExtensionMessage = (message: any) => handleExtensionMessage(message);
-		const onAuthRequest = (request: { requestId: string, connectionId: string }) => handleAuthRequest(request);
+		const onAuthRequest = (request: { requestId: string, connectionId: string, appName: string }) => handleAuthRequest(request);
 
 		if (!database) {
 			return () => {
@@ -166,6 +166,7 @@ function App() {
 		setDatabase(database);
 		setKdbxDb(kdbxDb);
 		setShowInitialBreachReport(!!showBreachReport);
+		window.electron?.setDatabasePath(KeepassDatabaseService.getPath() || null);
 	};
 
 	const handleLock = () => {
@@ -173,6 +174,7 @@ function App() {
 		setKdbxDb(null);
 		setShowInitialBreachReport(false);
 		KeepassDatabaseService.setPath(undefined);
+		window.electron?.setDatabasePath(null);
 		BreachCheckService.cancelChecks();
 		setRecentlyLocked(true);
 		setTimeout(() => setRecentlyLocked(false), 1000);
@@ -217,6 +219,7 @@ function App() {
 					onAllow={handleAuthenticationSuccess}
 					onDisallow={handleAuthenticationFailure}
 					hasBiometrics={hasBiometrics}
+					appName={pendingExtensionRequest?.appName || 'Unknown Application'}
 				/>
 			)}
 		</>
