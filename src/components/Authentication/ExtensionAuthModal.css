@@ -38,6 +38,19 @@
     color: var(--color-black);
 }
 
+.modal-content {
+    text-align: center;
+}
+
+.app-name {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 1rem;
+    display: block;
+    letter-spacing: 0.05em;
+}
+
 .extension-auth-modal h2 {
     margin: 0 0 1rem 0;
     font-size: 1.5rem;
@@ -51,6 +64,18 @@
 .extension-auth-modal p {
     color: var(--text-light);
     margin-bottom: 1.5rem;
+    line-height: 1.5;
+}
+
+.extension-auth-modal p strong {
+    color: var(--color-white);
+    font-weight: 600;
+    padding: 0.2rem 0.5rem;
+    background: var(--overlay-medium);
+    border-radius: 0.375rem;
+    border: 1px solid var(--border-primary);
+    display: inline-block;
+    margin: 0 0.2rem;
 }
 
 .password-input-container {
