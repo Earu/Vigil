@@ -2,16 +2,100 @@
 <html>
 <head>
   <title>Vigil Autofill</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
+    :root {
+      /* Base colors */
+      --color-white: #ffffff;
+      --color-black: #000000;
+
+      /* Background colors */
+      --bg-primary: #242424;
+      --bg-secondary: #1a1a1a;
+      --bg-tertiary: #0f0f0f;
+      --bg-dark: #080808;
+      --bg-light: #f9f9f9;
+
+      /* Text colors */
+      --text-primary: rgba(255, 255, 255, 0.87);
+      --text-secondary: #e5e7eb;
+      --text-tertiary: #94a3b8;
+      --text-muted: #6b7280;
+      --text-light: #cccccc;
+
+      /* Border colors */
+      --border-primary: rgba(255, 255, 255, 0.1);
+      --border-secondary: rgba(255, 255, 255, 0.2);
+      --border-hover: rgba(255, 255, 255, 0.3);
+
+      /* Status colors */
+      --color-error: #dc3545;
+      --color-warning: #f59e0b;
+      --color-success: #10b981;
+
+      /* Overlay colors */
+      --overlay-light: rgba(255, 255, 255, 0.05);
+      --overlay-medium: rgba(255, 255, 255, 0.1);
+      --overlay-dark: rgba(255, 255, 255, 0.15);
+    }
+
     body {
       width: 300px;
-      padding: 10px;
+      margin: 0;
+      padding: 16px;
+      background-color: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    h2 {
+      margin: 0 0 16px 0;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 24px;
+      font-weight: 400;
+      color: var(--text-primary);
+      text-transform: uppercase;
+    }
+
+    #status {
+      padding: 12px;
+      border-radius: 8px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #status.connected {
+      border-left: 4px solid var(--color-success);
+    }
+
+    #status.disconnected {
+      border-left: 4px solid var(--color-error);
+    }
+
+    #status::before {
+      content: '';
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    #status.connected::before {
+      background-color: var(--color-success);
+    }
+
+    #status.disconnected::before {
+      background-color: var(--color-error);
     }
   </style>
 </head>
 <body>
   <h2>Vigil Autofill</h2>
-  <div id="status"></div>
+  <div id="status" class="disconnected">Disconnected from Vigil</div>
   <script src="../dist/popup.js"></script>
 </body>
 </html>

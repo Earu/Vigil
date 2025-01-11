@@ -6,7 +6,7 @@
     "scripts": {
         "build": "node build.js",
         "watch": "node build.js --watch",
-        "dev:firefox": "npm run build && web-ext run",
+        "dev:firefox": "concurrently \"npm run watch\" \"web-ext run\"",
         "build:firefox": "npm run build && web-ext build",
         "build:chrome": "npm run build"
     },
@@ -14,6 +14,7 @@
         "@types/chrome": "^0.0.254",
         "@types/firefox-webext-browser": "^111.0.1",
         "@types/uuid": "^10.0.0",
+        "concurrently": "^8.2.2",
         "esbuild": "^0.20.1",
         "typescript": "^5.0.0",
         "web-ext": "^7.8.0"

@@ -164,17 +164,74 @@ async function authenticate() {
     });
 }
 
+// Function to broadcast connection state changes
+function broadcastConnectionState(state: ConnectionState) {
+    browserAPI.runtime.sendMessage({
+        type: 'CONNECTION_STATE_CHANGED',
+        state: state
+    }).catch(() => {
+        // Ignore errors - popup might not be open
+    });
+}
+
+// Handle connection state requests
+browserAPI.runtime.onMessage.addListener((
+    request: MessageRequest,
+    sender: any,
+    sendResponse: (response: any) => void
+) => {
+    logger.debug('background', 'Received message:', request);
+
+    if (request.type === 'GET_CONNECTION_STATE') {
+        sendResponse(connectionState);
+        return true;
+    }
+
+    if (request.type === 'GET_CREDENTIALS') {
+        logger.debug('background', 'Getting credentials for domain:', request.domain);
+
+        if (!request.domain) {
+            sendResponse({ success: false, error: 'No domain provided' });
+            return true;
+        }
+
+        // Find best matching entry from cache based on domain
+        const matchingEntry = findBestMatchingEntry(request.domain, entriesCache);
+        if (!matchingEntry) {
+            sendResponse({ success: false, error: 'No matching credentials found' });
+            return true;
+        }
+
+        // Send request to Vigil app through WebSocket with timeout and ID
+        sendRequest('GET_CREDENTIALS', { id: matchingEntry.id })
+            .then((credentials) => {
+                credentials.username = matchingEntry.username;
+                sendResponse({ success: true, ...credentials });
+            })
+            .catch((error) => {
+                logger.error('background', 'Error getting credentials:', error);
+                sendResponse({ success: false, error: error.message });
+            });
+
+        return true; // Will respond asynchronously
+    }
+
+    return true;
+});
+
 function setupWebSocket() {
     if (ws) {
         ws.close();
     }
 
-    // Don't try to reconnect if we're permanently disconnected
     if (connectionState === ConnectionState.PermanentlyDisconnected) {
+        broadcastConnectionState(connectionState);
         return;
     }
 
     connectionState = ConnectionState.Connecting;
+    broadcastConnectionState(connectionState);
+
     ws = new WebSocket('ws://localhost:8437');
     isAuthenticated = false;
 
@@ -184,6 +241,7 @@ function setupWebSocket() {
             logger.error('background', 'Authentication failed:', error);
             if (!RECONNECTABLE_ERRORS.includes(error.message)) {
                 connectionState = ConnectionState.PermanentlyDisconnected;
+                broadcastConnectionState(connectionState);
             }
         });
     };
@@ -193,15 +251,14 @@ function setupWebSocket() {
         isAuthenticated = false;
         currentDbPath = null;
 
-        // Clear all pending requests when connection is lost
         for (const [requestId, request] of pendingRequests.entries()) {
             request.reject(new Error('Connection closed'));
             cleanupRequest(requestId);
         }
 
-        // Only try to reconnect if we're not permanently disconnected
         if (connectionState !== ConnectionState.PermanentlyDisconnected) {
             connectionState = ConnectionState.Disconnected;
+            broadcastConnectionState(connectionState);
             setTimeout(setupWebSocket, 5000);
         }
     };
@@ -217,14 +274,13 @@ function setupWebSocket() {
 
             if (message.type === 'ready') {
                 connectionState = ConnectionState.Connected;
+                broadcastConnectionState(connectionState);
                 isAuthenticated = true;
 
-                // Store the secret if provided
                 if (message.data?.secret && message.data?.dbPath) {
                     await storeSecret(message.data.secret, message.data.dbPath);
                 }
 
-                // Initial request for available entries
                 sendRequest('GET_AVAILABLE_ENTRIES', {})
                     .then((response) => {
                         entriesCache = response;
@@ -345,42 +401,3 @@ function findBestMatchingEntry(domain: string, entries: CachedEntry[]): CachedEn
 
     return bestMatch ? bestMatch.entry : null;
 }
-
-browserAPI.runtime.onMessage.addListener((
-    request: MessageRequest,
-    sender: any,
-    sendResponse: (response: Credentials) => void
-) => {
-    logger.debug('background', 'Received message:', request);
-
-    if (request.type === 'GET_CREDENTIALS') {
-        logger.debug('background', 'Getting credentials for domain:', request.domain);
-
-        if (!request.domain) {
-            sendResponse({ success: false, error: 'No domain provided' });
-            return true;
-        }
-
-        // Find best matching entry from cache based on domain
-        const matchingEntry = findBestMatchingEntry(request.domain, entriesCache);
-        if (!matchingEntry) {
-            sendResponse({ success: false, error: 'No matching credentials found' });
-            return true;
-        }
-
-        // Send request to Vigil app through WebSocket with timeout and ID
-        sendRequest('GET_CREDENTIALS', { id: matchingEntry.id })
-            .then((credentials) => {
-                credentials.username = matchingEntry.username;
-                sendResponse({ success: true, ...credentials });
-            })
-            .catch((error) => {
-                logger.error('background', 'Error getting credentials:', error);
-                sendResponse({ success: false, error: error.message });
-            });
-
-        return true; // Will respond asynchronously
-    }
-
-    return true;
-});

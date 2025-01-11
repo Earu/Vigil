@@ -11,6 +11,6 @@ export interface FormFields {
 }
 
 export interface MessageRequest {
-  type: 'GET_CREDENTIALS' | 'GET_AVAILABLE_ENTRIES';
+  type: 'GET_CREDENTIALS' | 'GET_CONNECTION_STATE';
   domain?: string;
 }
