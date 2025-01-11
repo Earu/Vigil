@@ -1,0 +1,48 @@
+.vigil-dropdown {
+    position: absolute;
+    background: var(--bg-dark, #080808);
+    border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    z-index: 999999;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    color: var(--text-primary, rgba(255, 255, 255, 0.87));
+    font-size: 14px;
+    max-width: 300px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.vigil-dropdown-item {
+    padding: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    border-bottom: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+}
+
+.vigil-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.vigil-dropdown-item:hover {
+    background: var(--overlay-light, rgba(255, 255, 255, 0.05));
+}
+
+.vigil-dropdown-item-title {
+    font-weight: 500;
+    color: var(--text-primary, rgba(255, 255, 255, 0.87));
+}
+
+.vigil-dropdown-item-username {
+    color: var(--text-tertiary, #94a3b8);
+    font-size: 12px;
+}
+
+.vigil-dropdown-empty {
+    padding: 12px;
+    text-align: center;
+    color: var(--text-tertiary, #94a3b8);
+}

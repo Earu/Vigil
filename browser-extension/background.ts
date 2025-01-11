@@ -180,32 +180,71 @@ browserAPI.runtime.onMessage.addListener((
     sender: any,
     sendResponse: (response: any) => void
 ) => {
-    logger.debug('background', 'Received message:', request);
+    logger.debug('background', 'Received message');
 
     if (request.type === 'GET_CONNECTION_STATE') {
         sendResponse(connectionState);
         return true;
     }
 
-    if (request.type === 'GET_CREDENTIALS') {
-        logger.debug('background', 'Getting credentials for domain:', request.domain);
+    if (request.type === 'GET_ALL_ENTRIES') {
+        sendResponse(entriesCache);
+        return true;
+    }
 
+    if (request.type === 'GET_AVAILABLE_ENTRIES') {
         if (!request.domain) {
-            sendResponse({ success: false, error: 'No domain provided' });
+            sendResponse([]);
             return true;
         }
 
-        // Find best matching entry from cache based on domain
-        const matchingEntry = findBestMatchingEntry(request.domain, entriesCache);
-        if (!matchingEntry) {
-            sendResponse({ success: false, error: 'No matching credentials found' });
+        const requestDomain = request.domain.toLowerCase();
+
+        // Filter entries based on domain and sort by match score
+        const matchingEntries = entriesCache
+            .map(entry => {
+                const score = findBestMatchingEntry(requestDomain, [entry]) ? 1 : 0;
+                return { entry, score };
+            })
+            .filter(({ score }) => score > 0)
+            .sort((a, b) => b.score - a.score)
+            .map(({ entry }) => entry);
+
+        sendResponse(matchingEntries);
+        return true;
+    }
+
+    if (request.type === 'GET_CREDENTIALS') {
+        logger.debug('background', 'Getting credentials:', request.entryIndex);
+
+        if (typeof request.entryIndex !== 'number') {
+            sendResponse({ success: false, error: 'Invalid request parameters' });
             return true;
         }
 
-        // Send request to Vigil app through WebSocket with timeout and ID
-        sendRequest('GET_CREDENTIALS', { id: matchingEntry.id })
+        const entry = entriesCache[request.entryIndex];
+        if (!entry) {
+            sendResponse({ success: false, error: 'Entry not found' });
+            return true;
+        }
+
+        // If this is from the search modal and the entry doesn't have a URL yet,
+        // associate the current domain with it
+        if (request.domain && !entry.url) {
+            entry.url = `https://${request.domain}`;
+            // Update the entry in the Vigil app
+            sendRequest('UPDATE_ENTRY', {
+                id: entry.id,
+                url: entry.url
+            }).catch((error) => {
+                logger.error('background', 'Error updating entry URL:', error);
+            });
+        }
+
+        // Send request to Vigil app through WebSocket
+        sendRequest('GET_CREDENTIALS', { id: entry.id })
             .then((credentials) => {
-                credentials.username = matchingEntry.username;
+                credentials.username = entry.username;
                 sendResponse({ success: true, ...credentials });
             })
             .catch((error) => {
@@ -270,12 +309,20 @@ function setupWebSocket() {
     ws.onmessage = async (event) => {
         try {
             const message = JSON.parse(event.data);
-            logger.debug('background', 'Received message from Vigil app:', message);
+            logger.debug('background', 'Received message from Vigil app');
 
             if (message.type === 'ready') {
                 connectionState = ConnectionState.Connected;
                 broadcastConnectionState(connectionState);
                 isAuthenticated = true;
+
+                // Clean up any pending authentication request
+                for (const [requestId, request] of pendingRequests.entries()) {
+                    if (request) {
+                        request.resolve(undefined);
+                        cleanupRequest(requestId);
+                    }
+                }
 
                 if (message.data?.secret && message.data?.dbPath) {
                     await storeSecret(message.data.secret, message.data.dbPath);
@@ -306,6 +353,8 @@ function setupWebSocket() {
                     await clearStoredSecret();
                     if (!shouldReconnect) {
                         connectionState = ConnectionState.PermanentlyDisconnected;
+                    } else {
+                        resetConnectionState();
                     }
                 }
 

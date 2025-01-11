@@ -1,7 +1,7 @@
 {
-    "name": "password-manager-extension",
+    "name": "vigil-autofill",
     "version": "1.0.0",
-    "description": "Password Manager Browser Extension",
+    "description": "Vigil Autofill Browser Extension",
     "type": "module",
     "scripts": {
         "build": "node build.js",

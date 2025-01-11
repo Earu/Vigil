@@ -60,6 +60,14 @@ function App() {
 					});
 					break;
 				}
+				case 'UPDATE_ENTRY': {
+					const updatedEntry = await ExtensionService.handleUpdateEntry(database, message.data.id, message.data.url);
+					handleDatabaseChange(database);
+					window.electron?.respondToExtension(message.requestId, {
+						data: updatedEntry
+					});
+					break;
+				}
 			}
 		} catch (error: any) {
 			window.electron?.respondToExtension(message.requestId, {

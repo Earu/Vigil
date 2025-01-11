@@ -26,6 +26,18 @@ export class ExtensionService {
         };
     }
 
+    static async handleUpdateEntry(database: Database, entryId: string, url: string) {
+        const entries = KeepassDatabaseService.getAllEntriesFromGroup(database.root);
+        const entry = entries.find(e => e.id === entryId);
+
+        if (!entry) {
+            throw new Error('Entry not found');
+        }
+
+        entry.url = url;
+        return entry;
+    }
+
     static async verifyDatabaseAccess(dbPath: string, password: string) {
         const dataBuffer = await window.electron?.readFile(dbPath);
         if (!dataBuffer?.success || !dataBuffer.data) {
