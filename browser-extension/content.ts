@@ -213,6 +213,27 @@ function isElementVisible(element: HTMLInputElement): boolean {
     return true;
 }
 
+function isLoginInput(input: HTMLInputElement): "password" | "username" | null {
+    if (!isElementVisible(input)) {
+        return null;
+    }
+
+    if (input.type === 'password') {
+        return "password";
+    } else if (input.type === 'text' || input.type === 'email') {
+        const fields = ['mail', 'user', 'login', 'identifier', 'username'];
+        const inputFields = [input.name, input.id, input.placeholder, input.autocomplete];
+
+        for (const inputField of inputFields) {
+            if (fields.some(field => inputField.toLowerCase().includes(field))) {
+                return "username";
+            }
+        }
+    }
+
+    return null;
+}
+
 function detectFormFields(): FormFields {
     const inputs = document.querySelectorAll('input');
     const formFields: FormFields = {
@@ -221,23 +242,13 @@ function detectFormFields(): FormFields {
     };
 
     for (const input of inputs) {
-        if (!isElementVisible(input)) {
-            continue;
-        }
-
-        if (input.type === 'password') {
+        const type = isLoginInput(input);
+        if (type === "password") {
             formFields.passwords.push(input);
             logger.debug('content', 'Found password field:', input);
-        } else if (input.type === 'text' || input.type === 'email') {
-            const fields = ['mail', 'user', 'login', 'identifier', 'username'];
-            const inputFields = [input.name, input.id, input.placeholder, input.autocomplete];
-
-            for (const inputField of inputFields) {
-                if (fields.some(field => inputField.toLowerCase().includes(field))) {
-                    formFields.usernames.push(input);
-                    logger.debug('content', 'Found username field:', inputField, input);
-                }
-            }
+        } else if (type === "username") {
+            formFields.usernames.push(input);
+            logger.debug('content', 'Found username field:', input);
         }
     }
 
@@ -399,7 +410,7 @@ function createDropdownElement(entries: CredentialEntry[], target: HTMLElement):
         entries.forEach((entry, index) => {
             const item = document.createElement('div');
             item.className = 'vigil-dropdown-item';
-            // Use data attribute with index instead of ID
+            // Use index in the filtered entries array
             item.dataset.entryIndex = index.toString();
 
             const content = document.createElement('div');
@@ -418,9 +429,12 @@ function createDropdownElement(entries: CredentialEntry[], target: HTMLElement):
 
             item.addEventListener('click', async () => {
                 try {
+                    // Pass the entry index relative to the filtered entries array
                     const response: Credentials = await browserAPI.runtime.sendMessage({
                         type: 'GET_CREDENTIALS',
-                        entryIndex: index
+                        entryIndex: index,
+                        filteredEntries: entries,
+                        domain: getCurrentDomain()
                     });
 
                     if (response.success) {
@@ -472,10 +486,12 @@ document.addEventListener('click', (e: MouseEvent) => {
     }
 });
 
-// Listen for focus events on input fields
-document.addEventListener('focusin', async (e: FocusEvent) => {
-    const target = e.target as HTMLElement;
+// Handle credential lookup for input fields
+async function handleInputFocus(target: HTMLElement) {
     if (target.tagName === 'INPUT') {
+        const type = isLoginInput(target as HTMLInputElement);
+        if (!type) return;
+
         logger.debug('content', 'Input field focused:', target);
         currentInput = target;
 
@@ -492,4 +508,20 @@ document.addEventListener('focusin', async (e: FocusEvent) => {
             logger.error('content', 'Error getting available entries:', error);
         }
     }
+}
+
+// Listen for focus events on input fields
+document.addEventListener('focusin', (e: FocusEvent) => {
+    handleInputFocus(e.target as HTMLElement);
 });
+
+// Check for already focused inputs when the content script loads
+function checkInitialFocus() {
+    const activeElement = document.activeElement as HTMLElement;
+    if (activeElement) {
+        handleInputFocus(activeElement);
+    }
+}
+
+// Run the initial focus check when the content script loads
+checkInitialFocus();

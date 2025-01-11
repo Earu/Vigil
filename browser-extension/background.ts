@@ -199,17 +199,7 @@ browserAPI.runtime.onMessage.addListener((
         }
 
         const requestDomain = request.domain.toLowerCase();
-
-        // Filter entries based on domain and sort by match score
-        const matchingEntries = entriesCache
-            .map(entry => {
-                const score = findBestMatchingEntry(requestDomain, [entry]) ? 1 : 0;
-                return { entry, score };
-            })
-            .filter(({ score }) => score > 0)
-            .sort((a, b) => b.score - a.score)
-            .map(({ entry }) => entry);
-
+        const matchingEntries = findBestMatchingEntries(requestDomain, entriesCache);
         sendResponse(matchingEntries);
         return true;
     }
@@ -222,14 +212,15 @@ browserAPI.runtime.onMessage.addListener((
             return true;
         }
 
-        const entry = entriesCache[request.entryIndex];
+        // Use the filtered entries if provided, otherwise use the full cache
+        const entries = request.filteredEntries || entriesCache;
+        const entry = entries[request.entryIndex];
         if (!entry) {
             sendResponse({ success: false, error: 'Entry not found' });
             return true;
         }
 
-        // If this is from the search modal and the entry doesn't have a URL yet,
-        // associate the current domain with it
+        // If this doesn't have a URL yet, associate the current domain with it
         if (request.domain && !entry.url) {
             entry.url = `https://${request.domain}`;
             // Update the entry in the Vigil app
@@ -401,19 +392,22 @@ function getDomainFromUrl(url: string): string | null {
 
 function extractDomainKeywords(domain: string): string[] {
     // Remove common TLDs and www
-    return domain
+    const keywords = domain
         .replace(/^www\./, '')
         .replace(/\.(com|org|net|edu|gov|mil|io|co|uk|de|fr|it|nl|eu)$/, '')
         .split('.');
+
+    // Filter out keywords that are too short (less than 2 characters)
+    return keywords.filter(keyword => keyword.length > 3);
 }
 
-function findBestMatchingEntry(domain: string, entries: CachedEntry[]): CachedEntry | null {
-    if (!domain) return null;
+function findBestMatchingEntries(domain: string, entries: CachedEntry[]): CachedEntry[] {
+    if (!domain) return [];
 
     const requestDomain = domain.toLowerCase();
     const requestKeywords = extractDomainKeywords(requestDomain);
 
-    let bestMatch: { entry: CachedEntry, score: number } | null = null;
+    const matches: { entry: CachedEntry, score: number }[] = [];
 
     for (const entry of entries) {
         let score = 0;
@@ -433,20 +427,23 @@ function findBestMatchingEntry(domain: string, entries: CachedEntry[]): CachedEn
             }
         }
 
-        // Check title match with domain keywords
         if (entry.title) {
             const titleLower = entry.title.toLowerCase();
             for (const keyword of requestKeywords) {
-                if (titleLower.includes(keyword)) {
+                if (titleLower.includes(keyword) || keyword.includes(titleLower)) {
                     score += 25;
                 }
             }
         }
 
-        if (score > 0 && (!bestMatch || score > bestMatch.score)) {
-            bestMatch = { entry, score };
+        if (score > 0) {
+            matches.push({ entry, score });
         }
     }
 
-    return bestMatch ? bestMatch.entry : null;
+    // Sort matches by score in descending order and take top 3
+    return matches
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map(match => match.entry);
 }
