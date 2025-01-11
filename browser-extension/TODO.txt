@@ -11,3 +11,7 @@ BACKLOG:
 	- What do we do if the app is not started at all?
 		- Native messaging to start the app with a script ? Sounds complex, how do we know when the app is ready and has a db opened ?
 		- Maybe this is just the responsibility of the user ?
+
+	- How do we can handle creating an account ?
+		- Password: creating a safe password, do we use the app generator ? Probably yes => Needs connection and user prompt
+		- Saving credentials ? When user changes page ? To figure out
