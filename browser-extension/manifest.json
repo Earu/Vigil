@@ -1,18 +1,19 @@
 {
-    "manifest_version": 2,
+    "manifest_version": 3,
     "name": "Vigil Autofill",
     "version": "1.0",
     "description": "Autofill passwords and credentials from your Vigil",
     "permissions": [
         "activeTab",
         "storage",
-        "tabs",
+        "tabs"
+    ],
+    "host_permissions": [
         "<all_urls>"
     ],
     "background": {
-        "scripts": [
-            "dist/background.js"
-        ]
+        "scripts": ["dist/background.js"],
+        "type": "module"
     },
     "content_scripts": [
         {
@@ -24,13 +25,13 @@
             ]
         }
     ],
-    "browser_action": {
+    "action": {
         "default_popup": "popup/popup.html"
     },
     "browser_specific_settings": {
         "gecko": {
             "id": "autofill@vigil.app",
-            "strict_min_version": "57.0"
+            "strict_min_version": "109.0"
         }
     }
 }

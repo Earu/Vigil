@@ -18,6 +18,8 @@
         "concurrently": "^8.2.2",
         "esbuild": "^0.20.1",
         "typescript": "^5.0.0",
-        "web-ext": "^7.8.0"
+        "web-ext": "^7.8.0",
+        "@types/webextension-polyfill": "^0.10.7",
+        "@types/serviceworker": "^0.0.79"
     }
 }

@@ -1,7 +1,4 @@
 FIXES:
-	- Handle opening the app after the extension
-		- When requesting credentials/entries/etc... always try to authenticate with app ?
-
 	- Dont try to connect in a loop if the app doesnt have a database opened
 
 FEATURES:

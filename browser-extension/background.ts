@@ -1,7 +1,10 @@
-import { Credentials, MessageRequest } from './types';
+/// <reference lib="webworker" />
+import { MessageRequest } from './types';
 import { browserAPI } from './browserAPI';
 import { logger } from './utils/logger';
 import { v4 as uuidv4 } from 'uuid';
+
+declare const self: ServiceWorkerGlobalScope;
 
 interface PendingRequest {
     resolve: (value: any) => void;
@@ -20,7 +23,6 @@ const API_BASE_URL = 'http://localhost:8437';
 const pendingRequests = new Map<string, PendingRequest>();
 let connectionId: string | null = null;
 let isAuthenticated = false;
-let currentDbPath: string | null = null;
 
 // Cache for available entries
 interface CachedEntry {
@@ -76,7 +78,6 @@ async function storeSecret(secret: string, dbPath: string): Promise<void> {
                 dbPath
             }
         });
-        currentDbPath = dbPath;
     } catch (error) {
         logger.error('background', 'Error storing secret:', error);
     }
@@ -85,7 +86,6 @@ async function storeSecret(secret: string, dbPath: string): Promise<void> {
 async function clearStoredSecret(): Promise<void> {
     try {
         await browserAPI.storage.local.remove('secret');
-        currentDbPath = null;
         connectionId = null;
     } catch (error) {
         logger.error('background', 'Error clearing stored secret:', error);
@@ -218,13 +218,26 @@ function broadcastConnectionState(state: ConnectionState) {
     });
 }
 
-// Handle connection state requests
+// Service Worker lifecycle events
+self.addEventListener('install', (event: ExtendableEvent) => {
+    logger.debug('background', 'Service Worker installed');
+    // Skip waiting to activate the service worker immediately
+    self.skipWaiting();
+});
+
+self.addEventListener('activate', (event: ExtendableEvent) => {
+    logger.debug('background', 'Service Worker activated');
+    // Claim all clients to ensure the service worker controls all tabs
+    event.waitUntil(self.clients.claim());
+});
+
+// Message handling through runtime.onMessage
 browserAPI.runtime.onMessage.addListener((
     request: MessageRequest,
     sender: any,
     sendResponse: (response: any) => void
 ) => {
-    logger.debug('background', 'Received message');
+    logger.debug('background', 'Received message through runtime');
 
     if (request.type === 'GET_CONNECTION_STATE') {
         sendResponse(connectionState);
@@ -293,39 +306,7 @@ browserAPI.runtime.onMessage.addListener((
     return true;
 });
 
-// Function to check server health
-async function checkServerHealth(): Promise<boolean> {
-    try {
-        const response = await fetch(`${API_BASE_URL}/health`);
-        const result = await response.json();
-        return result.status === 'ok';
-    } catch {
-        return false;
-    }
-}
-
-// Add a function to reset the connection state
-async function resetConnectionState() {
-    connectionState = ConnectionState.Disconnected;
-    isAuthenticated = false;
-
-    // Check if server is available before attempting to authenticate
-    if (await checkServerHealth()) {
-        try {
-            await authenticate();
-        } catch (error) {
-            logger.error('background', 'Failed to authenticate:', error);
-            setTimeout(resetConnectionState, 5000);
-        }
-    } else {
-        setTimeout(resetConnectionState, 5000);
-    }
-}
-
-// Initial connection setup
-resetConnectionState();
-
-// Helper functions for domain matching (unchanged)
+// Helper functions for domain matching
 function getDomainFromUrl(url: string): string | null {
     try {
         const parsedUrl = new URL(url);
@@ -392,3 +373,35 @@ function findBestMatchingEntries(domain: string, entries: CachedEntry[]): Cached
         .slice(0, 3)
         .map(match => match.entry);
 }
+
+// Function to check server health
+async function checkServerHealth(): Promise<boolean> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/health`);
+        const result = await response.json();
+        return result.status === 'ok';
+    } catch {
+        return false;
+    }
+}
+
+// Add a function to reset the connection state
+async function resetConnectionState() {
+    connectionState = ConnectionState.Disconnected;
+    isAuthenticated = false;
+
+    // Check if server is available before attempting to authenticate
+    if (await checkServerHealth()) {
+        try {
+            await authenticate();
+        } catch (error) {
+            logger.error('background', 'Failed to authenticate:', error);
+            setTimeout(resetConnectionState, 5000);
+        }
+    } else {
+        setTimeout(resetConnectionState, 5000);
+    }
+}
+
+// Initial connection setup
+resetConnectionState();
