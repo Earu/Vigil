@@ -250,6 +250,23 @@ function getCurrentDomain(): string {
     return domain;
 }
 
+function simulatePaste(element: HTMLInputElement, value: string): void {
+    element.value = value;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    logger.debug('content', `Autofilled field using input event`);
+}
+
+function fillCredentials(fields: FormFields, response: Credentials): void {
+    if (response.username) {
+        fields.usernames.forEach(field => simulatePaste(field, response.username!));
+    }
+
+    if (response.password) {
+        fields.passwords.forEach(field => simulatePaste(field, response.password!));
+    }
+}
+
 function createSearchModal(target: HTMLElement): void {
     if (currentModal) {
         currentModal.remove();
@@ -329,20 +346,7 @@ function createSearchModal(target: HTMLElement): void {
 
                             if (response.success) {
                                 const fields = detectFormFields();
-
-                                if (response.username) {
-                                    for (const usernameField of fields.usernames) {
-                                        usernameField.value = response.username;
-                                        logger.debug('content', 'Autofilled username field');
-                                    }
-                                }
-
-                                if (response.password) {
-                                    for (const passwordField of fields.passwords) {
-                                        passwordField.value = response.password;
-                                        logger.debug('content', 'Autofilled password field');
-                                    }
-                                }
+                                fillCredentials(fields, response);
                             }
                         } catch (error) {
                             logger.error('content', 'Error getting credentials:', error);
@@ -421,20 +425,7 @@ function createDropdownElement(entries: CredentialEntry[], target: HTMLElement):
 
                     if (response.success) {
                         const fields = detectFormFields();
-
-                        if (response.username) {
-                            for (const usernameField of fields.usernames) {
-                                usernameField.value = response.username;
-                                logger.debug('content', 'Autofilled username field');
-                            }
-                        }
-
-                        if (response.password) {
-                            for (const passwordField of fields.passwords) {
-                                passwordField.value = response.password;
-                                logger.debug('content', 'Autofilled password field');
-                            }
-                        }
+                        fillCredentials(fields, response);
                     }
                 } catch (error) {
                     logger.error('content', 'Error getting credentials:', error);
