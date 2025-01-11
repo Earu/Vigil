@@ -2,7 +2,7 @@ import { app, BrowserWindow, powerMonitor } from 'electron';
 import { createWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
 import { handleFileOpen } from './src/file-operations';
-import { setupWebSocketServer } from './src/extension';
+import { setupHttpServer } from './src/api';
 
 process.on('uncaughtException', (error) => {
     console.error('Uncaught exception:', error);
@@ -18,7 +18,7 @@ function triggerLock() {
 app.whenReady().then(() => {
     setupIpcHandlers();
     createWindow();
-    setupWebSocketServer();
+    setupHttpServer();
 
     ["suspend", "lock-screen", "unlock-screen", "resume"].forEach(evName => {
         powerMonitor.on(evName as any, triggerLock);

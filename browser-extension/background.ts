@@ -16,8 +16,9 @@ interface StoredSecret {
 }
 
 const APP_NAME = 'Vigil Browser Extension';
+const API_BASE_URL = 'http://localhost:8437';
 const pendingRequests = new Map<string, PendingRequest>();
-let ws: WebSocket | null = null;
+let connectionId: string | null = null;
 let isAuthenticated = false;
 let currentDbPath: string | null = null;
 
@@ -85,6 +86,7 @@ async function clearStoredSecret(): Promise<void> {
     try {
         await browserAPI.storage.local.remove('secret');
         currentDbPath = null;
+        connectionId = null;
     } catch (error) {
         logger.error('background', 'Error clearing stored secret:', error);
     }
@@ -98,70 +100,112 @@ function cleanupRequest(requestId: string) {
     }
 }
 
-function sendRequest(type: string, data: any): Promise<any> {
-    return new Promise((resolve, reject) => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) {
-            reject(new Error('WebSocket not connected'));
-            return;
-        }
+async function sendRequest(type: string, data: any): Promise<any> {
+    if (!isAuthenticated || !connectionId) {
+        throw new Error('Not authenticated');
+    }
 
-        if (!isAuthenticated) {
-            reject(new Error('Not authenticated'));
-            return;
-        }
+    const requestId = uuidv4();
+    const timeout = setTimeout(() => {
+        cleanupRequest(requestId);
+        throw new Error('Request timed out');
+    }, 60000);
 
-        const requestId = uuidv4();
-        const timeout = setTimeout(() => {
-            cleanupRequest(requestId);
-            reject(new Error('Request timed out'));
-        }, 60000); // 1 minute timeout
-
-        pendingRequests.set(requestId, {
-            resolve,
-            reject,
-            timeout
+    try {
+        const response = await fetch(`${API_BASE_URL}/message`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Connection-Id': connectionId
+            },
+            body: JSON.stringify({
+                type,
+                data,
+                requestId
+            })
         });
 
-        ws.send(JSON.stringify({
-            type,
-            data,
-            requestId
-        }));
-    });
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Request failed');
+        }
+
+        const result = await response.json();
+        if (result.error) {
+            throw new Error(result.error);
+        }
+
+        return result.data;
+    } finally {
+        cleanupRequest(requestId);
+    }
 }
 
 async function authenticate() {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        throw new Error('WebSocket not connected');
-    }
+    connectionState = ConnectionState.Connecting;
+    broadcastConnectionState(connectionState);
 
-    const storedSecret = await getStoredSecret();
-    const authMessage = {
-        type: 'authenticate',
-        appName: APP_NAME,
-        secret: storedSecret?.secret
-    };
-
-    return new Promise<void>((resolve, reject) => {
-        if (!ws) {
-            reject(new Error('WebSocket not connected'));
-            return;
-        }
-
-        const requestId = uuidv4();
-        const timeout = setTimeout(() => {
-            cleanupRequest(requestId);
-            reject(new Error('Authentication timed out'));
-        }, 60000);
-
-        pendingRequests.set(requestId, {
-            resolve,
-            reject,
-            timeout
+    try {
+        const storedSecret = await getStoredSecret();
+        const response = await fetch(`${API_BASE_URL}/auth`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                type: 'authenticate',
+                appName: APP_NAME,
+                secret: storedSecret?.secret
+            })
         });
 
-        ws.send(JSON.stringify(authMessage));
-    });
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.error || 'Authentication failed');
+        }
+
+        if (result.type === 'ready') {
+            connectionState = ConnectionState.Connected;
+            isAuthenticated = true;
+            connectionId = result.data?.connectionId || result.connectionId;
+
+            if (result.data?.secret && result.data?.dbPath) {
+                await storeSecret(result.data.secret, result.data.dbPath);
+            }
+
+            // Get available entries after successful authentication
+            try {
+                entriesCache = await sendRequest('GET_AVAILABLE_ENTRIES', {});
+                logger.debug('background', 'Available entries cached:', entriesCache);
+            } catch (error) {
+                logger.error('background', 'Error getting available entries:', error);
+            }
+        }
+    } catch (err: any) {
+        logger.error('background', 'Authentication failed:', err);
+        const errorMessage = err.message || 'Authentication failed';
+
+        if (errorMessage === 'Authentication denied by user') {
+            connectionState = ConnectionState.PermanentlyDisconnected;
+            await clearStoredSecret();
+        } else if (
+            errorMessage === 'Not authenticated' ||
+            errorMessage === 'Authentication failed' ||
+            errorMessage === 'No database is currently open'
+        ) {
+            isAuthenticated = false;
+            await clearStoredSecret();
+            if (!RECONNECTABLE_ERRORS.includes(errorMessage)) {
+                connectionState = ConnectionState.PermanentlyDisconnected;
+            } else {
+                resetConnectionState();
+            }
+        }
+
+        throw err;
+    } finally {
+        broadcastConnectionState(connectionState);
+    }
 }
 
 // Function to broadcast connection state changes
@@ -232,7 +276,7 @@ browserAPI.runtime.onMessage.addListener((
             });
         }
 
-        // Send request to Vigil app through WebSocket
+        // Send request to Vigil app
         sendRequest('GET_CREDENTIALS', { id: entry.id })
             .then((credentials) => {
                 credentials.username = entry.username;
@@ -249,138 +293,39 @@ browserAPI.runtime.onMessage.addListener((
     return true;
 });
 
-function setupWebSocket() {
-    if (ws) {
-        ws.close();
+// Function to check server health
+async function checkServerHealth(): Promise<boolean> {
+    try {
+        const response = await fetch(`${API_BASE_URL}/health`);
+        const result = await response.json();
+        return result.status === 'ok';
+    } catch {
+        return false;
     }
-
-    if (connectionState === ConnectionState.PermanentlyDisconnected) {
-        broadcastConnectionState(connectionState);
-        return;
-    }
-
-    connectionState = ConnectionState.Connecting;
-    broadcastConnectionState(connectionState);
-
-    ws = new WebSocket('ws://localhost:8437');
-    isAuthenticated = false;
-
-    ws.onopen = () => {
-        logger.debug('background', 'Connected to Vigil app');
-        authenticate().catch((error) => {
-            logger.error('background', 'Authentication failed:', error);
-            if (!RECONNECTABLE_ERRORS.includes(error.message)) {
-                connectionState = ConnectionState.PermanentlyDisconnected;
-                broadcastConnectionState(connectionState);
-            }
-        });
-    };
-
-    ws.onclose = () => {
-        logger.debug('background', 'Disconnected from Vigil app');
-        isAuthenticated = false;
-        currentDbPath = null;
-
-        for (const [requestId, request] of pendingRequests.entries()) {
-            request.reject(new Error('Connection closed'));
-            cleanupRequest(requestId);
-        }
-
-        if (connectionState !== ConnectionState.PermanentlyDisconnected) {
-            connectionState = ConnectionState.Disconnected;
-            broadcastConnectionState(connectionState);
-            setTimeout(setupWebSocket, 5000);
-        }
-    };
-
-    ws.onerror = (error) => {
-        logger.error('background', 'WebSocket error:', error);
-    };
-
-    ws.onmessage = async (event) => {
-        try {
-            const message = JSON.parse(event.data);
-            logger.debug('background', 'Received message from Vigil app');
-
-            if (message.type === 'ready') {
-                connectionState = ConnectionState.Connected;
-                broadcastConnectionState(connectionState);
-                isAuthenticated = true;
-
-                // Clean up any pending authentication request
-                for (const [requestId, request] of pendingRequests.entries()) {
-                    if (request) {
-                        request.resolve(undefined);
-                        cleanupRequest(requestId);
-                    }
-                }
-
-                if (message.data?.secret && message.data?.dbPath) {
-                    await storeSecret(message.data.secret, message.data.dbPath);
-                }
-
-                sendRequest('GET_AVAILABLE_ENTRIES', {})
-                    .then((response) => {
-                        entriesCache = response;
-                        logger.debug('background', 'Available entries cached:', response);
-                    })
-                    .catch((error) => {
-                        logger.error('background', 'Error getting available entries:', error);
-                    });
-                return;
-            }
-
-            // Handle authentication errors
-            if (message.error) {
-                const shouldReconnect = RECONNECTABLE_ERRORS.includes(message.error);
-
-                if (message.error === 'Authentication denied by user') {
-                    connectionState = ConnectionState.PermanentlyDisconnected;
-                    await clearStoredSecret();
-                } else if (message.error === 'Not authenticated' ||
-                         message.error === 'Authentication failed' ||
-                         message.error === 'No database is currently open') {
-                    isAuthenticated = false;
-                    await clearStoredSecret();
-                    if (!shouldReconnect) {
-                        connectionState = ConnectionState.PermanentlyDisconnected;
-                    } else {
-                        resetConnectionState();
-                    }
-                }
-
-                // If we're permanently disconnected, close the connection
-                if (connectionState === ConnectionState.PermanentlyDisconnected) {
-                    ws?.close();
-                }
-            }
-
-            if (message.requestId) {
-                const request = pendingRequests.get(message.requestId);
-                if (request) {
-                    if (message.error) {
-                        request.reject(new Error(message.error));
-                    } else {
-                        request.resolve(message.data);
-                    }
-                    cleanupRequest(message.requestId);
-                }
-            }
-        } catch (error) {
-            logger.error('background', 'Error processing message:', error);
-        }
-    };
 }
 
 // Add a function to reset the connection state
-function resetConnectionState() {
+async function resetConnectionState() {
     connectionState = ConnectionState.Disconnected;
-    setupWebSocket();
+    isAuthenticated = false;
+
+    // Check if server is available before attempting to authenticate
+    if (await checkServerHealth()) {
+        try {
+            await authenticate();
+        } catch (error) {
+            logger.error('background', 'Failed to authenticate:', error);
+            setTimeout(resetConnectionState, 5000);
+        }
+    } else {
+        setTimeout(resetConnectionState, 5000);
+    }
 }
 
-// Initial WebSocket setup
-setupWebSocket();
+// Initial connection setup
+resetConnectionState();
 
+// Helper functions for domain matching (unchanged)
 function getDomainFromUrl(url: string): string | null {
     try {
         const parsedUrl = new URL(url);

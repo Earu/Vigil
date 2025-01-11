@@ -1,4 +1,4 @@
-import { WebSocket } from 'ws';
+import { Response } from 'express';
 import { BrowserWindow } from 'electron';
 import { validateSecret, generateSecret } from './secrets';
 import { AuthenticationMessage } from './types';
@@ -7,7 +7,7 @@ import EventEmitter from 'events';
 interface AuthenticationRequest {
     connectionId: string;
     appName: string;
-    ws: WebSocket;
+    res: Response;
     timeoutId: NodeJS.Timeout;
 }
 
@@ -62,7 +62,7 @@ export class AuthenticationHandler extends EventEmitter {
     }
 
     private async handleSecretValidation(
-        ws: WebSocket,
+        res: Response,
         connectionId: string,
         message: AuthenticationMessage
     ): Promise<boolean> {
@@ -74,9 +74,10 @@ export class AuthenticationHandler extends EventEmitter {
         if (validation.valid && validation.appName) {
             this.trustedConnections.add(connectionId);
             this.connectionAppNames.set(connectionId, validation.appName);
-            ws.send(JSON.stringify({
-                type: 'ready'
-            }));
+            res.json({
+                type: 'ready',
+                connectionId
+            });
             return true;
         }
 
@@ -87,45 +88,45 @@ export class AuthenticationHandler extends EventEmitter {
         return setTimeout(() => {
             if (this.pendingAuth?.connectionId === request.connectionId) {
                 this.clearPendingAuth();
-                request.ws.send(JSON.stringify({
-                    error: 'Authentication timed out'
-                }));
-                request.ws.close();
+                if (!request.res.headersSent) {
+                    request.res.status(408).json({
+                        error: 'Authentication timed out'
+                    });
+                }
             }
         }, 60000); // 1 minute timeout
     }
 
     async handleAuthentication(
-        ws: WebSocket,
+        res: Response,
         connectionId: string,
         message: AuthenticationMessage
     ): Promise<void> {
         try {
             // Check if database is open
             if (!this.currentDatabasePath) {
-                ws.send(JSON.stringify({
+                res.status(503).json({
                     error: 'No database is currently open'
-                }));
+                });
                 return;
             }
 
             // Try to validate existing secret
-            if (await this.handleSecretValidation(ws, connectionId, message)) {
+            if (await this.handleSecretValidation(res, connectionId, message)) {
                 return;
             }
 
             // Check if another authentication is in progress
             if (this.pendingAuth) {
-                ws.send(JSON.stringify({
+                res.status(409).json({
                     error: 'Another client is currently authenticating'
-                }));
-                ws.close();
+                });
                 return;
             }
 
             // Set up new authentication request
-            const timeoutId = this.setupAuthenticationTimeout({ ws, connectionId, appName: message.appName, timeoutId: null! });
-            this.pendingAuth = { ws, connectionId, appName: message.appName, timeoutId };
+            const timeoutId = this.setupAuthenticationTimeout({ res, connectionId, appName: message.appName, timeoutId: null! });
+            this.pendingAuth = { res, connectionId, appName: message.appName, timeoutId };
 
             // Request authentication from the main window
             const mainWindow = BrowserWindow.getAllWindows()[0];
@@ -150,10 +151,11 @@ export class AuthenticationHandler extends EventEmitter {
 
         } catch (error) {
             console.error('Authentication error:', error);
-            ws.send(JSON.stringify({
-                error: 'Internal authentication error'
-            }));
-            ws.close();
+            if (!res.headersSent) {
+                res.status(500).json({
+                    error: 'Internal authentication error'
+                });
+            }
         }
     }
 
@@ -163,19 +165,20 @@ export class AuthenticationHandler extends EventEmitter {
         }
 
         try {
-            const { ws, appName } = this.pendingAuth;
+            const { res, appName } = this.pendingAuth;
             this.trustedConnections.add(connectionId);
             this.connectionAppNames.set(connectionId, appName);
 
-            if (this.currentDatabasePath) {
+            if (this.currentDatabasePath && !res.headersSent) {
                 const secret = await generateSecret(appName, this.currentDatabasePath);
-                ws.send(JSON.stringify({
+                res.json({
                     type: 'ready',
                     data: {
                         secret,
-                        dbPath: this.currentDatabasePath
+                        dbPath: this.currentDatabasePath,
+                        connectionId
                     }
-                }));
+                });
             }
         } finally {
             this.clearPendingAuth();
@@ -188,10 +191,11 @@ export class AuthenticationHandler extends EventEmitter {
         }
 
         try {
-            this.pendingAuth.ws.send(JSON.stringify({
-                error: 'Authentication denied by user'
-            }));
-            this.pendingAuth.ws.close();
+            if (!this.pendingAuth.res.headersSent) {
+                this.pendingAuth.res.status(403).json({
+                    error: 'Authentication denied by user'
+                });
+            }
         } finally {
             this.clearPendingAuth();
         }

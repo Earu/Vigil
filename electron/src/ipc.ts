@@ -104,18 +104,6 @@ export function setupIpcHandlers(): void {
         notification.show();
     });
 
-    // WebSocket message handlers
-    ipcMain.handle('send-to-extension', async (_, message: any) => {
-        const wsServer = (global as any).wsServer;
-        if (wsServer) {
-            wsServer.clients.forEach(client => {
-                if (client.readyState === 1) { // WebSocket.OPEN
-                    client.send(JSON.stringify(message));
-                }
-            });
-        }
-    });
-
     // Extension message response handler
     ipcMain.handle('respond-to-extension', async (_, requestId: string, response: any) => {
         ipcMain.emit(`extension-response-${requestId}`, null, response);
