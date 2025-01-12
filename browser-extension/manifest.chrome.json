@@ -12,7 +12,7 @@
         "<all_urls>"
     ],
     "background": {
-        "scripts": ["dist/background.js"],
+        "service_worker": "dist/background.js",
         "type": "module"
     },
     "content_scripts": [

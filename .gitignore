@@ -48,3 +48,4 @@ public
 browser-extension/dist
 browser-extension/web-ext-artifacts
 browser-extension/node_modules
+browser-extension/manifest.json

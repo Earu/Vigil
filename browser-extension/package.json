@@ -7,9 +7,9 @@
         "build": "node build.js",
         "watch": "node build.js --watch",
         "firefox:dev": "concurrently \"npm run watch\" \"web-ext run\"",
-        "chrome:dev": "npm run watch",
+        "chrome:dev": "npm run watch -- --chrome",
         "firefox:build": "npm run build && web-ext build",
-        "chrome:build": "npm run build"
+        "chrome:build": "npm run build -- --chrome"
     },
     "devDependencies": {
         "@types/chrome": "^0.0.254",

@@ -1,6 +1,7 @@
 import * as esbuild from 'esbuild';
-
+import fs from 'fs';
 const watch = process.argv.includes('--watch');
+const manifest = process.argv.includes('--chrome') ? 'manifest.chrome.json' : 'manifest.firefox.json';
 
 const config = {
     entryPoints: [
@@ -21,6 +22,9 @@ const config = {
     }
 };
 
+console.log("using manifest", manifest);
+fs.copyFileSync(manifest, 'manifest.json');
+
 if (watch) {
     const context = await esbuild.context(config);
     await context.watch();
@@ -28,4 +32,4 @@ if (watch) {
 } else {
     await esbuild.build(config);
     console.log('Build complete');
-} 
+}
