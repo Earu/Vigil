@@ -3,6 +3,19 @@ import fs from 'fs';
 const watch = process.argv.includes('--watch');
 const manifest = process.argv.includes('--chrome') ? 'manifest.chrome.json' : 'manifest.firefox.json';
 
+function copyIcons() {
+    if (!fs.existsSync('dist/icons')) {
+        fs.mkdirSync('dist/icons', { recursive: true });
+    }
+    
+    ['16', '32', '48', '128'].forEach(size => {
+        fs.copyFileSync(
+            `../build/icons/icon_${size}x${size}.png`,
+            `dist/icons/icon${size}.png`
+        );
+    });
+}
+
 const config = {
     entryPoints: [
         'background.ts',
@@ -24,6 +37,10 @@ const config = {
 
 console.log("using manifest", manifest);
 fs.copyFileSync(manifest, 'manifest.json');
+fs.copyFileSync(manifest, 'dist/manifest.json');
+fs.copyFileSync('popup/popup.html', 'dist/popup/popup.html');
+
+copyIcons();
 
 if (watch) {
     const context = await esbuild.context(config);

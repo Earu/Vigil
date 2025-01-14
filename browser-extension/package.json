@@ -6,9 +6,9 @@
     "scripts": {
         "build": "node build.js",
         "watch": "node build.js --watch",
-        "firefox:dev": "concurrently \"npm run watch\" \"web-ext run\"",
+        "firefox:dev": "concurrently \"npm run watch\" \"web-ext run --source-dir ./dist\"",
         "chrome:dev": "npm run watch -- --chrome",
-        "firefox:build": "npm run build && web-ext build",
+        "firefox:build": "npm run build && web-ext build --source-dir ./dist",
         "chrome:build": "npm run build -- --chrome"
     },
     "devDependencies": {

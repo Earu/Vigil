@@ -27,6 +27,16 @@ export function setupHttpServer() {
     app.use(express.json());
     app.use(cors());
 
+    // Only allow requests from localhost
+    app.use((req, res, next) => {
+        const clientIp = req.socket.remoteAddress;
+        if (clientIp === '127.0.0.1' || clientIp === '::1' || clientIp === '::ffff:127.0.0.1') {
+            next();
+        } else {
+            res.status(403).json({ error: 'Access denied - only localhost connections are allowed' });
+        }
+    });
+
     // Authentication endpoint
     app.post('/auth', async (req, res) => {
         const connectionId = `http-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -57,8 +67,8 @@ export function setupHttpServer() {
         res.json({ status: 'ok' });
     });
 
-    const server = app.listen(8437, () => {
-        console.log('HTTP server listening on port 8437');
+    const server = app.listen(45731, () => {
+        console.log('API server started');
     });
 
     return server;

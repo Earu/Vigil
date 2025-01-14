@@ -2,8 +2,8 @@ import { createCipheriv, createDecipheriv, pbkdf2Sync } from 'crypto';
 import { getInstallationSalt } from '../biometrics';
 import { Secret } from './types';
 
-// 24 hours in milliseconds
-const SECRET_VALIDITY_DURATION = 24 * 60 * 60 * 1000;
+// 90 days in milliseconds
+const SECRET_VALIDITY_DURATION = 90 * 24 * 60 * 60 * 1000;
 
 async function deriveSecretKey(salt: string): Promise<Buffer> {
     // Use a constant string as the base for the key derivation

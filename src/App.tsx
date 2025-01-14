@@ -35,7 +35,7 @@ function App() {
 	};
 
 	const handleExtensionMessage = async (message: any) => {
-		console.log(message, database, kdbxDb);
+		console.info('API', message.type, message.requestId);
 
 		if (!database || !kdbxDb) {
 			window.electron?.respondToExtension(message.requestId, {
@@ -77,7 +77,8 @@ function App() {
 	};
 
 	const handleAuthRequest = async (request: { requestId: string, connectionId: string, appName: string }) => {
-		console.log(request, database, kdbxDb);
+		console.warn('API', request.requestId, request.connectionId, request.appName);
+
 		if (!database || !kdbxDb) {
 			window.electron?.respondToExtension(request.requestId, {
 				error: 'No database is currently open'

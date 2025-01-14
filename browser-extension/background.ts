@@ -19,7 +19,7 @@ interface StoredSecret {
 }
 
 const APP_NAME = 'Vigil Browser Extension';
-const API_BASE_URL = 'http://localhost:8437';
+const API_BASE_URL = 'http://localhost:45731';
 const pendingRequests = new Map<string, PendingRequest>();
 let connectionId: string | null = null;
 let isAuthenticated = false;
