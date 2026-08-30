@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
 import { Database, Entry, Group } from '../../types/database';
 import { Sidebar } from './Sidebar';
 import { EntryList } from './EntryList';
@@ -36,6 +36,12 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	// Recompute breach state as background check results come in
 	const breachStoreVersion = useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
 	const emailStoreVersion = useSyncExternalStore(EmailBreachStatusStore.subscribe, EmailBreachStatusStore.getVersion);
+
+	// Derived from the model alone, no network involved
+	const expiredEntries = useMemo(
+		() => KeepassDatabaseService.findExpiredEntries(database.root),
+		[database]
+	);
 
 	useEffect(() => {
 		if (showInitialBreachReport) {
@@ -281,6 +287,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					breachedEntries={breachedEntries}
 					weakEntries={weakEntries}
 					breachedEmailEntries={breachedEmailEntries}
+					expiredEntries={expiredEntries}
 					isChecking={isCheckingBreaches}
 					isCheckingEmails={isCheckingEmails}
 					onClose={() => {

@@ -1,4 +1,4 @@
-import { Database } from '../../types/database';
+import { Database, Entry, Group } from '../../types/database';
 import { useState } from 'react';
 import { BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
@@ -11,11 +11,12 @@ interface BreachReportProps {
     breachedEntries: Array<BreachedEntry>;
     weakEntries: Array<BreachedEntry>;
     breachedEmailEntries: Array<BreachedEmailEntry>;
+    expiredEntries: Array<{ entry: Entry; group: Group }>;
     isChecking: boolean;
     isCheckingEmails: boolean;
 }
 
-type TabType = 'breached' | 'weak' | 'emails';
+type TabType = 'breached' | 'weak' | 'emails' | 'expired';
 
 const getStrengthColor = (score: number) => {
     switch (score) {
@@ -43,6 +44,7 @@ export const BreachReport = ({
     breachedEntries,
     weakEntries,
     breachedEmailEntries,
+    expiredEntries,
     onClose,
     isChecking,
     isCheckingEmails
@@ -51,6 +53,7 @@ export const BreachReport = ({
     const hasWeakPasswords = weakEntries.length > 0;
     const hasBreachedPasswords = breachedEntries.length > 0;
     const hasBreachedEmails = breachedEmailEntries.length > 0;
+    const hasExpiredEntries = expiredEntries.length > 0;
 
     const renderBreachedEntry = ({ entry, group, count }: BreachedEntry) => (
         <div key={entry.id} className="breached-entry">
@@ -114,6 +117,12 @@ export const BreachReport = ({
                         onClick={() => setActiveTab('emails')}
                     >
                         Exposed ({breachedEmailEntries.length})
+                    </button>
+                    <button
+                        className={`tab-button ${activeTab === 'expired' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('expired')}
+                    >
+                        Expired ({expiredEntries.length})
                     </button>
                 </div>
                 <div className="breach-report-content">
@@ -192,14 +201,46 @@ export const BreachReport = ({
                         </>
                     )}
 
+                    {!isChecking && !isCheckingEmails && activeTab === 'expired' && hasExpiredEntries && (
+                        <>
+                            <div className="weak-passwords-summary">
+                                <div className="weak-count">
+                                    <span className="count">{expiredEntries.length}</span>
+                                    <span className="label">Expired {expiredEntries.length === 1 ? 'Entry' : 'Entries'}</span>
+                                </div>
+                                <p className="weak-warning">
+                                    These entries are past their expiry date. Rotate the credentials and set a new expiry.
+                                </p>
+                            </div>
+                            <div className="breached-entries">
+                                {expiredEntries.map(({ entry, group }) => (
+                                    <div key={entry.id} className="breached-entry">
+                                        <div className="entry-info">
+                                            <h3>{entry.title}</h3>
+                                            <p className="username">{entry.username}</p>
+                                            <p className="group-path">Group: {group.name}</p>
+                                        </div>
+                                        <div className="breach-info">
+                                            <span className="strength-indicator" style={{ color: getStrengthColor(0) }}>
+                                                Expired {entry.expiryTime?.toLocaleDateString()}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
                     {!isChecking && !isCheckingEmails && ((activeTab === 'breached' && !hasBreachedPasswords) ||
                       (activeTab === 'weak' && !hasWeakPasswords) ||
-                      (activeTab === 'emails' && !hasBreachedEmails)) && (
+                      (activeTab === 'emails' && !hasBreachedEmails) ||
+                      (activeTab === 'expired' && !hasExpiredEntries)) && (
                         <div className="breach-summary">
                             <p className="breach-warning">
                                 No {activeTab === 'breached' ? 'compromised passwords' :
                                    activeTab === 'weak' ? 'weak passwords' :
-                                   'exposed emails'} found.
+                                   activeTab === 'emails' ? 'exposed emails' :
+                                   'expired entries'} found.
                             </p>
                         </div>
                     )}
