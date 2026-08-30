@@ -134,7 +134,10 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		if (groupToRemove.id === database.root.id) return;
 
 		const totalEntries = KeepassDatabaseService.countEntriesInGroup(groupToRemove);
-		const message = `Are you sure you want to remove the group "${groupToRemove.name}" and all its contents? This will delete ${totalEntries} entries and ${groupToRemove.groups.length} subgroups.`;
+		const permanent = KeepassDatabaseService.isGroupInRecycleBin(database, groupToRemove);
+		const message = permanent
+			? `Permanently delete the group "${groupToRemove.name}" and all its contents (${totalEntries} entries, ${groupToRemove.groups.length} subgroups)? This cannot be undone.`
+			: `Move the group "${groupToRemove.name}" and all its contents (${totalEntries} entries, ${groupToRemove.groups.length} subgroups) to the recycle bin?`;
 
 		if (!window.confirm(message)) return;
 
@@ -151,7 +154,11 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	};
 
 	const handleRemoveEntry = (entryToRemove: Entry) => {
-		if (!window.confirm(`Are you sure you want to remove the entry "${entryToRemove.title}"?`)) return;
+		const permanent = KeepassDatabaseService.isEntryInRecycleBin(database, entryToRemove.id);
+		const message = permanent
+			? `Permanently delete the entry "${entryToRemove.title}"? This cannot be undone.`
+			: `Move the entry "${entryToRemove.title}" to the recycle bin?`;
+		if (!window.confirm(message)) return;
 
 		const updatedDatabase = KeepassDatabaseService.removeEntry(database, entryToRemove);
 		if (selectedEntry?.id === entryToRemove.id) {

@@ -8,16 +8,30 @@ interface UserSettings {
     // Remembered key file path per database path. Only paths are stored,
     // never key material
     keyFilePaths?: Record<string, string>;
+    // Fetching entry icons from Google's favicon service sends each entry's
+    // domain to Google, so it is opt-in
+    fetchFavicons?: boolean;
 }
 
 const SETTINGS_KEY = 'vigil_user_settings';
 
 class UserSettingsService {
     private settings: UserSettings;
+    private version = 0;
+    private listeners = new Set<() => void>();
 
     constructor() {
         this.settings = this.loadSettings();
     }
+
+    subscribe = (listener: () => void): (() => void) => {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    };
+
+    getVersion = (): number => {
+        return this.version;
+    };
 
     private loadSettings(): UserSettings {
         const savedSettings = localStorage.getItem(SETTINGS_KEY);
@@ -36,6 +50,17 @@ class UserSettingsService {
 
     private saveSettings(): void {
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
+        this.version++;
+        this.listeners.forEach(listener => listener());
+    }
+
+    getFetchFavicons(): boolean {
+        return this.settings.fetchFavicons ?? false;
+    }
+
+    setFetchFavicons(enabled: boolean): void {
+        this.settings.fetchFavicons = enabled;
+        this.saveSettings();
     }
 
     getTheme(): Theme {

@@ -53,9 +53,12 @@ export class KeepassDatabaseService {
             attachments: convertAttachments(entry),
         });
 
+        const recycleBinId = kdbxDb.meta.recycleBinUuid?.toString();
+
         const convertGroup = (group: kdbxweb.KdbxGroup): Group => {
             return {
                 id: group.uuid.toString(),
+                isRecycleBin: !!recycleBinId && group.uuid.toString() === recycleBinId,
                 name: group.name as string,
                 groups: group.groups.map(g => convertGroup(g)),
                 entries: group.entries.map(entry => ({
@@ -282,11 +285,15 @@ export class KeepassDatabaseService {
         if (groupToRemove.id === database.root.id) return database;
 
         const updatedDatabase: Database = this.deepCopyWithDates(database);
+        // The bin itself, or anything inside it, is deleted for real;
+        // everything else moves into the bin
+        const permanent = this.isGroupInRecycleBin(updatedDatabase, groupToRemove);
 
+        let removedGroup: Group | null = null;
         const removeGroupFromParent = (group: Group): boolean => {
             const index = group.groups.findIndex(g => g.id === groupToRemove.id);
             if (index !== -1) {
-                group.groups.splice(index, 1);
+                [removedGroup] = group.groups.splice(index, 1);
                 return true;
             }
             for (const subgroup of group.groups) {
@@ -295,16 +302,13 @@ export class KeepassDatabaseService {
             return false;
         };
 
-        const removedFromRoot = removeGroupFromParent(updatedDatabase.root);
+        removeGroupFromParent(updatedDatabase.root);
+        updatedDatabase.groups = updatedDatabase.groups.filter((g: Group) => g.id !== groupToRemove.id);
 
-        if (!removedFromRoot) {
-            const topLevelIndex = updatedDatabase.groups.findIndex(g => g.id === groupToRemove.id);
-            if (topLevelIndex !== -1) {
-                updatedDatabase.groups.splice(topLevelIndex, 1);
-            }
+        if (!permanent && removedGroup) {
+            this.getOrCreateRecycleBin(updatedDatabase.root).groups.push(removedGroup);
         }
 
-        updatedDatabase.groups = updatedDatabase.groups.filter((g: Group) => g.id !== groupToRemove.id);
         return updatedDatabase;
     }
 
@@ -384,12 +388,52 @@ export class KeepassDatabaseService {
         return [updatedDatabase, savedEntry];
     }
 
+    static findRecycleBin(root: Group): Group | null {
+        if (root.isRecycleBin) return root;
+        for (const subgroup of root.groups) {
+            const found = this.findRecycleBin(subgroup);
+            if (found) return found;
+        }
+        return null;
+    }
+
+    static isEntryInRecycleBin(database: Database, entryId: string): boolean {
+        const bin = this.findRecycleBin(database.root);
+        if (!bin) return false;
+        return !!this.findGroupContainingEntry(entryId, bin);
+    }
+
+    static isGroupInRecycleBin(database: Database, group: Group): boolean {
+        const bin = this.findRecycleBin(database.root);
+        if (!bin) return false;
+        return this.isGroupInHierarchy(group, bin);
+    }
+
+    private static getOrCreateRecycleBin(root: Group): Group {
+        const existing = this.findRecycleBin(root);
+        if (existing) return existing;
+
+        const bin: Group = {
+            id: '',
+            name: 'Recycle Bin',
+            groups: [],
+            entries: [],
+            isRecycleBin: true,
+        };
+        root.groups.push(bin);
+        return bin;
+    }
+
     static removeEntry(database: Database, entryToRemove: Entry): Database {
         const updatedDatabase: Database = this.deepCopyWithDates(database);
+        // Already in the recycle bin: delete for real, otherwise move it there
+        const permanent = this.isEntryInRecycleBin(updatedDatabase, entryToRemove.id);
+
+        let removedEntry: Entry | null = null;
         const removeEntryFromGroup = (group: Group): boolean => {
             const index = group.entries.findIndex(e => e.id === entryToRemove.id);
             if (index !== -1) {
-                group.entries.splice(index, 1);
+                [removedEntry] = group.entries.splice(index, 1);
                 return true;
             }
             for (const subgroup of group.groups) {
@@ -399,6 +443,11 @@ export class KeepassDatabaseService {
         };
 
         removeEntryFromGroup(updatedDatabase.root);
+
+        if (!permanent && removedEntry) {
+            this.getOrCreateRecycleBin(updatedDatabase.root).entries.push(removedEntry);
+        }
+
         return updatedDatabase;
     }
 
@@ -604,6 +653,11 @@ export class KeepassDatabaseService {
             if (!kdbxSubgroup) {
                 kdbxSubgroup = kdbxDb.createGroup(kdbxGroup, subgroup.name);
                 subgroup.id = kdbxSubgroup.uuid.toString();
+                if (subgroup.isRecycleBin) {
+                    kdbxSubgroup.icon = kdbxweb.Consts.Icons.TrashBin;
+                    kdbxDb.meta.recycleBinUuid = kdbxSubgroup.uuid;
+                    kdbxDb.meta.recycleBinEnabled = true;
+                }
             }
             await this.updateGroup(subgroup, kdbxSubgroup, kdbxDb);
             updatedGroups.push(kdbxSubgroup);
@@ -645,7 +699,30 @@ export class KeepassDatabaseService {
 
             const root = kdbxDb.getDefaultGroup();
             if (root) {
+                const collectUuids = (group: kdbxweb.KdbxGroup, into: Set<string>) => {
+                    into.add(group.uuid.toString());
+                    group.entries.forEach(e => into.add(e.uuid.toString()));
+                    group.groups.forEach(g => collectUuids(g, into));
+                };
+
+                const uuidsBefore = new Set<string>();
+                collectUuids(root, uuidsBefore);
+
                 await this.updateGroup(database.root, root, kdbxDb, true);
+
+                // Record permanently deleted objects so a later merge (another
+                // machine editing the same file) deletes them instead of
+                // resurrecting them
+                const uuidsAfter = new Set<string>();
+                collectUuids(root, uuidsAfter);
+                for (const uuid of uuidsBefore) {
+                    if (!uuidsAfter.has(uuid)) {
+                        const deleted = new kdbxweb.KdbxDeletedObject();
+                        deleted.uuid = new kdbxweb.KdbxUuid(uuid);
+                        deleted.deletionTime = new Date();
+                        kdbxDb.deletedObjects.push(deleted);
+                    }
+                }
             }
 
             // The file changed on disk since we read or wrote it (another

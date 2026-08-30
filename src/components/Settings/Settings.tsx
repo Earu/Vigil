@@ -28,6 +28,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [apiKey, setApiKey] = useState<string>(userSettingsService.getHibpApiKey() || '');
     const [showApiKey, setShowApiKey] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
+    const [fetchFavicons, setFetchFavicons] = useState<boolean>(userSettingsService.getFetchFavicons());
 
     if (!isOpen) return null;
 
@@ -267,6 +268,21 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 />
                             </div>
                             <p className="auto-lock-help">When enabled, the database will automatically lock after the specified period of time</p>
+                        </div>
+                        <div className="favicon-controls">
+                            <div className="auto-lock-toggle">
+                                <label htmlFor="fetch-favicons">Fetch website icons from Google</label>
+                                <input
+                                    type="checkbox"
+                                    id="fetch-favicons"
+                                    checked={fetchFavicons}
+                                    onChange={(e) => {
+                                        setFetchFavicons(e.target.checked);
+                                        userSettingsService.setFetchFavicons(e.target.checked);
+                                    }}
+                                />
+                            </div>
+                            <p className="auto-lock-help">Shows each entry's website icon, but sends the entry's domain to Google's favicon service</p>
                         </div>
                         <div className="api-key-input">
                             <label htmlFor="hibp-api-key">Have I Been Pwned API Key</label>
