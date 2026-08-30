@@ -47,7 +47,9 @@ describe('recycle bin', () => {
 
         it('deletes permanently from inside the bin and records a deleted object', async () => {
             const database = Svc.convertKdbxToDatabase(kdbxDb);
-            const alpha = Svc.getAllEntriesFromGroup(database.root).find(e => e.title === 'Alpha')!;
+            // aggregate views exclude the bin, so look inside it directly
+            expect(Svc.getAllEntriesFromGroup(database.root).some(e => e.title === 'Alpha')).toBe(false);
+            const alpha = Svc.findRecycleBin(database.root)!.entries.find(e => e.title === 'Alpha')!;
             expect(Svc.isEntryInRecycleBin(database, alpha.id)).toBe(true);
             const alphaUuid = alpha.id;
 
@@ -81,6 +83,72 @@ describe('recycle bin', () => {
             const binAfter = reloaded.getDefaultGroup().groups.find(g =>
                 g.uuid.toString() === reloaded.meta.recycleBinUuid?.toString())!;
             expect(binAfter.groups.some(g => g.name === 'Work')).toBe(false);
+        });
+    });
+
+    describe('bin follow-ups', () => {
+        let kdbxDb: kdbxweb.Kdbx;
+
+        beforeAll(async () => {
+            const db0 = kdbxweb.Kdbx.create(cred(), 'Vault2');
+            db0.setVersion(3);
+            for (const t of ['Keep', 'Trash1', 'Trash2']) {
+                const e = db0.createEntry(db0.getDefaultGroup());
+                e.fields.set('Title', t);
+                e.fields.set('Password', kdbxweb.ProtectedValue.fromString(`pw-${t}`));
+            }
+            kdbxDb = await kdbxweb.Kdbx.load(await db0.save(), cred());
+
+            let database = Svc.convertKdbxToDatabase(kdbxDb);
+            for (const t of ['Trash1', 'Trash2']) {
+                const entry = Svc.getEntriesForDisplay(database.root, database, '').find(e => e.title === t)
+                    ?? database.root.entries.find(e => e.title === t)!;
+                database = Svc.removeEntry(database, entry);
+            }
+            await Svc.saveDatabase(database, kdbxDb);
+            kdbxDb = await loadSaved(env);
+        });
+
+        it('excludes bin contents from aggregate views and counts', () => {
+            const database = Svc.convertKdbxToDatabase(kdbxDb);
+            const shown = Svc.getEntriesForDisplay(database.root, database, '').map(e => e.title);
+            expect(shown).toContain('Keep');
+            expect(shown).not.toContain('Trash1');
+            expect(Svc.countEntriesInGroup(database.root)).toBe(1);
+            // selecting the bin itself still shows its contents
+            const bin = Svc.findRecycleBin(database.root)!;
+            const binShown = Svc.getEntriesForDisplay(bin, database, '').map(e => e.title);
+            expect(binShown).toEqual(expect.arrayContaining(['Trash1', 'Trash2']));
+        });
+
+        it('restores an entry by moving it out of the bin', async () => {
+            const database = Svc.convertKdbxToDatabase(kdbxDb);
+            const bin = Svc.findRecycleBin(database.root)!;
+            const trash1 = bin.entries.find(e => e.title === 'Trash1')!;
+            await Svc.saveDatabase(Svc.moveEntry(database, trash1, database.root), kdbxDb);
+
+            const reloaded = await loadSaved(env);
+            const model = Svc.convertKdbxToDatabase(reloaded);
+            expect(model.root.entries.some(e => e.title === 'Trash1')).toBe(true);
+            expect(Svc.isEntryInRecycleBin(model, model.root.entries.find(e => e.title === 'Trash1')!.id)).toBe(false);
+            kdbxDb = reloaded;
+        });
+
+        it('empties the bin permanently and records deleted objects', async () => {
+            let database = Svc.convertKdbxToDatabase(kdbxDb);
+            const bin = Svc.findRecycleBin(database.root)!;
+            expect(bin.entries.length).toBeGreaterThan(0);
+            const trashedUuid = bin.entries[0].id;
+
+            await Svc.saveDatabase(Svc.emptyRecycleBin(database), kdbxDb);
+
+            const reloaded = await loadSaved(env);
+            database = Svc.convertKdbxToDatabase(reloaded);
+            const binAfter = Svc.findRecycleBin(database.root)!;
+            expect(binAfter.entries).toHaveLength(0);
+            expect(binAfter.groups).toHaveLength(0);
+            expect(allTitles(reloaded)).not.toContain('Trash2');
+            expect(reloaded.deletedObjects.some(d => d.uuid?.toString() === trashedUuid)).toBe(true);
         });
     });
 

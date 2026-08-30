@@ -153,6 +153,16 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		onDatabaseChange?.(updatedDatabase);
 	};
 
+	const handleEmptyRecycleBin = () => {
+		const bin = KeepassDatabaseService.findRecycleBin(database.root);
+		if (!bin) return;
+
+		const count = KeepassDatabaseService.countEntriesInGroup(bin);
+		if (!window.confirm(`Permanently delete everything in the recycle bin (${count} ${count === 1 ? 'entry' : 'entries'})? This cannot be undone.`)) return;
+
+		onDatabaseChange?.(KeepassDatabaseService.emptyRecycleBin(database));
+	};
+
 	const handleRemoveEntry = (entryToRemove: Entry) => {
 		const permanent = KeepassDatabaseService.isEntryInRecycleBin(database, entryToRemove.id);
 		const message = permanent
@@ -250,6 +260,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					onNewEntry={handleNewEntry}
 					onRemoveEntry={handleRemoveEntry}
 					onMoveEntry={handleMoveEntry}
+					onEmptyRecycleBin={handleEmptyRecycleBin}
 				/>
 				<div
 					className={`resize-handle right ${isResizing === 'right' ? 'resizing' : ''}`}

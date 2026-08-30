@@ -3,7 +3,7 @@ import { Entry, EntryVersion, Attachment } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
-import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
+import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
 import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon } from '../../icons/actions/ActionIcons';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
@@ -261,6 +261,24 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		}
 	};
 
+	const toLocalInputValue = (date?: Date): string => {
+		if (!date) return '';
+		const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+		return local.toISOString().slice(0, 16);
+	};
+
+	const handleExpiresToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+		const expires = e.target.checked;
+		setEditedEntry({
+			...editedEntry,
+			expires,
+			// sensible default when turning expiry on for the first time
+			expiryTime: expires
+				? (editedEntry.expiryTime ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000))
+				: editedEntry.expiryTime,
+		});
+	};
+
 	const handleRestoreVersion = (version: EntryVersion) => {
 		const restored: Entry = {
 			...editedEntry,
@@ -270,6 +288,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 			url: version.url,
 			notes: version.notes,
 			attachments: version.attachments,
+			expires: version.expires,
+			expiryTime: version.expiryTime,
 		};
 		// Saved like a normal edit, so the pre-restore state becomes a new revision
 		onSave(KeepassDatabaseService.prepareEntryForSave(restored));
@@ -326,6 +346,16 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					<div className="weak-password-warning-content">
 						<h3>Email Address Exposed</h3>
 						<p>The email address associated with this entry has been found in recent data breaches. Consider using a different email address or monitoring for suspicious activity.</p>
+					</div>
+				</div>
+			)}
+
+			{!isNew && !isEditing && KeepassDatabaseService.isEntryExpired(editedEntry) && (
+				<div className="breach-warning-header expired-warning-header">
+					<ExpiredClockIcon className="breach-warning-icon" />
+					<div className="breach-warning-content">
+						<h3>Entry Expired</h3>
+						<p>This entry expired on {editedEntry.expiryTime?.toLocaleString()}. Consider rotating the credential.</p>
 					</div>
 				</div>
 			)}
@@ -454,6 +484,37 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 						)}
 					</div>
 				</div>
+
+				{(isEditing || editedEntry.expires) && (
+					<div className="field-group">
+						<label>Expiry</label>
+						<div className="expiry-controls">
+							<label className="expiry-toggle">
+								<input
+									type="checkbox"
+									checked={!!editedEntry.expires}
+									disabled={!isEditing}
+									onChange={handleExpiresToggle}
+								/>
+								Expires on
+							</label>
+							{editedEntry.expires && (
+								<input
+									type="datetime-local"
+									className="field-value expiry-input"
+									value={toLocalInputValue(editedEntry.expiryTime)}
+									readOnly={!isEditing}
+									onChange={(e) => {
+										const value = e.target.value;
+										if (value) {
+											setEditedEntry({ ...editedEntry, expiryTime: new Date(value) });
+										}
+									}}
+								/>
+							)}
+						</div>
+					</div>
+				)}
 
 				<div className="field-group">
 					<label>Notes</label>
@@ -605,6 +666,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 												<div className="history-field">
 													<span className="history-field-label">Files</span>
 													<span className="history-field-value">{version.attachments.map(a => a.name).join(', ')}</span>
+												</div>
+											)}
+											{version.expires && version.expiryTime && (
+												<div className="history-field">
+													<span className="history-field-label">Expiry</span>
+													<span className="history-field-value">{version.expiryTime.toLocaleString()}</span>
 												</div>
 											)}
 											<button

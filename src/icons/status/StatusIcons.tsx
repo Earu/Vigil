@@ -122,3 +122,19 @@ export const SecurityShieldIcon: React.FC<StatusIconProps> = ({ className, color
         <line x1="12" y1="16" x2="12.01" y2="16" />
     </svg>
 );
+export const ExpiredClockIcon: React.FC<StatusIconProps> = ({ className, color = 'currentColor', style }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={style}
+    >
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="12 6 12 12 16 14" />
+    </svg>
+);

@@ -51,6 +51,8 @@ export class KeepassDatabaseService {
             notes: entry.fields.get('Notes')?.toString(),
             modified: entry.times.lastModTime as Date,
             attachments: convertAttachments(entry),
+            expires: !!entry.times.expires,
+            expiryTime: entry.times.expiryTime as Date | undefined,
         });
 
         const recycleBinId = kdbxDb.meta.recycleBinUuid?.toString();
@@ -93,7 +95,12 @@ export class KeepassDatabaseService {
             modified: new Date(),
             attachments: [],
             history: [],
+            expires: false,
         };
+    }
+
+    static isEntryExpired(entry: { expires: boolean; expiryTime?: Date }): boolean {
+        return entry.expires && !!entry.expiryTime && entry.expiryTime.getTime() <= Date.now();
     }
 
     static getAttachmentBytes(attachment: Attachment): Uint8Array {
@@ -133,6 +140,9 @@ export class KeepassDatabaseService {
     static getAllEntriesFromGroup(group: Group): Entry[] {
         let entries = [...group.entries];
         group.groups.forEach(subgroup => {
+            // Deleted entries stay out of aggregate views; the bin's own
+            // contents show only when the bin itself is selected
+            if (subgroup.isRecycleBin) return;
             entries = entries.concat(this.getAllEntriesFromGroup(subgroup));
         });
         return entries;
@@ -211,6 +221,7 @@ export class KeepassDatabaseService {
     static countEntriesInGroup(group: Group): number {
         let count = group.entries.length;
         group.groups.forEach(subgroup => {
+            if (subgroup.isRecycleBin) return;
             count += this.countEntriesInGroup(subgroup);
         });
         return count;
@@ -424,6 +435,16 @@ export class KeepassDatabaseService {
         return bin;
     }
 
+    static emptyRecycleBin(database: Database): Database {
+        const updatedDatabase: Database = this.deepCopyWithDates(database);
+        const bin = this.findRecycleBin(updatedDatabase.root);
+        if (bin) {
+            bin.entries = [];
+            bin.groups = [];
+        }
+        return updatedDatabase;
+    }
+
     static removeEntry(database: Database, entryToRemove: Entry): Database {
         const updatedDatabase: Database = this.deepCopyWithDates(database);
         // Already in the recycle bin: delete for real, otherwise move it there
@@ -580,6 +601,9 @@ export class KeepassDatabaseService {
         const oldPassword = existingPassword ? this.getPasswordString(existingPassword as string | kdbxweb.ProtectedValue) : '';
         if (oldPassword !== this.getPasswordString(entry.password)) return true;
 
+        if (!!kdbxEntry.times.expires !== !!entry.expires) return true;
+        if ((kdbxEntry.times.expiryTime?.getTime() ?? 0) !== (entry.expiryTime?.getTime() ?? 0)) return true;
+
         return this.attachmentsChanged(kdbxEntry, entry.attachments ?? []);
     }
 
@@ -627,6 +651,8 @@ export class KeepassDatabaseService {
             else kdbxEntry.fields.delete('Notes');
             kdbxEntry.times.creationTime = entry.created;
             kdbxEntry.times.lastModTime = entry.modified;
+            kdbxEntry.times.expires = !!entry.expires;
+            kdbxEntry.times.expiryTime = entry.expiryTime;
 
             // Sync attachments: registering through createBinary puts the data in
             // the database binary pool and dedupes identical content by hash
