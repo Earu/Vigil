@@ -5,6 +5,7 @@ export interface IElectronAPI {
 	onMaximizeChange: (callback: (maximized: boolean) => void) => void;
 	saveFile: (data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
 	saveToFile: (filePath: string, data: Uint8Array) => Promise<{ success: boolean; error?: string }>;
+	saveAttachment: (name: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
 	getFilePath: (path: string) => Promise<string | null>;
 	openFile: () => Promise<{ filePath: string; canceled: boolean }>;
 	readFile: (filePath: string) => Promise<{ success: boolean; data?: Uint8Array; error?: string }>;

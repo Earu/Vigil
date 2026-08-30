@@ -52,6 +52,24 @@ export async function saveFile(data: Uint8Array): Promise<{ success: boolean, er
     }
 }
 
+export async function saveAttachment(name: string, data: Uint8Array): Promise<{ success: boolean, error?: string, filePath?: string }> {
+    const { filePath, canceled } = await dialog.showSaveDialog({
+        defaultPath: name
+    });
+
+    if (canceled || !filePath) {
+        return { success: false, error: 'Save cancelled' };
+    }
+
+    try {
+        await fs.promises.writeFile(filePath, Buffer.from(data));
+        return { success: true, filePath };
+    } catch (error) {
+        console.error('Failed to save attachment:', error);
+        return { success: false, error: 'Failed to save attachment' };
+    }
+}
+
 export async function saveToFile(filePath: string, data: Uint8Array): Promise<{ success: boolean, error?: string }> {
     try {
         await fs.promises.writeFile(filePath, Buffer.from(data));

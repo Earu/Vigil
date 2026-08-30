@@ -10,6 +10,7 @@ const api: IElectronAPI = {
 	},
 	saveFile: (data) => ipcRenderer.invoke('save-file', data),
 	saveToFile: (filePath, data) => ipcRenderer.invoke('save-to-file', filePath, data),
+	saveAttachment: (name, data) => ipcRenderer.invoke('save-attachment', name, data),
 	getFilePath: (path) => ipcRenderer.invoke('get-file-path', path),
 	openFile: () => ipcRenderer.invoke('open-file'),
 	readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),

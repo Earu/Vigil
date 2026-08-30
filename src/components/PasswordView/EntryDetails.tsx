@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Entry } from '../../types/database';
+import { Entry, Attachment } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
-import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon } from '../../icons/actions/ActionIcons';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
@@ -87,6 +87,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	} | null>(null);
 	const [showPasswordGenerator, setShowPasswordGenerator] = useState(false);
 	const timerRef = useRef<NodeJS.Timeout>();
+	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
 			return KeepassDatabaseService.createNewEntry();
@@ -209,6 +210,50 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		} else {
 			setEditedEntry(entry || KeepassDatabaseService.createNewEntry());
 			setIsEditing(false);
+		}
+	};
+
+	const handleAddAttachments = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const files = e.target.files;
+		if (!files || files.length === 0) return;
+
+		const newAttachments: Attachment[] = [];
+		for (const file of Array.from(files)) {
+			newAttachments.push({ name: file.name, data: await file.arrayBuffer() });
+		}
+
+		setEditedEntry(prev => ({
+			...prev,
+			attachments: [
+				// A new file with the same name replaces the old one
+				...prev.attachments.filter(a => !newAttachments.some(n => n.name === a.name)),
+				...newAttachments
+			]
+		}));
+
+		e.target.value = '';
+	};
+
+	const handleRemoveAttachment = (name: string) => {
+		setEditedEntry(prev => ({
+			...prev,
+			attachments: prev.attachments.filter(a => a.name !== name)
+		}));
+	};
+
+	const handleDownloadAttachment = async (attachment: Attachment) => {
+		const bytes = KeepassDatabaseService.getAttachmentBytes(attachment);
+		const result = await window.electron?.saveAttachment(attachment.name, bytes);
+		if (result?.success) {
+			(window as any).showToast?.({
+				message: `Saved ${attachment.name}`,
+				type: 'success'
+			});
+		} else if (result?.error && result.error !== 'Save cancelled') {
+			(window as any).showToast?.({
+				message: `Failed to save ${attachment.name}`,
+				type: 'error'
+			});
 		}
 	};
 
@@ -397,6 +442,59 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 						placeholder="Enter notes"
 					/>
 				</div>
+
+				{(isEditing || editedEntry.attachments.length > 0) && (
+					<div className="field-group">
+						<label>Attachments</label>
+						<div className="attachments-list">
+							{editedEntry.attachments.map(attachment => (
+								<div className="attachment-item" key={attachment.name}>
+									<AttachmentActionIcon className="attachment-icon" />
+									<span className="attachment-name" title={attachment.name}>{attachment.name}</span>
+									<span className="attachment-size">
+										{KeepassDatabaseService.formatAttachmentSize(KeepassDatabaseService.getAttachmentSize(attachment))}
+									</span>
+									{!isEditing ? (
+										<button
+											className="attachment-action-button"
+											onClick={() => handleDownloadAttachment(attachment)}
+											title="Save file"
+										>
+											<DownloadActionIcon />
+										</button>
+									) : (
+										<button
+											className="attachment-action-button remove"
+											onClick={() => handleRemoveAttachment(attachment.name)}
+											title="Remove file"
+										>
+											<CloseActionIcon />
+										</button>
+									)}
+								</div>
+							))}
+							{isEditing && (
+								<>
+									<button
+										className="add-attachment-button"
+										onClick={() => fileInputRef.current?.click()}
+										type="button"
+									>
+										<AddActionIcon />
+										Add file
+									</button>
+									<input
+										ref={fileInputRef}
+										type="file"
+										multiple
+										hidden
+										onChange={handleAddAttachments}
+									/>
+								</>
+							)}
+						</div>
+					</div>
+				)}
 
 				{(isEditing || isNew) && (
 					<div className="field-group actions">
