@@ -94,8 +94,8 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	};
 
 	const handleSaveEntry = (entry: Entry) => {
-		const updatedDatabase = KeepassDatabaseService.saveEntry(database, entry, selectedGroup, isCreatingNew);
-		setSelectedEntry(entry);
+		const [updatedDatabase, savedEntry] = KeepassDatabaseService.saveEntry(database, entry, selectedGroup, isCreatingNew);
+		setSelectedEntry(savedEntry);
 		setIsCreatingNew(false);
 		onDatabaseChange?.(updatedDatabase);
 	};

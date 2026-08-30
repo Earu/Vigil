@@ -13,16 +13,7 @@ interface LoadLastDatabaseResult {
     biometricsEnabled: boolean;
 }
 
-// Cache interface for memoization
-interface Cache<T> {
-    value: T;
-    timestamp: number;
-}
-
 export class KeepassDatabaseService {
-    private static readonly CACHE_DURATION = 5000; // 5 seconds cache duration
-    private static entriesCache = new Map<string, Cache<Entry[]>>();
-    private static groupCache = new Map<string, Cache<Group>>();
     private static currentPath: string | undefined;
 
     static setPath(path: string | undefined) {
@@ -31,32 +22,6 @@ export class KeepassDatabaseService {
 
     static getPath(): string | undefined {
         return this.currentPath;
-    }
-
-    private static clearCache() {
-        this.entriesCache.clear();
-        this.groupCache.clear();
-    }
-
-    private static getCacheKey(group: Group, searchQuery: string = ''): string {
-        return `${group.id}_${searchQuery}`;
-    }
-
-    private static getFromCache<T>(cache: Map<string, Cache<T>>, key: string): T | null {
-        const cached = cache.get(key);
-        if (!cached) return null;
-
-        const now = Date.now();
-        if (now - cached.timestamp > this.CACHE_DURATION) {
-            cache.delete(key);
-            return null;
-        }
-
-        return cached.value;
-    }
-
-    private static setCache<T>(cache: Map<string, Cache<T>>, key: string, value: T) {
-        cache.set(key, { value, timestamp: Date.now() });
     }
 
     static convertKdbxToDatabase(kdbxDb: kdbxweb.Kdbx): Database {
@@ -120,16 +85,10 @@ export class KeepassDatabaseService {
     }
 
     static getAllEntriesFromGroup(group: Group): Entry[] {
-        const cacheKey = this.getCacheKey(group);
-        const cached = this.getFromCache(this.entriesCache, cacheKey);
-        if (cached) return cached;
-
         let entries = [...group.entries];
         group.groups.forEach(subgroup => {
             entries = entries.concat(this.getAllEntriesFromGroup(subgroup));
         });
-
-        this.setCache(this.entriesCache, cacheKey, entries);
         return entries;
     }
 
@@ -157,20 +116,10 @@ export class KeepassDatabaseService {
         );
     }
 
-    static getEntriesForDisplay(group: Group, database: Database | undefined, searchQuery: string): Entry[] {
-        const cacheKey = this.getCacheKey(group, searchQuery);
-        const cached = this.getFromCache(this.entriesCache, cacheKey);
-        if (cached) return cached;
-
-        const baseEntries = group === database?.root || searchQuery
-            ? this.getAllEntriesFromGroup(group)
-            : this.getAllEntriesFromGroup(group);
-
+    static getEntriesForDisplay(group: Group, _database: Database | undefined, searchQuery: string): Entry[] {
+        const baseEntries = this.getAllEntriesFromGroup(group);
         const filteredEntries = this.filterEntries(baseEntries, searchQuery);
-        const sortedEntries = this.sortEntriesByTitle(filteredEntries);
-
-        this.setCache(this.entriesCache, cacheKey, sortedEntries);
-        return sortedEntries;
+        return this.sortEntriesByTitle(filteredEntries);
     }
 
     static getUrlHostname(url: string): string {
@@ -198,19 +147,13 @@ export class KeepassDatabaseService {
     }
 
     static findGroupInDatabase(groupId: string, root: Group): Group | null {
-        const cacheKey = `find_${groupId}`;
-        const cached = this.getFromCache(this.groupCache, cacheKey);
-        if (cached) return cached;
-
         if (root.id === groupId) {
-            this.setCache(this.groupCache, cacheKey, root);
             return root;
         }
 
         for (const subgroup of root.groups) {
             const found = this.findGroupInDatabase(groupId, subgroup);
             if (found) {
-                this.setCache(this.groupCache, cacheKey, found);
                 return found;
             }
         }
@@ -363,7 +306,7 @@ export class KeepassDatabaseService {
         return updatedDatabase;
     }
 
-    static saveEntry(database: Database, entry: Entry, selectedGroup: Group, isCreatingNew: boolean): Database {
+    static saveEntry(database: Database, entry: Entry, selectedGroup: Group, isCreatingNew: boolean): [Database, Entry] {
         const findGroupContainingEntry = (group: Group): Group | null => {
             if (group.entries.some(e => e.id === entry.id)) {
                 return group;
@@ -376,10 +319,14 @@ export class KeepassDatabaseService {
         };
 
         const updatedDatabase: Database = this.deepCopyWithDates(database);
+        let savedEntry = entry;
 
         if (isCreatingNew) {
+            // Assign the entry its definitive kdbx UUID up front so later
+            // edits and saves address the same entry
+            savedEntry = { ...entry, id: kdbxweb.KdbxUuid.random().toString() };
             const updatedGroup = this.findGroupInDatabase(selectedGroup.id, updatedDatabase.root) || updatedDatabase.root;
-            updatedGroup.entries.push(entry);
+            updatedGroup.entries.push(savedEntry);
         } else {
             const group = findGroupContainingEntry(updatedDatabase.root);
             if (group) {
@@ -390,8 +337,7 @@ export class KeepassDatabaseService {
             }
         }
 
-        this.clearCache();
-        return updatedDatabase;
+        return [updatedDatabase, savedEntry];
     }
 
     static removeEntry(database: Database, entryToRemove: Entry): Database {
@@ -409,7 +355,6 @@ export class KeepassDatabaseService {
         };
 
         removeEntryFromGroup(updatedDatabase.root);
-        this.clearCache();
         return updatedDatabase;
     }
 
@@ -451,7 +396,6 @@ export class KeepassDatabaseService {
             target.entries.push(entryToMove);
         }
 
-        this.clearCache();
         return updatedDatabase;
     }
 
@@ -520,21 +464,13 @@ export class KeepassDatabaseService {
         // Process all entries in one pass
         const updatedEntries: kdbxweb.KdbxEntry[] = [];
         group.entries.forEach((entry: Entry) => {
-            let kdbxEntry: kdbxweb.KdbxEntry;
-
-            if (entry.id && entry.id.length === 32) {
-                // Reuse existing entry if available
-                kdbxEntry = existingEntries.get(entry.id) || kdbxDb.createEntry(kdbxGroup);
-                if (!existingEntries.has(entry.id)) {
-                    // Set UUID for new entry
-                    const uuidBytes = new Uint8Array(16);
-                    for (let i = 0; i < 16; i++) {
-                        uuidBytes[i] = parseInt(entry.id.substr(i * 2, 2), 16);
-                    }
-                    kdbxEntry.uuid = new kdbxweb.KdbxUuid(uuidBytes);
-                }
-            } else {
+            let kdbxEntry = entry.id ? existingEntries.get(entry.id) : undefined;
+            if (!kdbxEntry) {
                 kdbxEntry = kdbxDb.createEntry(kdbxGroup);
+                if (entry.id) {
+                    // Keep the UUID assigned when the entry was created in the UI
+                    kdbxEntry.uuid = new kdbxweb.KdbxUuid(entry.id);
+                }
             }
 
             // Update entry fields
@@ -621,8 +557,6 @@ export class KeepassDatabaseService {
                 message: 'Database saved successfully',
                 type: 'success'
             });
-
-            this.clearCache();
         } catch (err) {
             console.error('Failed to save database:', err);
             // Show error toast
@@ -630,7 +564,6 @@ export class KeepassDatabaseService {
                 message: 'Failed to save database',
                 type: 'error'
             });
-            this.clearCache();
             throw err;
         }
     }

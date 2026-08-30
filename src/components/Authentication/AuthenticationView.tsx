@@ -9,6 +9,7 @@ import './AuthenticationView.css';
 
 interface AuthenticationViewProps {
     onDatabaseOpen: (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => void;
+    onBreachCheckComplete: () => void;
 }
 
 function triggerBiometricUnlock() {
@@ -21,7 +22,7 @@ function triggerBiometricUnlock() {
     }
 }
 
-export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) => {
+export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: AuthenticationViewProps) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -132,6 +133,7 @@ export const AuthenticationView = ({ onDatabaseOpen }: AuthenticationViewProps) 
                             setError={setError}
                             setSelectedFile={setSelectedFile}
                             onDatabaseOpen={onDatabaseOpen}
+                            onBreachCheckComplete={onBreachCheckComplete}
                             passwordInputRef={passwordInputRef}
                             setIsCreatingNew={setIsCreatingNew}
                             initialBiometricsEnabled={initialBiometricsEnabled}
