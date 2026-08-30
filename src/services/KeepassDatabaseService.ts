@@ -476,9 +476,12 @@ export class KeepassDatabaseService {
         }
     }
 
-    private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx): Promise<void> {
-        // Update group name
-        kdbxGroup.name = group.name;
+    private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, isRoot = false): Promise<void> {
+        // The UI labels the root group "All Entries"; never write that label
+        // over the real group name stored in the file
+        if (!isRoot) {
+            kdbxGroup.name = group.name;
+        }
 
         // Create a map of existing entries for faster lookup
         const existingEntries = new Map(
@@ -505,7 +508,9 @@ export class KeepassDatabaseService {
                 : entry.password
             );
             if (entry.url) kdbxEntry.fields.set('URL', entry.url);
+            else kdbxEntry.fields.delete('URL');
             if (entry.notes) kdbxEntry.fields.set('Notes', entry.notes);
+            else kdbxEntry.fields.delete('Notes');
             kdbxEntry.times.creationTime = entry.created;
             kdbxEntry.times.lastModTime = entry.modified;
 
@@ -553,7 +558,7 @@ export class KeepassDatabaseService {
 
             const root = kdbxDb.getDefaultGroup();
             if (root) {
-                await this.updateGroup(database.root, root, kdbxDb);
+                await this.updateGroup(database.root, root, kdbxDb, true);
             }
 
             // Drop binaries no longer referenced by any entry
