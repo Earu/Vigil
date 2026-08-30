@@ -1,7 +1,7 @@
 {
 	"name": "vigil",
 	"private": true,
-	"version": "0.0.0",
+	"version": "1.0.0",
 	"description": "A password manager with modern UI, security checks, and more.",
 	"author": "Ryan",
 	"scripts": {

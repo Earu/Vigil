@@ -7,3 +7,14 @@
 	justify-content: center;
 	color: var(--text-primary);
 }
+
+.app-version {
+	position: fixed;
+	left: 10px;
+	bottom: 7px;
+	font-size: 0.68rem;
+	color: var(--text-muted);
+	z-index: 500;
+	pointer-events: none;
+	user-select: none;
+}

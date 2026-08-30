@@ -1,116 +1,130 @@
-name: Create Draft Release
+name: Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version number (e.g., v1.0.0)'
+        description: 'Version number (e.g., v1.0.0), must be an existing tag'
         required: true
         type: string
 
 jobs:
-  create-release:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: windows-latest
+            arch: arm64
+          - os: ubuntu-latest
+            arch: x64
+          - os: ubuntu-latest
+            arch: arm64
+          - os: macos-latest
+            arch: x64
+          - os: macos-latest
+            arch: arm64
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.version || github.ref_name }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libnss3 libsecret-1-dev
+
+    - name: Build Electron app
+      run: npm run electron:build
+      env:
+        NODE_ENV: production
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        ARCH: ${{ matrix.arch }}
+        CSC_IDENTITY_AUTO_DISCOVERY: false
+        # This is broken on macOS. Why.
+        # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
+        USE_HARD_LINKS: false
+
+    - name: Upload Windows artifacts
+      if: runner.os == 'Windows'
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-${{ matrix.arch }}-installer
+        path: dist/*.exe
+        if-no-files-found: error
+
+    - name: Upload macOS artifacts
+      if: runner.os == 'macOS'
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-${{ matrix.arch }}-installer
+        path: dist/*.dmg
+        if-no-files-found: error
+
+    - name: Upload Linux artifacts
+      if: runner.os == 'Linux'
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-${{ matrix.arch }}-installer
+        path: dist/*.AppImage
+        if-no-files-found: error
+
+  release:
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      packages: write
+
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Create Draft Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          release_name: Release ${{ github.event.inputs.version }}
-          draft: true
-          prerelease: false
-
-      # Download artifacts from the most recent successful build on main
-      - name: Download Windows x64 Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          name: windows-x64-installer
-          workflow: build.yml
-          branch: main
-          path: artifacts/windows-x64
-
-      - name: Download Windows ARM64 Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          name: windows-arm64-installer
-          workflow: build.yml
-          branch: main
-          path: artifacts/windows-arm64
-
-      - name: Download macOS x64 Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          name: macos-x64-installer
-          workflow: build.yml
-          branch: main
-          path: artifacts/macos-x64
-
-      - name: Download macOS ARM64 Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          name: macos-arm64-installer
-          workflow: build.yml
-          branch: main
-          path: artifacts/macos-arm64
-
-      - name: Download Linux x64 Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          name: linux-x64-installer
-          workflow: build.yml
-          branch: main
-          path: artifacts/linux-x64
-
-      - name: Download Linux ARM64 Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          name: linux-arm64-installer
-          workflow: build.yml
-          branch: main
-          path: artifacts/linux-arm64
+          path: artifacts
 
       - name: Rename artifacts
+        env:
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
         run: |
           mkdir -p renamed-artifacts
 
-          # Function to get file extension
-          get_extension() {
-            filename="$1"
-            echo "${filename##*.}"
-          }
-
-          # Process each artifact directory
           for dir in artifacts/*; do
             if [ -d "$dir" ]; then
-              platform_arch=$(basename "$dir")
-              platform=${platform_arch%-*}
-              arch=${platform_arch#*-}
+              platform_arch=$(basename "$dir" | sed 's/-installer$//')
 
-              # Find the first file in the directory (should only be one)
               for file in "$dir"/*; do
                 if [ -f "$file" ]; then
-                  ext=$(get_extension "$file")
-                  new_name="vigil-${platform}-${arch}-${{ github.event.inputs.version }}.${ext}"
-                  cp "$file" "renamed-artifacts/$new_name"
+                  ext="${file##*.}"
+                  cp "$file" "renamed-artifacts/vigil-${platform_arch}-${VERSION}.${ext}"
                 fi
               done
             fi
           done
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v1
+          ls -la renamed-artifacts
+
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.version }}
-          files: |
-            renamed-artifacts/*
+          tag_name: ${{ github.event.inputs.version || github.ref_name }}
+          name: Release ${{ github.event.inputs.version || github.ref_name }}
           draft: true
+          prerelease: false
+          files: renamed-artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
