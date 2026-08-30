@@ -35,5 +35,14 @@
 .overlay {
 	position: absolute;
 	inset: 0;
-	background: var(--bg-dark);
+	background:
+		radial-gradient(ellipse 70% 50% at 50% -10%, var(--accent-muted), transparent 65%),
+		var(--bg-dark);
+}
+
+.point-cloud {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
 }

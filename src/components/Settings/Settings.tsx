@@ -1,5 +1,5 @@
 import { useTheme } from '../../contexts/ThemeContext';
-import { CloseIcon } from '../../icons';
+import { CloseActionIcon } from '../../icons/actions/ActionIcons';
 import { DarkThemeIcon, LightThemeIcon, SystemThemeIcon } from '../../icons/SettingsIcon';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import { ImportAuthIcon } from '../../icons/auth/AuthIcons';
@@ -89,7 +89,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                 <div className="settings-header">
                     <h2>Settings</h2>
                     <button className="close-button" onClick={onClose}>
-                        <CloseIcon />
+                        <CloseActionIcon />
                     </button>
                 </div>
                 <div className="settings-content">
@@ -226,7 +226,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 className="close-button"
                                 onClick={() => setShowImportModal(false)}
                             >
-                                <CloseIcon />
+                                <CloseActionIcon />
                             </button>
                         </div>
                         <div className="settings-modal-content">

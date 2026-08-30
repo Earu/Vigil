@@ -28,8 +28,8 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const [showBreachReport, setShowBreachReport] = useState(false);
 	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
 	const [isCheckingEmails, setIsCheckingEmails] = useState(false);
-	const [sidebarWidth, setSidebarWidth] = useState(400);
-	const [detailsWidth, setDetailsWidth] = useState(400);
+	const [sidebarWidth, setSidebarWidth] = useState(260);
+	const [detailsWidth, setDetailsWidth] = useState(340);
 	const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
 
