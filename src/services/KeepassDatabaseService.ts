@@ -1,5 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { Database, Group, Entry, EntryVersion, Attachment } from '../types/database';
+import { Database, Group, Entry, EntryVersion, Attachment, CustomField } from '../types/database';
 
 interface SaveResult {
     success: boolean;
@@ -14,6 +14,9 @@ interface LoadLastDatabaseResult {
 }
 
 export class KeepassDatabaseService {
+    // Fields with dedicated UI; everything else on a kdbx entry is a custom field
+    static readonly STANDARD_FIELDS = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
+
     private static currentPath: string | undefined;
     // mtime of the database file when we last read or wrote it; used to
     // detect edits made outside Vigil before overwriting the file
@@ -43,6 +46,15 @@ export class KeepassDatabaseService {
                 data: (binary as kdbxweb.KdbxBinaryWithHash).value ?? binary,
             }));
 
+        const convertCustomFields = (entry: kdbxweb.KdbxEntry): CustomField[] =>
+            [...entry.fields]
+                .filter(([key]) => !KeepassDatabaseService.STANDARD_FIELDS.includes(key))
+                .map(([key, value]) => ({
+                    key,
+                    value,
+                    protected: value instanceof kdbxweb.ProtectedValue,
+                }));
+
         const convertVersion = (entry: kdbxweb.KdbxEntry): EntryVersion => ({
             title: entry.fields.get('Title')?.toString() || '',
             username: entry.fields.get('UserName')?.toString() || '',
@@ -53,6 +65,7 @@ export class KeepassDatabaseService {
             attachments: convertAttachments(entry),
             expires: !!entry.times.expires,
             expiryTime: entry.times.expiryTime as Date | undefined,
+            customFields: convertCustomFields(entry),
         });
 
         const recycleBinId = kdbxDb.meta.recycleBinUuid?.toString();
@@ -96,7 +109,12 @@ export class KeepassDatabaseService {
             attachments: [],
             history: [],
             expires: false,
+            customFields: [],
         };
+    }
+
+    static getFieldString(value: string | kdbxweb.ProtectedValue): string {
+        return typeof value === 'string' ? value : value.getText();
     }
 
     static isEntryExpired(entry: { expires: boolean; expiryTime?: Date }): boolean {
@@ -619,7 +637,24 @@ export class KeepassDatabaseService {
         if (!!kdbxEntry.times.expires !== !!entry.expires) return true;
         if ((kdbxEntry.times.expiryTime?.getTime() ?? 0) !== (entry.expiryTime?.getTime() ?? 0)) return true;
 
+        if (this.customFieldsChanged(kdbxEntry, entry.customFields ?? [])) return true;
+
         return this.attachmentsChanged(kdbxEntry, entry.attachments ?? []);
+    }
+
+    private static customFieldsChanged(kdbxEntry: kdbxweb.KdbxEntry, customFields: CustomField[]): boolean {
+        const existing = [...kdbxEntry.fields].filter(([key]) => !this.STANDARD_FIELDS.includes(key));
+        if (existing.length !== customFields.length) return true;
+
+        for (let i = 0; i < customFields.length; i++) {
+            const [key, value] = existing[i];
+            const field = customFields[i];
+            if (key !== field.key) return true;
+            if ((value instanceof kdbxweb.ProtectedValue) !== field.protected) return true;
+            if (this.getFieldString(value) !== this.getFieldString(field.value)) return true;
+        }
+
+        return false;
     }
 
     private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, isRoot = false): Promise<void> {
@@ -664,6 +699,20 @@ export class KeepassDatabaseService {
             else kdbxEntry.fields.delete('URL');
             if (entry.notes) kdbxEntry.fields.set('Notes', entry.notes);
             else kdbxEntry.fields.delete('Notes');
+
+            // Sync custom fields: drop the ones removed in the UI, write the rest
+            const modelKeys = new Set((entry.customFields ?? []).map(f => f.key));
+            for (const key of [...kdbxEntry.fields.keys()]) {
+                if (!this.STANDARD_FIELDS.includes(key) && !modelKeys.has(key)) {
+                    kdbxEntry.fields.delete(key);
+                }
+            }
+            for (const field of entry.customFields ?? []) {
+                kdbxEntry.fields.set(field.key, field.protected
+                    ? (typeof field.value === 'string' ? kdbxweb.ProtectedValue.fromString(field.value) : field.value)
+                    : this.getFieldString(field.value)
+                );
+            }
             kdbxEntry.times.creationTime = entry.created;
             kdbxEntry.times.lastModTime = entry.modified;
             kdbxEntry.times.expires = !!entry.expires;

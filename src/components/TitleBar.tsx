@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { LogoIcon, LockIcon, MinimizeIcon, MaximizeIcon, CloseIcon } from '../icons';
 import { SettingsIcon } from '../icons/SettingsIcon';
+import { SecurityShieldIcon } from '../icons/status/StatusIcons';
 import './TitleBar.css';
 
 interface TitleBarProps {
@@ -9,9 +10,10 @@ interface TitleBarProps {
 	searchQuery?: string;
 	onSearch?: (query: string) => void;
 	onOpenSettings?: () => void;
+	onOpenSecurityReport?: () => void;
 }
 
-export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, onOpenSettings }: TitleBarProps) {
+export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, onOpenSettings, onOpenSecurityReport }: TitleBarProps) {
 	const [isMaximized, setIsMaximized] = useState(false);
 	const [isMacOS, setIsMacOS] = useState(false);
 
@@ -73,6 +75,11 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 			</div>
 			{!isMacOS && (
 				<div className="window-controls">
+					{onOpenSecurityReport && (
+						<button className="settings-button" onClick={onOpenSecurityReport} title="Security report">
+							<SecurityShieldIcon />
+						</button>
+					)}
 					<button className="settings-button" onClick={onOpenSettings} title="Settings">
 						<SettingsIcon />
 					</button>
@@ -88,9 +95,16 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 				</div>
 			)}
 			{isMacOS && (
-				<button className="settings-button macos-settings" onClick={onOpenSettings} title="Settings">
-					<SettingsIcon />
-				</button>
+				<>
+					{onOpenSecurityReport && (
+						<button className="settings-button macos-settings macos-report" onClick={onOpenSecurityReport} title="Security report">
+							<SecurityShieldIcon />
+						</button>
+					)}
+					<button className="settings-button macos-settings" onClick={onOpenSettings} title="Settings">
+						<SettingsIcon />
+					</button>
+				</>
 			)}
 		</div>
 	);
