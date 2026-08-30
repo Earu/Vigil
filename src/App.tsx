@@ -118,6 +118,7 @@ function App() {
 	return (
 		<ThemeProvider>
 			{content}
+			<div className="app-version">v{__APP_VERSION__}</div>
 			<Settings 
 				isOpen={showSettings} 
 				onClose={() => setShowSettings(false)} 
