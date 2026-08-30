@@ -24,14 +24,31 @@ export class EmailBreachStatusStore {
     private static readonly STORE_KEY = 'email_breach_status_store';
     private static readonly CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
+    // localStorage is only read once; all lookups hit this in-memory copy
+    private static store: DatabaseEmailBreachStatus | null = null;
+    private static version = 0;
+    private static listeners = new Set<() => void>();
+
+    // Stable references for useSyncExternalStore
+    public static subscribe = (listener: () => void): (() => void) => {
+        EmailBreachStatusStore.listeners.add(listener);
+        return () => EmailBreachStatusStore.listeners.delete(listener);
+    };
+
+    public static getVersion = (): number => EmailBreachStatusStore.version;
+
     private static getStore(): DatabaseEmailBreachStatus {
-        const stored = localStorage.getItem(this.STORE_KEY);
-        if (!stored) return {};
-        return JSON.parse(stored);
+        if (this.store === null) {
+            const stored = localStorage.getItem(this.STORE_KEY);
+            this.store = stored ? JSON.parse(stored) : {};
+        }
+        return this.store!;
     }
 
-    private static saveStore(store: DatabaseEmailBreachStatus): void {
-        localStorage.setItem(this.STORE_KEY, JSON.stringify(store));
+    private static saveStore(): void {
+        localStorage.setItem(this.STORE_KEY, JSON.stringify(this.getStore()));
+        this.version++;
+        this.listeners.forEach(listener => listener());
     }
 
     private static initializeDatabase(store: DatabaseEmailBreachStatus, databasePath: string): void {
@@ -60,20 +77,17 @@ export class EmailBreachStatusStore {
         store[databasePath].entries[entryId] = status;
         store[databasePath].emails[email] = status;
 
-        this.saveStore(store);
+        this.saveStore();
     }
 
     public static getEntryEmailStatus(databasePath: string, entryId: string, email: string): HibpBreach[] | null {
-        const store = this.getStore();
-        const database = store[databasePath];
+        const database = this.getStore()[databasePath];
         if (!database) return null;
 
-        // First, check if we have a cached result for this email
+        // First, check if we have a cached result for this email.
+        // Read-only: this runs during render, so no write-back here.
         const emailStatus = database.emails[email];
         if (emailStatus && !this.isStatusExpired(emailStatus)) {
-            // If we have a valid email cache, update the entry cache too
-            database.entries[entryId] = emailStatus;
-            this.saveStore(store);
             return emailStatus.breaches;
         }
 
@@ -89,11 +103,14 @@ export class EmailBreachStatusStore {
     public static clearDatabase(databasePath: string): void {
         const store = this.getStore();
         delete store[databasePath];
-        this.saveStore(store);
+        this.saveStore();
     }
 
     public static clearAll(): void {
+        this.store = {};
         localStorage.removeItem(this.STORE_KEY);
+        this.version++;
+        this.listeners.forEach(listener => listener());
     }
 
     public static clearStatus(databasePath: string, entryId: string): void {
@@ -104,7 +121,7 @@ export class EmailBreachStatusStore {
                 Object.keys(store[databasePath].emails).length === 0) {
                 delete store[databasePath];
             }
-            this.saveStore(store);
+            this.saveStore();
         }
     }
 
@@ -116,7 +133,7 @@ export class EmailBreachStatusStore {
                 Object.keys(store[databasePath].emails).length === 0) {
                 delete store[databasePath];
             }
-            this.saveStore(store);
+            this.saveStore();
         }
     }
 }

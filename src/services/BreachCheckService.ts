@@ -380,6 +380,20 @@ export class BreachCheckService {
         };
     }
 
+    public static hasBreachedPasswords(group: Group): boolean {
+        const databasePath = KeepassDatabaseService.getPath();
+        if (!databasePath) return false;
+
+        const hasBreached = group.entries.some(entry => {
+            const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+            return status?.isPwned === true;
+        });
+
+        if (hasBreached) return true;
+
+        return group.groups.some(subgroup => this.hasBreachedPasswords(subgroup));
+    }
+
     public static hasWeakPasswords(group: Group): boolean {
         const databasePath = KeepassDatabaseService.getPath();
         if (!databasePath) return false;

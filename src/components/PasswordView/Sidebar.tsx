@@ -1,7 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { Database, Group, Entry } from '../../types/database';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { BreachCheckService } from '../../services/BreachCheckService';
+import { BreachStatusStore } from '../../services/BreachStatusStore';
+import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
 import { ChevronActionIcon, AddActionIcon, EditActionIcon, CloseActionIcon } from '../../icons/actions/ActionIcons';
 
@@ -36,24 +38,19 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	const [editedName, setEditedName] = useState(group.name);
 	const [isDragging, setIsDragging] = useState(false);
 	const [isDragOver, setIsDragOver] = useState(false);
-	const [hasBreachedEntries, setHasBreachedEntries] = useState(false);
-	const [hasWeakPasswords, setHasWeakPasswords] = useState(false);
-	const [hasBreachedEmails, setHasBreachedEmails] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 	const hasSubgroups = group.groups.length > 0;
 
-	useEffect(() => {
-		const checkGroupStatus = async () => {
-			const path = KeepassDatabaseService.getPath();
-			if (path) {
-				const isBreached = await BreachCheckService.checkGroup(path, group);
-				setHasBreachedEntries(isBreached);
-				setHasWeakPasswords(BreachCheckService.hasWeakPasswords(group));
-				setHasBreachedEmails(BreachCheckService.hasBreachedEmails(group));
-			}
-		};
-		checkGroupStatus();
-	}, [group]);
+	// Derive breach indicators from the cached statuses. The network checks
+	// run once at unlock (startBreachCheck); the store versions make these
+	// recompute as results come in.
+	const breachStoreVersion = useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
+	const emailStoreVersion = useSyncExternalStore(EmailBreachStatusStore.subscribe, EmailBreachStatusStore.getVersion);
+	const { hasBreachedEntries, hasWeakPasswords, hasBreachedEmails } = useMemo(() => ({
+		hasBreachedEntries: BreachCheckService.hasBreachedPasswords(group),
+		hasWeakPasswords: BreachCheckService.hasWeakPasswords(group),
+		hasBreachedEmails: BreachCheckService.hasBreachedEmails(group),
+	}), [group, breachStoreVersion, emailStoreVersion]);
 
 	useEffect(() => {
 		if (isEditing && inputRef.current) {

@@ -67,9 +67,11 @@ export class HaveIBeenPwnedService {
     }
 
     /**
-     * Checks the strength of a password using zxcvbn
+     * Checks the strength of a password using zxcvbn.
+     * Local and synchronous: use this for UI feedback instead of
+     * checkPassword, which also hits the HIBP API.
      */
-    private static checkPasswordStrength(password: string): {
+    public static checkPasswordStrength(password: string): {
         score: number;
         feedback: {
             warning: string;

@@ -113,10 +113,8 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
 
         setGeneratedPassword(password);
 
-        // Check strength of generated password
-        HaveIBeenPwnedService.checkPassword(password).then(result => {
-            setPasswordStrength(result.strength);
-        });
+        // Check strength of generated password locally (no network call)
+        setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(password));
     };
 
     const handleSave = () => {

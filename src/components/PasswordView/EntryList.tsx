@@ -1,3 +1,4 @@
+import { useMemo, useSyncExternalStore } from 'react';
 import { Entry, Group, Database } from '../../types/database';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
@@ -25,7 +26,17 @@ export const EntryList = ({
 	onRemoveEntry,
 	onMoveEntry,
 }: EntryListProps) => {
-	const sortedEntries = KeepassDatabaseService.getEntriesForDisplay(group, database, searchQuery);
+	// Re-render when breach statuses change so the indicators stay current
+	useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
+
+	const sortedEntries = useMemo(
+		() => KeepassDatabaseService.getEntriesForDisplay(group, database, searchQuery),
+		[group, database, searchQuery]
+	);
+	const totalEntryCount = useMemo(
+		() => KeepassDatabaseService.getAllEntriesFromGroup(group).length,
+		[group]
+	);
 
 	const handleDragStart = (e: React.DragEvent, entry: Entry) => {
 		e.stopPropagation();
@@ -81,7 +92,7 @@ export const EntryList = ({
 					<span className="entry-count">
 						{searchQuery
 							? `${sortedEntries.length} found`
-							: `${KeepassDatabaseService.getAllEntriesFromGroup(group).length} entries`}
+							: `${totalEntryCount} entries`}
 					</span>
 				</div>
 				{!searchQuery && (

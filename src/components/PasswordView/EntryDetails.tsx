@@ -104,11 +104,9 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 				const status = BreachCheckService.getEntryBreachStatus(databasePath, entry.id);
 				setBreachStatus(status);
 
-				// Check password strength
+				// Check password strength locally (no network call)
 				const password = KeepassDatabaseService.getPasswordString(entry.password);
-				HaveIBeenPwnedService.checkPassword(password).then(result => {
-					setPasswordStrength(result.strength);
-				});
+				setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(password));
 			}
 		} else if (isNew) {
 			setEditedEntry(KeepassDatabaseService.createNewEntry());
@@ -214,15 +212,14 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		}
 	};
 
-	const handlePasswordChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+	const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const newPassword = e.target.value;
 		setEditedEntry({
 			...editedEntry,
 			password: newPassword
 		});
 
-		const result = await HaveIBeenPwnedService.checkPassword(newPassword);
-		setPasswordStrength(result.strength);
+		setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(newPassword));
 	};
 
 	return (
@@ -438,9 +435,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 								password
 							});
 							setShowPassword(true);
-							HaveIBeenPwnedService.checkPassword(password.getText()).then(result => {
-								setPasswordStrength(result.strength);
-							});
+							setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(password.getText()));
 							setShowPasswordGenerator(false);
 						}}
 						currentPassword={KeepassDatabaseService.getPasswordString(editedEntry.password)}

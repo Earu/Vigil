@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { Database, Entry, Group } from '../../types/database';
 import { Sidebar } from './Sidebar';
 import { EntryList } from './EntryList';
 import { EntryDetails } from './EntryDetails';
 import { BreachReport } from './BreachReport';
 import { BreachCheckService, BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
+import { BreachStatusStore } from '../../services/BreachStatusStore';
+import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import './PasswordView.css';
 import { userSettingsService } from '../../services/UserSettingsService';
@@ -30,6 +32,10 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const [detailsWidth, setDetailsWidth] = useState(400);
 	const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
 	const contentRef = useRef<HTMLDivElement>(null);
+
+	// Recompute breach state as background check results come in
+	const breachStoreVersion = useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
+	const emailStoreVersion = useSyncExternalStore(EmailBreachStatusStore.subscribe, EmailBreachStatusStore.getVersion);
 
 	useEffect(() => {
 		if (showInitialBreachReport) {
@@ -67,7 +73,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 
 		updateBreachStatus();
 		updateEmailBreachStatus();
-	}, [database, isCheckingBreaches, isCheckingEmails]);
+	}, [database, isCheckingBreaches, isCheckingEmails, breachStoreVersion, emailStoreVersion]);
 
 	useEffect(() => {
 		const updatedGroup = KeepassDatabaseService.findGroupInDatabase(selectedGroup.id, database.root);
