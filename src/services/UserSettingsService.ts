@@ -5,6 +5,9 @@ interface UserSettings {
     hibpApiKey?: string;
     autoLockEnabled: boolean;
     autoLockDuration: number;
+    // Remembered key file path per database path. Only paths are stored,
+    // never key material
+    keyFilePaths?: Record<string, string>;
 }
 
 const SETTINGS_KEY = 'vigil_user_settings';
@@ -68,6 +71,21 @@ class UserSettingsService {
 
     setAutoLockDuration(duration: number): void {
         this.settings.autoLockDuration = duration;
+        this.saveSettings();
+    }
+
+    getKeyFilePath(databasePath: string): string | undefined {
+        return this.settings.keyFilePaths?.[databasePath];
+    }
+
+    setKeyFilePath(databasePath: string, keyFilePath: string | undefined): void {
+        const paths = { ...(this.settings.keyFilePaths ?? {}) };
+        if (keyFilePath) {
+            paths[databasePath] = keyFilePath;
+        } else {
+            delete paths[databasePath];
+        }
+        this.settings.keyFilePaths = paths;
         this.saveSettings();
     }
 

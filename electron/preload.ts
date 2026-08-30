@@ -14,6 +14,7 @@ const api: IElectronAPI = {
 	getFilePath: (path) => ipcRenderer.invoke('get-file-path', path),
 	openFile: () => ipcRenderer.invoke('open-file'),
 	readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
+	selectKeyFile: () => ipcRenderer.invoke('select-key-file'),
 	getLastDatabasePath: () => ipcRenderer.invoke('get-last-database-path'),
 	saveLastDatabasePath: (path) => ipcRenderer.invoke('save-last-database-path', path),
 	isBiometricsAvailable: () => ipcRenderer.invoke('is-biometrics-available'),

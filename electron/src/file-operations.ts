@@ -118,6 +118,22 @@ export async function openFile(): Promise<{ success: boolean, error?: string, fi
     }
 }
 
+export async function selectKeyFile(): Promise<{ canceled: boolean, filePath?: string }> {
+    const { filePaths, canceled } = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [
+            { name: 'Key Files', extensions: ['keyx', 'key'] },
+            { name: 'All Files', extensions: ['*'] }
+        ]
+    });
+
+    if (canceled || filePaths.length === 0) {
+        return { canceled: true };
+    }
+
+    return { canceled: false, filePath: filePaths[0] };
+}
+
 export async function readFile(filePath: string): Promise<{ success: boolean, error?: string, data?: Buffer }> {
     try {
         const data = await fs.promises.readFile(filePath);

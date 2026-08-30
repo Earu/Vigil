@@ -478,3 +478,21 @@
     width: 1rem;
     height: 1rem;
 }
+.key-file-controls > label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.key-file-buttons {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.key-file-remove:hover {
+    color: var(--color-error);
+    border-color: var(--color-error);
+}

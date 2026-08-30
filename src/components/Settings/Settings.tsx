@@ -7,6 +7,7 @@ import { userSettingsService } from '../../services/UserSettingsService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { CsvImportService } from '../../services/CsvImportService';
+import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { useState } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import './Settings.css';
@@ -83,6 +84,81 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         input.click();
     };
 
+    const hasKeyFile = !!kdbxDb?.credentials.keyFileHash;
+
+    const applyKeyFile = async (keyFileData: ArrayBuffer | null, keyFilePath: string | undefined, successMessage: string) => {
+        if (!kdbxDb) return;
+
+        try {
+            await kdbxDb.credentials.setKeyFile(keyFileData);
+            // Re-encrypts the database with the new composite key
+            onDatabaseChange?.();
+
+            const dbPath = KeepassDatabaseService.getPath();
+            if (dbPath) {
+                userSettingsService.setKeyFilePath(dbPath, keyFilePath);
+            }
+
+            (window as any).showToast?.({
+                message: successMessage,
+                type: 'success',
+                duration: 3000
+            });
+        } catch (err) {
+            console.error('Failed to update key file:', err);
+            (window as any).showToast?.({
+                message: 'Failed to update key file',
+                type: 'error',
+                duration: 5000
+            });
+        }
+    };
+
+    const handleUseExistingKeyFile = async () => {
+        const selected = await window.electron?.selectKeyFile();
+        if (!selected?.filePath) return;
+
+        const confirmed = window.confirm(
+            'The database will be re-encrypted and this key file will be required to unlock it, together with your password. Keep the key file safe: losing it means losing access to the database. Continue?'
+        );
+        if (!confirmed) return;
+
+        const result = await window.electron?.readFile(selected.filePath);
+        if (!result?.success || !result.data) {
+            (window as any).showToast?.({
+                message: 'Failed to read key file',
+                type: 'error',
+                duration: 5000
+            });
+            return;
+        }
+
+        await applyKeyFile(new Uint8Array(result.data).buffer, selected.filePath, hasKeyFile ? 'Key file changed' : 'Key file added');
+    };
+
+    const handleGenerateKeyFile = async () => {
+        const confirmed = window.confirm(
+            'A new random key file will be generated and the database re-encrypted with it. You will need it to unlock the database, together with your password. Keep it safe: losing it means losing access to the database. Continue?'
+        );
+        if (!confirmed) return;
+
+        const keyFileBytes = await kdbxweb.Credentials.createRandomKeyFile(2);
+        const defaultName = `${kdbxDb?.meta.name || 'database'}.keyx`;
+        const saved = await window.electron?.saveAttachment(defaultName, keyFileBytes);
+        if (!saved?.success || !saved.filePath) return;
+
+        await applyKeyFile(new Uint8Array(keyFileBytes).buffer, saved.filePath, `Key file generated at ${saved.filePath}`);
+    };
+
+    const handleRemoveKeyFile = async () => {
+        const confirmed = window.confirm(
+            'The database will be re-encrypted and protected by your password only. Continue?'
+        );
+        if (!confirmed) return;
+
+        await applyKeyFile(null, undefined, 'Key file removed');
+    };
+
     return (
         <div className="settings-overlay" onClick={onClose}>
             <div className="settings-dialog" onClick={e => e.stopPropagation()}>
@@ -134,6 +210,27 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     Import from CSV
                                 </button>
                                 <p className="database-help">Import passwords from a CSV file into your current database</p>
+                            </div>
+                            <div className="key-file-controls">
+                                <label>Key file protection</label>
+                                <p className="database-help">
+                                    {hasKeyFile
+                                        ? 'This database requires a key file to unlock.'
+                                        : 'This database is protected by password only.'}
+                                </p>
+                                <div className="key-file-buttons">
+                                    <button className="settings-secondary-button" onClick={handleUseExistingKeyFile}>
+                                        {hasKeyFile ? 'Change key file' : 'Use existing file'}
+                                    </button>
+                                    <button className="settings-secondary-button" onClick={handleGenerateKeyFile}>
+                                        Generate key file
+                                    </button>
+                                    {hasKeyFile && (
+                                        <button className="settings-secondary-button key-file-remove" onClick={handleRemoveKeyFile}>
+                                            Remove key file
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         </div>
                     )}
