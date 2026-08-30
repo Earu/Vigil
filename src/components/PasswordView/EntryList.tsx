@@ -4,6 +4,7 @@ import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
 import { AddActionIcon, KeyActionIcon, CloseActionIcon } from '../../icons/actions/ActionIcons';
+import { userSettingsService } from '../../services/UserSettingsService';
 
 interface EntryListProps {
 	group: Group;
@@ -28,6 +29,8 @@ export const EntryList = ({
 }: EntryListProps) => {
 	// Re-render when breach statuses change so the indicators stay current
 	useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
+	useSyncExternalStore(userSettingsService.subscribe, userSettingsService.getVersion);
+	const showFavicons = userSettingsService.getFetchFavicons();
 
 	const sortedEntries = useMemo(
 		() => KeepassDatabaseService.getEntriesForDisplay(group, database, searchQuery),
@@ -114,7 +117,7 @@ export const EntryList = ({
 					>
 						<div className="entry-content">
 							<div className="entry-icon">
-								{entry.url ? (
+								{entry.url && showFavicons ? (
 									<img
 										src={`https://www.google.com/s2/favicons?domain=${KeepassDatabaseService.getUrlHostname(entry.url)}&sz=32`}
 										alt={entry.title}

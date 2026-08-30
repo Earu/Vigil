@@ -34,6 +34,7 @@ export interface Group {
 	icon?: string;
 	groups: Group[];
 	entries: Entry[];
+	isRecycleBin?: boolean;
 }
 
 export interface Database {
