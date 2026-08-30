@@ -1,36 +1,56 @@
 @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
 	font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-	line-height: 1.5;
+	line-height: 1.45;
 	font-weight: 400;
+	font-size: 14px;
 
 	/* Base colors */
 	--color-white: #ffffff;
 	--color-black: #000000;
 
-	/* Background colors */
-	--bg-primary: #242424;
-	--bg-secondary: #1a1a1a;
-	--bg-tertiary: #0f0f0f;
-	--bg-dark: #080808;
-	--bg-light: #f9f9f9;
+	/* Background colors (dark theme) */
+	--bg-primary: #1a1a1a;
+	--bg-secondary: #141414;
+	--bg-tertiary: #0d0d0d;
+	--bg-dark: #000000;
+	--bg-light: #222222;
 
 	/* Text colors */
-	--text-primary: rgba(255, 255, 255, 0.87);
-	--text-secondary: #e5e7eb;
-	--text-tertiary: #94a3b8;
-	--text-muted: #6b7280;
-	--text-light: #cccccc;
+	--text-primary: #ededed;
+	--text-secondary: #c9c9c9;
+	--text-tertiary: #939393;
+	--text-muted: #6b6b6b;
+	--text-light: #ababab;
 
 	/* Border colors */
-	--border-primary: rgba(255, 255, 255, 0.1);
-	--border-secondary: rgba(255, 255, 255, 0.2);
-	--border-hover: rgba(255, 255, 255, 0.3);
+	--border-primary: rgba(255, 255, 255, 0.07);
+	--border-secondary: rgba(255, 255, 255, 0.12);
+	--border-hover: rgba(255, 255, 255, 0.2);
+
+	/* Accent (monochrome) */
+	--accent: #ededed;
+	--accent-hover: #ffffff;
+	--accent-contrast: #111111;
+	--accent-muted: rgba(255, 255, 255, 0.07);
+	--accent-border: rgba(255, 255, 255, 0.22);
+	--focus-ring: rgba(255, 255, 255, 0.28);
+
+	/* Radii */
+	--radius-sm: 2px;
+	--radius-md: 3px;
+	--radius-lg: 6px;
+
+	/* Shadows */
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+	--shadow-md: 0 4px 16px rgba(0, 0, 0, 0.35);
+	--shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
 
 	/* Status colors */
-	--color-error: #dc3545;
-	--color-warning: #f59e0b;
+	--color-error: #f0565e;
+	--color-warning: #f5a623;
 	--color-success: #10b981;
 
 	/* MacOS window controls */
@@ -39,19 +59,19 @@
 	--macos-maximize: #28c940;
 
 	/* Overlay colors */
-	--overlay-light: rgba(255, 255, 255, 0.05);
-	--overlay-medium: rgba(255, 255, 255, 0.1);
-	--overlay-dark: rgba(255, 255, 255, 0.15);
+	--overlay-light: rgba(255, 255, 255, 0.04);
+	--overlay-medium: rgba(255, 255, 255, 0.07);
+	--overlay-dark: rgba(255, 255, 255, 0.11);
 
 	/* Alert colors */
-	--alert-error-bg: rgba(239, 68, 68, 0.1);
-	--alert-error-border: rgba(239, 68, 68, 0.2);
-	--alert-warning-bg: rgba(245, 158, 11, 0.1);
-	--alert-warning-border: rgba(245, 158, 11, 0.2);
+	--alert-error-bg: rgba(240, 86, 94, 0.1);
+	--alert-error-border: rgba(240, 86, 94, 0.25);
+	--alert-warning-bg: rgba(245, 166, 35, 0.1);
+	--alert-warning-border: rgba(245, 166, 35, 0.25);
 
 	color-scheme: light dark;
 	color: var(--text-primary);
-	background-color: var(--bg-primary);
+	background-color: var(--bg-dark);
 
 	font-synthesis: none;
 	text-rendering: optimizeLegibility;
@@ -62,47 +82,85 @@
 /* Light theme styles */
 :root.light-theme {
 	/* Background colors - Light theme */
-	--bg-primary: #f8fafc;
-	--bg-secondary: #f1f5f9;
-	--bg-tertiary: #e2e8f0;
-	--bg-dark: #cbd5e1;
-	--bg-light: #ffffff;
+	--bg-primary: #ffffff;
+	--bg-secondary: #f2f2f2;
+	--bg-tertiary: #f7f7f7;
+	--bg-dark: #ffffff;
+	--bg-light: #ededed;
 
 	/* Text colors - Light theme */
-	--text-primary: #0f172a;
-	--text-secondary: #1e293b;
-	--text-tertiary: #475569;
-	--text-muted: #64748b;
-	--text-light: #334155;
+	--text-primary: #1a1a1a;
+	--text-secondary: #383838;
+	--text-tertiary: #5f5f5f;
+	--text-muted: #8e8e8e;
+	--text-light: #484848;
 
 	/* Border colors - Light theme */
-	--border-primary: rgba(51, 65, 85, 0.1);
-	--border-secondary: rgba(51, 65, 85, 0.15);
-	--border-hover: rgba(51, 65, 85, 0.2);
+	--border-primary: rgba(0, 0, 0, 0.09);
+	--border-secondary: rgba(0, 0, 0, 0.14);
+	--border-hover: rgba(0, 0, 0, 0.24);
+
+	/* Accent - Light theme (monochrome) */
+	--accent: #1a1a1a;
+	--accent-hover: #000000;
+	--accent-contrast: #ffffff;
+	--accent-muted: rgba(0, 0, 0, 0.07);
+	--accent-border: rgba(0, 0, 0, 0.25);
+	--focus-ring: rgba(0, 0, 0, 0.25);
+
+	/* Shadows - Light theme */
+	--shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+	--shadow-md: 0 4px 16px rgba(0, 0, 0, 0.1);
+	--shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.18);
+
+	/* Status colors - Light theme */
+	--color-error: #d63640;
+	--color-warning: #b45309;
+	--color-success: #047857;
 
 	/* Overlay colors - Light theme */
-	--overlay-light: rgba(51, 65, 85, 0.02);
-	--overlay-medium: rgba(51, 65, 85, 0.05);
-	--overlay-dark: rgba(51, 65, 85, 0.1);
+	--overlay-light: rgba(0, 0, 0, 0.03);
+	--overlay-medium: rgba(0, 0, 0, 0.06);
+	--overlay-dark: rgba(0, 0, 0, 0.1);
 
-	/* Alert colors - Light theme - More vibrant */
-	--alert-error-bg: rgba(239, 68, 68, 0.15);
-	--alert-error-border: rgba(239, 68, 68, 0.25);
-	--alert-warning-bg: rgba(245, 158, 11, 0.15);
-	--alert-warning-border: rgba(245, 158, 11, 0.25);
+	/* Alert colors - Light theme */
+	--alert-error-bg: rgba(214, 54, 64, 0.08);
+	--alert-error-border: rgba(214, 54, 64, 0.25);
+	--alert-warning-bg: rgba(180, 83, 9, 0.08);
+	--alert-warning-border: rgba(180, 83, 9, 0.25);
 
 	color: var(--text-primary);
-	background-color: var(--bg-primary);
+	background-color: var(--bg-tertiary);
+}
+
+/* Rounded corners for the frameless window on Linux: the window is
+   transparent there and #root paints the background, clipped with a radius.
+   html AND body must both stay transparent: a background on body would be
+   propagated to the canvas and painted unclipped across the whole window.
+   clip-path (not overflow) so the position: fixed title bar is clipped too. */
+:root.linux-frameless,
+:root.linux-frameless.light-theme,
+:root.linux-frameless body {
+	background: transparent;
+}
+
+:root.linux-frameless #root {
+	background-color: var(--bg-dark);
+	clip-path: inset(0 round 6px);
+}
+
+:root.linux-frameless.maximized #root {
+	clip-path: none;
 }
 
 a {
 	font-weight: 500;
-	color: #ffffff;
+	color: var(--accent);
 	text-decoration: inherit;
 }
 
 a:hover {
-	color: #cccccc;
+	color: var(--accent-hover);
 }
 
 body {
@@ -114,70 +172,87 @@ body {
 }
 
 h1 {
-	font-size: 3.2em;
+	font-size: 2.6em;
 	line-height: 1.1;
+	letter-spacing: -0.02em;
+}
+
+::selection {
+	background: var(--overlay-dark);
+	color: var(--text-primary);
 }
 
 button {
-	border-radius: 8px;
-	border: 1px solid transparent;
-	padding: 0.6em 1.2em;
-	font-size: 1em;
+	border-radius: var(--radius-md);
+	border: 1px solid var(--border-primary);
+	padding: 0.4em 0.85em;
+	font-size: 0.9em;
 	font-weight: 500;
 	font-family: inherit;
-	background-color: #1a1a1a;
+	color: var(--text-secondary);
+	background-color: var(--overlay-light);
 	cursor: pointer;
-	transition: border-color 0.25s;
+	transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 button:hover {
-	border-color: #ffffff;
+	background-color: var(--overlay-medium);
+	border-color: var(--border-secondary);
+	color: var(--text-primary);
 }
 
 button:focus,
 button:focus-visible {
-	outline: 4px auto -webkit-focus-ring-color;
+	outline: none;
+}
+
+:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 1px;
+}
+
+input,
+textarea,
+select {
+	font-family: inherit;
+	accent-color: var(--accent);
 }
 
 /* Add these scrollbar styles at the end of the file */
 /* For Webkit browsers (Chrome, Safari, etc.) */
 ::-webkit-scrollbar {
-	width: 8px;
-	height: 8px;
+	width: 6px;
+	height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-	background: rgba(0, 0, 0, 0.2);
+	background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-	background: rgba(148, 163, 184, 0.2);
+	background: rgba(160, 160, 160, 0.25);
 	border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-	background: rgba(148, 163, 184, 0.3);
+	background: rgba(160, 160, 160, 0.4);
 }
 
 /* For Firefox */
 * {
 	scrollbar-width: thin;
-	scrollbar-color: rgba(148, 163, 184, 0.2) rgba(0, 0, 0, 0.2);
+	scrollbar-color: rgba(160, 160, 160, 0.25) transparent;
 }
 
 /* Light theme scrollbar styles */
-:root.light-theme ::-webkit-scrollbar-track {
-	background: rgba(0, 0, 0, 0.05);
-}
-
 :root.light-theme ::-webkit-scrollbar-thumb {
 	background: rgba(0, 0, 0, 0.2);
 }
 
 :root.light-theme ::-webkit-scrollbar-thumb:hover {
-	background: rgba(0, 0, 0, 0.3);
+	background: rgba(0, 0, 0, 0.35);
 }
 
 :root.light-theme * {
-	scrollbar-color: rgba(0, 0, 0, 0.2) rgba(0, 0, 0, 0.05);
+	scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
 }

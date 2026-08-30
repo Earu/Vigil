@@ -10,18 +10,18 @@
 }
 
 .toast {
-	background: var(--bg-dark);
+	background: var(--bg-primary);
 	color: var(--text-secondary);
 	font-size: 14px;
 	display: flex;
 	align-items: center;
 	gap: 8px;
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	box-shadow: var(--shadow-md);
 	animation: toast-slide-in 0.2s ease-out;
 	pointer-events: none;
 	padding: 12px 16px;
     border: 1px solid var(--border-secondary);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
 }
 
 .toast.success {
@@ -33,7 +33,7 @@
 }
 
 .toast.info {
-    border-left: 4px solid var(--text-primary);
+    border-left: 4px solid var(--accent);
 }
 
 .toast.warning {

@@ -4,11 +4,17 @@ import path from 'path';
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
 export function createWindow() {
+    // Linux draws no decorations for frameless windows, so rounded corners
+    // are done in the renderer over a transparent window
+    const isLinux = process.platform === 'linux';
     const win = new BrowserWindow({
         width: 1200,
         height: 800,
         frame: false,
-        backgroundColor: '#1a1a1a',
+        transparent: isLinux,
+        // No backgroundColor on Linux: setting one (even fully transparent)
+        // makes the surface opaque and defeats transparent: true
+        ...(isLinux ? {} : { backgroundColor: '#1a1a1a' }),
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,

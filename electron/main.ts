@@ -18,9 +18,23 @@ function triggerLock() {
     }
 }
 
+// Transparent window support (rounded corners). The --ozone-platform-hint=auto
+// flag comes from the launch command (package.json script / executableArgs):
+// appendSwitch is too late for ozone platform selection.
+if (process.platform === 'linux') {
+    // Needed for transparent windows on X11
+    app.commandLine.appendSwitch('enable-transparent-visuals');
+}
+
 app.whenReady().then(() => {
     setupIpcHandlers();
-    createWindow();
+    if (process.platform === 'linux' && !process.env.WAYLAND_DISPLAY) {
+        // On X11 a transparent window created right at 'ready' can come up
+        // with an opaque visual; a short delay avoids it
+        setTimeout(createWindow, 300);
+    } else {
+        createWindow();
+    }
 
     ["suspend", "lock-screen", "unlock-screen", "resume"].forEach(evName => {
         powerMonitor.on(evName as any, triggerLock);
