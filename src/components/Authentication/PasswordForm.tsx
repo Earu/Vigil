@@ -15,6 +15,7 @@ interface PasswordFormProps {
     setError: (error: string | null) => void;
     setSelectedFile: (file: File | null) => void;
     onDatabaseOpen: (database: Database, db: kdbxweb.Kdbx, showBreachReport?: boolean) => void;
+    onBreachCheckComplete: () => void;
     passwordInputRef: React.RefObject<HTMLInputElement>;
     setIsCreatingNew: (isCreating: boolean) => void;
     initialBiometricsEnabled: boolean;
@@ -30,6 +31,7 @@ export const PasswordForm = ({
     setError,
     setSelectedFile,
     onDatabaseOpen,
+    onBreachCheckComplete,
     passwordInputRef,
     setIsCreatingNew,
     initialBiometricsEnabled,
@@ -65,7 +67,7 @@ export const PasswordForm = ({
         }
     }, [selectedFile, passwordInputRef]);
 
-    const startBreachCheck = async (database: Database, db: kdbxweb.Kdbx, databasePath: string) => {
+    const startBreachCheck = async (database: Database, _db: kdbxweb.Kdbx, databasePath: string) => {
         // Check cache status
         const {
             breached: breachedPasswords,
@@ -82,7 +84,7 @@ export const PasswordForm = ({
 
         // If we have any cached results with breaches, show them immediately
         if (breachedPasswords.length > 0 || weakPasswords.length > 0 || breachedEmails.length > 0) {
-            onDatabaseOpen(database, db, true);
+            onBreachCheckComplete();
         }
 
         // Run both checks in parallel if needed
@@ -114,9 +116,12 @@ export const PasswordForm = ({
             })()
         ]);
 
-        // Only reopen if the database hasn't been locked
+        // Only surface the report if the database hasn't been locked in the
+        // meantime. Do NOT re-call onDatabaseOpen here: the database object
+        // captured at unlock time is stale by now and would wipe out any
+        // entries the user added while the checks were running.
         if (KeepassDatabaseService.getPath() === databasePath) {
-            onDatabaseOpen(database, db, true);
+            onBreachCheckComplete();
         }
     }
 

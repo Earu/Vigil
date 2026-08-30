@@ -108,7 +108,10 @@ function App() {
 		<div className="app">
 			<Background />
 			<TitleBar onOpenSettings={() => setShowSettings(true)} />
-			<AuthenticationView onDatabaseOpen={handleDatabaseOpen} />
+			<AuthenticationView
+				onDatabaseOpen={handleDatabaseOpen}
+				onBreachCheckComplete={() => setShowInitialBreachReport(true)}
+			/>
 		</div>
 	);
 
