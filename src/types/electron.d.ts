@@ -10,6 +10,7 @@ export interface IElectronAPI {
 	openFile: () => Promise<{ filePath: string; canceled: boolean }>;
 	readFile: (filePath: string) => Promise<{ success: boolean; data?: Uint8Array; error?: string }>;
 	selectKeyFile: () => Promise<{ canceled: boolean; filePath?: string }>;
+	statFile: (filePath: string) => Promise<{ success: boolean; mtimeMs?: number; size?: number; error?: string }>;
 	getLastDatabasePath: () => Promise<string | null>;
 	saveLastDatabasePath: (path: string) => Promise<boolean>;
 	isBiometricsAvailable: () => Promise<boolean>;
