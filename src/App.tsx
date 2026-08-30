@@ -78,6 +78,9 @@ function App() {
 			}
 
 			await KeepassDatabaseService.saveDatabase(updatedDatabase, kdbxDb);
+			// Re-read the model from the kdbx so state produced during the save
+			// (history revisions, retention trims) reaches the UI
+			setDatabase(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
 		} catch (err) {
 			console.error('Failed to save database:', err);
 			// Show error toast

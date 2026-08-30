@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Entry, Attachment } from '../../types/database';
+import { Entry, EntryVersion, Attachment } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
-import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon } from '../../icons/actions/ActionIcons';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
@@ -86,6 +86,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		};
 	} | null>(null);
 	const [showPasswordGenerator, setShowPasswordGenerator] = useState(false);
+	const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
+	const [showVersionPassword, setShowVersionPassword] = useState(false);
 	const timerRef = useRef<NodeJS.Timeout>();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
@@ -96,6 +98,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	});
 
 	useEffect(() => {
+		setExpandedVersion(null);
+		setShowVersionPassword(false);
 		if (!isNew && entry) {
 			setEditedEntry(entry);
 			setIsEditing(false);
@@ -255,6 +259,25 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 				type: 'error'
 			});
 		}
+	};
+
+	const handleRestoreVersion = (version: EntryVersion) => {
+		const restored: Entry = {
+			...editedEntry,
+			title: version.title,
+			username: version.username,
+			password: version.password,
+			url: version.url,
+			notes: version.notes,
+			attachments: version.attachments,
+		};
+		// Saved like a normal edit, so the pre-restore state becomes a new revision
+		onSave(KeepassDatabaseService.prepareEntryForSave(restored));
+		setExpandedVersion(null);
+		(window as any).showToast?.({
+			message: `Restored version from ${version.modified.toLocaleString()}`,
+			type: 'success'
+		});
 	};
 
 	const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -520,6 +543,81 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 						<div className="metadata-item">
 							<label>Modified</label>
 							<span>{editedEntry.modified.toLocaleString()}</span>
+						</div>
+					</div>
+				)}
+
+				{!isEditing && !isNew && editedEntry.history.length > 0 && (
+					<div className="field-group">
+						<label>History ({editedEntry.history.length})</label>
+						<div className="history-list">
+							{editedEntry.history.map((version, index) => ({ version, index })).reverse().map(({ version, index }) => (
+								<div className="history-item" key={index}>
+									<button
+										className="history-row"
+										onClick={() => {
+											setShowVersionPassword(false);
+											setExpandedVersion(expandedVersion === index ? null : index);
+										}}
+									>
+										<ChevronActionIcon className={`history-chevron ${expandedVersion === index ? 'expanded' : ''}`} />
+										<span className="history-date">{version.modified.toLocaleString()}</span>
+										<span className="history-summary" title={version.username}>{version.username || version.title}</span>
+									</button>
+									{expandedVersion === index && (
+										<div className="history-detail">
+											<div className="history-field">
+												<span className="history-field-label">Title</span>
+												<span className="history-field-value">{version.title}</span>
+											</div>
+											<div className="history-field">
+												<span className="history-field-label">Username</span>
+												<span className="history-field-value monospace">{version.username}</span>
+											</div>
+											<div className="history-field">
+												<span className="history-field-label">Password</span>
+												<span className="history-field-value monospace">
+													{showVersionPassword
+														? KeepassDatabaseService.getPasswordString(version.password)
+														: '••••••••••••'}
+												</span>
+												<button
+													className="history-reveal-button"
+													onClick={() => setShowVersionPassword(!showVersionPassword)}
+													title={showVersionPassword ? 'Hide password' : 'Show password'}
+												>
+													{showVersionPassword ? <HidePasswordIcon /> : <ShowPasswordIcon />}
+												</button>
+											</div>
+											{version.url && (
+												<div className="history-field">
+													<span className="history-field-label">URL</span>
+													<span className="history-field-value">{version.url}</span>
+												</div>
+											)}
+											{version.notes && (
+												<div className="history-field">
+													<span className="history-field-label">Notes</span>
+													<span className="history-field-value">{version.notes}</span>
+												</div>
+											)}
+											{version.attachments.length > 0 && (
+												<div className="history-field">
+													<span className="history-field-label">Files</span>
+													<span className="history-field-value">{version.attachments.map(a => a.name).join(', ')}</span>
+												</div>
+											)}
+											<button
+												className="history-restore-button"
+												onClick={() => handleRestoreVersion(version)}
+											>
+												<RefreshActionIcon />
+												Restore this version
+											</button>
+										</div>
+									)}
+								</div>
+							))}
 						</div>
 					</div>
 				)}

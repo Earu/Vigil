@@ -1,5 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { Database, Group, Entry, Attachment } from '../types/database';
+import { Database, Group, Entry, EntryVersion, Attachment } from '../types/database';
 
 interface SaveResult {
     success: boolean;
@@ -25,25 +25,33 @@ export class KeepassDatabaseService {
     }
 
     static convertKdbxToDatabase(kdbxDb: kdbxweb.Kdbx): Database {
+        const convertAttachments = (entry: kdbxweb.KdbxEntry): Attachment[] =>
+            [...entry.binaries].map(([name, binary]) => ({
+                name,
+                // kdbx4 wraps binaries as { hash, value }, kdbx3 stores them raw
+                data: (binary as kdbxweb.KdbxBinaryWithHash).value ?? binary,
+            }));
+
+        const convertVersion = (entry: kdbxweb.KdbxEntry): EntryVersion => ({
+            title: entry.fields.get('Title')?.toString() || '',
+            username: entry.fields.get('UserName')?.toString() || '',
+            password: entry.fields.get('Password') || '',
+            url: entry.fields.get('URL')?.toString(),
+            notes: entry.fields.get('Notes')?.toString(),
+            modified: entry.times.lastModTime as Date,
+            attachments: convertAttachments(entry),
+        });
+
         const convertGroup = (group: kdbxweb.KdbxGroup): Group => {
             return {
                 id: group.uuid.toString(),
                 name: group.name as string,
                 groups: group.groups.map(g => convertGroup(g)),
                 entries: group.entries.map(entry => ({
+                    ...convertVersion(entry),
                     id: entry.uuid.toString(),
-                    title: entry.fields.get('Title')?.toString() || '',
-                    username: entry.fields.get('UserName')?.toString() || '',
-                    password: entry.fields.get('Password') || '',
-                    url: entry.fields.get('URL')?.toString(),
-                    notes: entry.fields.get('Notes')?.toString(),
                     created: entry.times.creationTime as Date,
-                    modified: entry.times.lastModTime as Date,
-                    attachments: [...entry.binaries].map(([name, binary]) => ({
-                        name,
-                        // kdbx4 wraps binaries as { hash, value }, kdbx3 stores them raw
-                        data: (binary as kdbxweb.KdbxBinaryWithHash).value ?? binary,
-                    })),
+                    history: entry.history.map(convertVersion),
                 })),
             };
         };
@@ -70,6 +78,7 @@ export class KeepassDatabaseService {
             created: new Date(),
             modified: new Date(),
             attachments: [],
+            history: [],
         };
     }
 
@@ -476,6 +485,44 @@ export class KeepassDatabaseService {
         }
     }
 
+    private static attachmentsChanged(kdbxEntry: kdbxweb.KdbxEntry, attachments: Attachment[]): boolean {
+        if (kdbxEntry.binaries.size !== attachments.length) return true;
+
+        for (const attachment of attachments) {
+            const existing = kdbxEntry.binaries.get(attachment.name);
+            if (!existing) return true;
+
+            const existingData = (existing as kdbxweb.KdbxBinaryWithHash).value ?? existing;
+            // Untouched attachments keep their object identity through the UI model
+            if (existingData === attachment.data) continue;
+
+            const a = this.getAttachmentBytes(attachment);
+            const b = existingData instanceof kdbxweb.ProtectedValue
+                ? existingData.getBinary()
+                : new Uint8Array(existingData as ArrayBuffer);
+            if (a.length !== b.length) return true;
+            for (let i = 0; i < a.length; i++) {
+                if (a[i] !== b[i]) return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static entryChanged(kdbxEntry: kdbxweb.KdbxEntry, entry: Entry): boolean {
+        const field = (name: string) => kdbxEntry.fields.get(name)?.toString() ?? '';
+        if (field('Title') !== entry.title) return true;
+        if (field('UserName') !== entry.username) return true;
+        if (field('URL') !== (entry.url ?? '')) return true;
+        if (field('Notes') !== (entry.notes ?? '')) return true;
+
+        const existingPassword = kdbxEntry.fields.get('Password');
+        const oldPassword = existingPassword ? this.getPasswordString(existingPassword as string | kdbxweb.ProtectedValue) : '';
+        if (oldPassword !== this.getPasswordString(entry.password)) return true;
+
+        return this.attachmentsChanged(kdbxEntry, entry.attachments ?? []);
+    }
+
     private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, isRoot = false): Promise<void> {
         // The UI labels the root group "All Entries"; never write that label
         // over the real group name stored in the file
@@ -492,7 +539,14 @@ export class KeepassDatabaseService {
         const updatedEntries: kdbxweb.KdbxEntry[] = [];
         for (const entry of group.entries) {
             let kdbxEntry = entry.id ? existingEntries.get(entry.id) : undefined;
-            if (!kdbxEntry) {
+            if (kdbxEntry) {
+                // Snapshot the previous revision, but only when the entry really
+                // changed: every save rewrites every entry, and unconditional
+                // pushes would bloat the file with identical revisions
+                if (this.entryChanged(kdbxEntry, entry)) {
+                    kdbxEntry.pushHistory();
+                }
+            } else {
                 kdbxEntry = kdbxDb.createEntry(kdbxGroup);
                 if (entry.id) {
                     // Keep the UUID assigned when the entry was created in the UI
@@ -561,8 +615,9 @@ export class KeepassDatabaseService {
                 await this.updateGroup(database.root, root, kdbxDb, true);
             }
 
-            // Drop binaries no longer referenced by any entry
-            kdbxDb.cleanup({ binaries: true });
+            // Enforce the file's history retention rules and drop binaries no
+            // longer referenced by any entry or history revision
+            kdbxDb.cleanup({ historyRules: true, binaries: true });
 
             // Save the updated database
             const arrayBuffer = await kdbxDb.save();
