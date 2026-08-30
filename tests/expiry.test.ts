@@ -67,6 +67,29 @@ describe('entry expiry', () => {
         expect(Svc.isEntryExpired({ expires: true })).toBe(false);
     });
 
+    it('collects expired entries for the security report, skipping the recycle bin', async () => {
+        // build: one expired, one future, one expired-but-deleted
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Report');
+        db0.setVersion(3);
+        const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        for (const [title, expires] of [['Stale', true], ['Fresh', false], ['Binned', true]] as const) {
+            const e = db0.createEntry(db0.getDefaultGroup());
+            e.fields.set('Title', title);
+            e.fields.set('Password', kdbxweb.ProtectedValue.fromString('pw'));
+            e.times.expires = expires;
+            if (expires) e.times.expiryTime = past;
+        }
+        const db = await kdbxweb.Kdbx.load(await db0.save(), cred());
+
+        let database = Svc.convertKdbxToDatabase(db);
+        const binned = database.root.entries.find(e => e.title === 'Binned')!;
+        database = Svc.removeEntry(database, binned);
+
+        const expired = Svc.findExpiredEntries(database.root);
+        expect(expired.map(x => x.entry.title)).toEqual(['Stale']);
+        expect(expired[0].group.name).toBe('All Entries');
+    });
+
     it('exposes expiry in history versions', () => {
         const database = Svc.convertKdbxToDatabase(kdbxDb);
         const entry = database.root.entries[0];

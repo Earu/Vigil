@@ -103,6 +103,21 @@ export class KeepassDatabaseService {
         return entry.expires && !!entry.expiryTime && entry.expiryTime.getTime() <= Date.now();
     }
 
+    static findExpiredEntries(root: Group): Array<{ entry: Entry; group: Group }> {
+        const expired: Array<{ entry: Entry; group: Group }> = [];
+        const walk = (group: Group) => {
+            if (group.isRecycleBin) return;
+            group.entries.forEach(entry => {
+                if (this.isEntryExpired(entry)) {
+                    expired.push({ entry, group });
+                }
+            });
+            group.groups.forEach(walk);
+        };
+        walk(root);
+        return expired;
+    }
+
     static getAttachmentBytes(attachment: Attachment): Uint8Array {
         if (attachment.data instanceof kdbxweb.ProtectedValue) {
             return attachment.data.getBinary();
