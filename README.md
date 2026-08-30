@@ -8,13 +8,13 @@ A modern, secure password manager with a beautiful user interface, built using E
 
 ## Features
 
-- 🔒 Secure KeePass (.kdbx) database support
-- 🎨 Modern and intuitive user interface
-- 🔍 HaveIBeenPwned integration for password security checks
-- 🔐 Windows Hello/Biometric authentication support
-- 🔑 Secure credential storage using system keychain
-- 🛡️ Strong encryption with Argon2 password hashing
-- 🌐 Cross-platform support (Windows, macOS, Linux)
+- Secure KeePass (.kdbx) database support
+- Modern and intuitive user interface
+- HaveIBeenPwned integration for password security checks
+- Windows Hello/Biometric authentication support
+- Secure credential storage using system keychain
+- Strong encryption with Argon2 password hashing
+- Cross-platform support (Windows, macOS, Linux)
 
 ## Development
 
