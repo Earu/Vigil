@@ -5,6 +5,16 @@ export interface Attachment {
 	data: ArrayBuffer | kdbxweb.ProtectedValue;
 }
 
+export interface EntryVersion {
+	title: string;
+	username: string;
+	password: string | kdbxweb.ProtectedValue;
+	url?: string;
+	notes?: string;
+	modified: Date;
+	attachments: Attachment[];
+}
+
 export interface Entry {
 	id: string;
 	title: string;
@@ -15,6 +25,7 @@ export interface Entry {
 	created: Date;
 	modified: Date;
 	attachments: Attachment[];
+	history: EntryVersion[];
 }
 
 export interface Group {

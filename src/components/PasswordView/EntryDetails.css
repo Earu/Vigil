@@ -134,3 +134,136 @@
     width: 0.9rem;
     height: 0.9rem;
 }
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.history-item {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.history-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.35rem 0.6rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.15s ease;
+}
+
+.history-row:hover {
+    background-color: var(--overlay-medium);
+}
+
+.history-chevron {
+    width: 0.8rem;
+    height: 0.8rem;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+}
+
+.history-chevron.expanded {
+    transform: rotate(90deg);
+}
+
+.history-date {
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.history-summary {
+    flex: 1;
+    color: var(--text-tertiary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.history-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.5rem 0.6rem;
+    border-top: 1px solid var(--border-secondary);
+}
+
+.history-field {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.history-field-label {
+    width: 4.5rem;
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.history-field-value {
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.history-reveal-button {
+    padding: 0.1rem;
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.history-reveal-button:hover {
+    color: var(--text-secondary);
+}
+
+.history-reveal-button svg {
+    width: 0.85rem;
+    height: 0.85rem;
+}
+
+.history-restore-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    margin-top: 0.3rem;
+    padding: 0.35rem 0.6rem;
+    background-color: var(--overlay-medium);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.history-restore-button:hover {
+    background-color: var(--overlay-dark);
+    border-color: var(--border-hover);
+}
+
+.history-restore-button svg {
+    width: 0.85rem;
+    height: 0.85rem;
+}

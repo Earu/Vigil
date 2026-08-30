@@ -82,6 +82,15 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		} else {
 			setSelectedGroup(database.root);
 		}
+
+		// Keep the open entry in sync with the refreshed model (history grows
+		// after a save, and the save path re-reads the model from the kdbx)
+		if (selectedEntry) {
+			const [updatedEntry] = KeepassDatabaseService.findEntry(selectedEntry.id, database.root);
+			if (updatedEntry) {
+				setSelectedEntry(updatedEntry);
+			}
+		}
 	}, [database]);
 
 	useEffect(() => {
