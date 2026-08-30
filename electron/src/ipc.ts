@@ -8,6 +8,7 @@ import {
     getFilePath,
     openFile,
     readFile,
+    selectKeyFile,
     loadLastDatabasePath,
     saveLastDatabasePath
 } from './file-operations';
@@ -50,6 +51,10 @@ export function setupIpcHandlers(): void {
 
     ipcMain.handle('read-file', async (_, filePath: string) => {
         return await readFile(filePath);
+    });
+
+    ipcMain.handle('select-key-file', async () => {
+        return await selectKeyFile();
     });
 
     // Database path handlers

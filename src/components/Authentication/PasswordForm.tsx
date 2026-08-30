@@ -4,6 +4,7 @@ import { Database } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
+import { KeyActionIcon } from '../../icons/actions/ActionIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
 
@@ -46,6 +47,54 @@ export const PasswordForm = ({
     const [isBiometricsEnabled, setIsBiometricsEnabled] = useState(initialBiometricsEnabled);
     const [isBiometricsAvailable, setIsBiometricsAvailable] = useState(false);
     const [showPasswordInput, setShowPasswordInput] = useState(!initialBiometricsEnabled);
+    const [keyFile, setKeyFile] = useState<{ path: string; name: string } | null>(null);
+
+    const keyFileName = (path: string) => path.split(/[/\\]/).pop() || path;
+
+    useEffect(() => {
+        if (databasePath) {
+            const remembered = userSettingsService.getKeyFilePath(databasePath);
+            setKeyFile(remembered ? { path: remembered, name: keyFileName(remembered) } : null);
+        } else {
+            setKeyFile(null);
+        }
+    }, [databasePath]);
+
+    const buildCredentials = async (passwordStr: string): Promise<kdbxweb.Credentials> => {
+        if (!keyFile) {
+            return new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(passwordStr));
+        }
+        const result = await window.electron?.readFile(keyFile.path);
+        if (!result?.success || !result.data) {
+            throw new Error('KEYFILE_READ_FAILED');
+        }
+        // Copy into a fresh, exactly-sized buffer before handing it to kdbxweb
+        const keyFileData = new Uint8Array(result.data).buffer;
+        return new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(passwordStr), keyFileData);
+    };
+
+    const rememberKeyFile = (dbPath: string | null | undefined) => {
+        if (dbPath) {
+            userSettingsService.setKeyFilePath(dbPath, keyFile?.path);
+        }
+    };
+
+    const handleSelectKeyFile = async () => {
+        const result = await window.electron?.selectKeyFile();
+        if (result?.filePath) {
+            setKeyFile({ path: result.filePath, name: keyFileName(result.filePath) });
+            setError('');
+        }
+    };
+
+    const unlockError = (err: unknown): string => {
+        if (err instanceof Error && err.message === 'KEYFILE_READ_FAILED') {
+            return `Failed to read key file ${keyFile?.path}`;
+        }
+        return keyFile
+            ? 'Invalid password or key file'
+            : 'Invalid password or corrupted database file';
+    };
 
     useEffect(() => {
         const checkBiometrics = async () => {
@@ -149,9 +198,7 @@ export const PasswordForm = ({
                 throw new Error(result.error || 'Failed to read file');
             }
 
-            const credentials = new kdbxweb.Credentials(
-                kdbxweb.ProtectedValue.fromString(biometricResult.password)
-            );
+            const credentials = await buildCredentials(biometricResult.password);
 
             const db = await kdbxweb.Kdbx.load(
                 new Uint8Array(result.data.buffer).buffer,
@@ -160,6 +207,7 @@ export const PasswordForm = ({
 
             const database = KeepassDatabaseService.convertKdbxToDatabase(db);
             KeepassDatabaseService.setPath(databasePath);
+            rememberKeyFile(databasePath);
             onDatabaseOpen(database, db);
 
             await startBreachCheck(database, db, databasePath);
@@ -200,7 +248,7 @@ export const PasswordForm = ({
             }
 
             try {
-                const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
+                const credentials = await buildCredentials(password);
                 let fileBuffer: ArrayBuffer;
                 if (databasePath && window.electron) {
                     const result = await window.electron.readFile(databasePath);
@@ -253,12 +301,12 @@ export const PasswordForm = ({
                 if (isBiometricsEnabled) {
                     const biometricResult = await window.electron.getBiometricPassword(databasePath);
                     if (biometricResult.success && biometricResult.password) {
-                        credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(biometricResult.password));
+                        credentials = await buildCredentials(biometricResult.password);
                     } else {
-                        credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
+                        credentials = await buildCredentials(password);
                     }
                 } else {
-                    credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
+                    credentials = await buildCredentials(password);
                 }
 
                 const result = await window.electron.readFile(databasePath);
@@ -270,7 +318,7 @@ export const PasswordForm = ({
                 KeepassDatabaseService.setPath(databasePath);
             } else {
                 fileBuffer = await selectedFile.arrayBuffer();
-                credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
+                credentials = await buildCredentials(password);
             }
 
             const db = await kdbxweb.Kdbx.load(
@@ -279,6 +327,7 @@ export const PasswordForm = ({
             );
 
             const database = KeepassDatabaseService.convertKdbxToDatabase(db);
+            rememberKeyFile(databasePath);
             onDatabaseOpen(database, db);
 
             // Start breach checking in the background
@@ -287,7 +336,7 @@ export const PasswordForm = ({
             }
         } catch (err) {
             console.error('Failed to unlock database:', err);
-            setError('Invalid password or corrupted database file');
+            setError(unlockError(err));
         } finally {
             setIsLoading(false);
         }
@@ -311,7 +360,7 @@ export const PasswordForm = ({
         setError('');
 
         try {
-            const credentials = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(password));
+            const credentials = await buildCredentials(password);
             const db = kdbxweb.Kdbx.create(credentials, databaseName.trim());
 
             // Import browser passwords if they exist
@@ -338,6 +387,7 @@ export const PasswordForm = ({
             if (result.filePath) {
                 await window.electron?.saveLastDatabasePath(result.filePath);
                 KeepassDatabaseService.setPath(result.filePath);
+                rememberKeyFile(result.filePath);
             }
 
             onDatabaseOpen(KeepassDatabaseService.convertKdbxToDatabase(db), db);
@@ -388,6 +438,30 @@ export const PasswordForm = ({
                         onKeyPress={handleKeyPress}
                     />
                 </div>
+            )}
+
+            {(selectedFile || isCreatingNew) && window.electron && (
+                keyFile ? (
+                    <div className="key-file-chip" title={keyFile.path}>
+                        <KeyActionIcon className="key-file-icon" />
+                        <span className="key-file-name">{keyFile.name}</span>
+                        <button
+                            className="clear-file"
+                            onClick={() => {
+                                setKeyFile(null);
+                                setError('');
+                            }}
+                            title="Remove key file"
+                        >
+                            ×
+                        </button>
+                    </div>
+                ) : (
+                    <button className="add-key-file" onClick={handleSelectKeyFile} type="button">
+                        <KeyActionIcon className="key-file-icon" />
+                        Key file (optional)
+                    </button>
+                )
             )}
 
             {selectedFile && !isCreatingNew && isBiometricsAvailable && (

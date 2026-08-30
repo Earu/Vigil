@@ -627,3 +627,61 @@
 .primary-button:hover {
     background: var(--accent-hover);
 }
+.key-file-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background-color: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 0.45rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.8rem;
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+}
+
+:root.light-theme .key-file-chip {
+    background-color: rgba(255, 255, 255, 0.45);
+}
+
+.key-file-chip .key-file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+}
+
+.key-file-icon {
+    width: 0.9rem;
+    height: 0.9rem;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.add-key-file {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background-color: rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 0.45rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.8rem;
+    border: 1px dashed var(--border-primary);
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.add-key-file:hover {
+    border-color: var(--border-hover);
+    color: var(--text-secondary);
+}
+
+:root.light-theme .add-key-file {
+    background-color: rgba(255, 255, 255, 0.3);
+}
