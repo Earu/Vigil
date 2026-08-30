@@ -2,9 +2,9 @@
 
 A modern, secure password manager with a beautiful user interface, built using Electron and React.
 
-![password_view](https://github.com/user-attachments/assets/443f725a-b249-4305-aa83-d3768a6afb2f)
-![security_report](https://github.com/user-attachments/assets/4a33a8b9-1985-4750-810a-bc20fe85747e)
+<img width="1200" height="800" alt="image" src="https://github.com/user-attachments/assets/3aa6caa6-0370-4428-a8f6-2614d990f80e" />
 
+<img width="1200" height="800" alt="image" src="https://github.com/user-attachments/assets/aac93a3c-9626-4eb4-a197-041878b83b1b" />
 
 ## Features
 
