@@ -15,9 +15,20 @@ interface LoadLastDatabaseResult {
 
 export class KeepassDatabaseService {
     private static currentPath: string | undefined;
+    // mtime of the database file when we last read or wrote it; used to
+    // detect edits made outside Vigil before overwriting the file
+    private static lastKnownMtimeMs: number | undefined;
 
     static setPath(path: string | undefined) {
         this.currentPath = path;
+        this.lastKnownMtimeMs = undefined;
+        if (path && window.electron) {
+            window.electron.statFile(path).then(stat => {
+                if (stat.success && this.currentPath === path) {
+                    this.lastKnownMtimeMs = stat.mtimeMs;
+                }
+            }).catch(() => {});
+        }
     }
 
     static getPath(): string | undefined {
@@ -602,6 +613,28 @@ export class KeepassDatabaseService {
         kdbxGroup.groups = updatedGroups;
     }
 
+    private static async mergeExternalChanges(filePath: string, kdbxDb: kdbxweb.Kdbx): Promise<boolean> {
+        try {
+            const result = await window.electron!.readFile(filePath);
+            if (!result.success || !result.data) return false;
+
+            const remoteDb = await kdbxweb.Kdbx.load(
+                new Uint8Array(result.data).buffer,
+                kdbxDb.credentials
+            );
+            kdbxDb.merge(remoteDb);
+
+            (window as any).showToast?.({
+                message: 'The database changed on disk; external changes were merged',
+                type: 'info'
+            });
+            return true;
+        } catch (err) {
+            console.error('Failed to merge external changes:', err);
+            return false;
+        }
+    }
+
     static async saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
         try {
             if (!kdbxDb) {
@@ -613,6 +646,24 @@ export class KeepassDatabaseService {
             const root = kdbxDb.getDefaultGroup();
             if (root) {
                 await this.updateGroup(database.root, root, kdbxDb, true);
+            }
+
+            // The file changed on disk since we read or wrote it (another
+            // machine, a sync client): merge instead of clobbering
+            const pathBeforeSave = this.getPath();
+            if (pathBeforeSave && window.electron && this.lastKnownMtimeMs !== undefined) {
+                const stat = await window.electron.statFile(pathBeforeSave);
+                if (stat.success && stat.mtimeMs !== undefined && stat.mtimeMs !== this.lastKnownMtimeMs) {
+                    const merged = await this.mergeExternalChanges(pathBeforeSave, kdbxDb);
+                    if (!merged) {
+                        const overwrite = window.confirm(
+                            'The database file was modified outside Vigil and the changes could not be merged. Overwrite them with your version?'
+                        );
+                        if (!overwrite) {
+                            throw new Error('SAVE_CANCELLED_CONFLICT');
+                        }
+                    }
+                }
             }
 
             // Enforce the file's history retention rules and drop binaries no
@@ -646,12 +697,28 @@ export class KeepassDatabaseService {
                 throw new Error(result?.error || 'Failed to save database');
             }
 
+            // Refresh the conflict-detection baseline to the file we just wrote
+            const savedPath = this.getPath();
+            if (savedPath && window.electron) {
+                const stat = await window.electron.statFile(savedPath);
+                if (stat.success) {
+                    this.lastKnownMtimeMs = stat.mtimeMs;
+                }
+            }
+
             // Show success toast
             (window as any).showToast?.({
                 message: 'Database saved successfully',
                 type: 'success'
             });
         } catch (err) {
+            if (err instanceof Error && err.message === 'SAVE_CANCELLED_CONFLICT') {
+                (window as any).showToast?.({
+                    message: 'Save cancelled; the database on disk was left untouched',
+                    type: 'info'
+                });
+                throw err;
+            }
             console.error('Failed to save database:', err);
             // Show error toast
             (window as any).showToast?.({

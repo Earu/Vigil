@@ -30,6 +30,38 @@ export async function loadLastDatabasePath(): Promise<string | null> {
     }
 }
 
+// Write to a temp file in the same directory, fsync, then rename over the
+// target. A crash mid-write leaves the original database intact
+async function atomicWrite(filePath: string, data: Buffer): Promise<void> {
+    const tmpPath = path.join(
+        path.dirname(filePath),
+        `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`
+    );
+
+    try {
+        const handle = await fs.promises.open(tmpPath, 'w');
+        try {
+            await handle.writeFile(data);
+            await handle.sync();
+        } finally {
+            await handle.close();
+        }
+        await fs.promises.rename(tmpPath, filePath);
+    } catch (error) {
+        await fs.promises.unlink(tmpPath).catch(() => {});
+        throw error;
+    }
+}
+
+export async function statFile(filePath: string): Promise<{ success: boolean, mtimeMs?: number, size?: number, error?: string }> {
+    try {
+        const stat = await fs.promises.stat(filePath);
+        return { success: true, mtimeMs: stat.mtimeMs, size: stat.size };
+    } catch (error) {
+        return { success: false, error: 'Failed to stat file' };
+    }
+}
+
 export async function saveFile(data: Uint8Array): Promise<{ success: boolean, error?: string, filePath?: string }> {
     const { filePath, canceled } = await dialog.showSaveDialog({
         filters: [
@@ -43,7 +75,7 @@ export async function saveFile(data: Uint8Array): Promise<{ success: boolean, er
     }
 
     try {
-        await fs.promises.writeFile(filePath, Buffer.from(data));
+        await atomicWrite(filePath, Buffer.from(data));
         await saveLastDatabasePath(filePath);
         return { success: true, filePath };
     } catch (error) {
@@ -72,7 +104,7 @@ export async function saveAttachment(name: string, data: Uint8Array): Promise<{ 
 
 export async function saveToFile(filePath: string, data: Uint8Array): Promise<{ success: boolean, error?: string }> {
     try {
-        await fs.promises.writeFile(filePath, Buffer.from(data));
+        await atomicWrite(filePath, Buffer.from(data));
         return { success: true };
     } catch (error) {
         console.error('Failed to save file:', error);
