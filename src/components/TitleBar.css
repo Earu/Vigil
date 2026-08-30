@@ -251,3 +251,7 @@
 	right: 0;
 	top: 0;
 }
+
+.settings-button.macos-settings.macos-report {
+	right: 36px;
+}

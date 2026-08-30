@@ -5,6 +5,12 @@ export interface Attachment {
 	data: ArrayBuffer | kdbxweb.ProtectedValue;
 }
 
+export interface CustomField {
+	key: string;
+	value: string | kdbxweb.ProtectedValue;
+	protected: boolean;
+}
+
 export interface EntryVersion {
 	title: string;
 	username: string;
@@ -15,6 +21,7 @@ export interface EntryVersion {
 	attachments: Attachment[];
 	expires: boolean;
 	expiryTime?: Date;
+	customFields: CustomField[];
 }
 
 export interface Entry {
@@ -28,6 +35,9 @@ export interface Entry {
 	modified: Date;
 	attachments: Attachment[];
 	history: EntryVersion[];
+	expires: boolean;
+	expiryTime?: Date;
+	customFields: CustomField[];
 }
 
 export interface Group {

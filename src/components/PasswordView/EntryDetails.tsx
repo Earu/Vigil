@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Entry, EntryVersion, Attachment } from '../../types/database';
+import { Entry, EntryVersion, Attachment, CustomField } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
@@ -88,6 +88,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const [showPasswordGenerator, setShowPasswordGenerator] = useState(false);
 	const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
 	const [showVersionPassword, setShowVersionPassword] = useState(false);
+	const [revealedCustomFields, setRevealedCustomFields] = useState<Set<number>>(new Set());
 	const timerRef = useRef<NodeJS.Timeout>();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
@@ -100,6 +101,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	useEffect(() => {
 		setExpandedVersion(null);
 		setShowVersionPassword(false);
+		setRevealedCustomFields(new Set());
 		if (!isNew && entry) {
 			setEditedEntry(entry);
 			setIsEditing(false);
@@ -203,7 +205,13 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	);
 
 	const handleSave = () => {
-		const updatedEntry = KeepassDatabaseService.prepareEntryForSave(editedEntry);
+		const updatedEntry = KeepassDatabaseService.prepareEntryForSave({
+			...editedEntry,
+			// Nameless fields cannot be stored in the kdbx
+			customFields: editedEntry.customFields
+				.map(f => ({ ...f, key: f.key.trim() }))
+				.filter(f => f.key.length > 0),
+		});
 		onSave(updatedEntry);
 		setIsEditing(false);
 	};
@@ -279,6 +287,36 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		});
 	};
 
+	const handleAddCustomField = () => {
+		setEditedEntry(prev => ({
+			...prev,
+			customFields: [...prev.customFields, { key: '', value: '', protected: false }]
+		}));
+	};
+
+	const handleRemoveCustomField = (index: number) => {
+		setEditedEntry(prev => ({
+			...prev,
+			customFields: prev.customFields.filter((_, i) => i !== index)
+		}));
+	};
+
+	const handleCustomFieldChange = (index: number, patch: Partial<CustomField>) => {
+		setEditedEntry(prev => ({
+			...prev,
+			customFields: prev.customFields.map((f, i) => i === index ? { ...f, ...patch } : f)
+		}));
+	};
+
+	const toggleCustomFieldReveal = (index: number) => {
+		setRevealedCustomFields(prev => {
+			const next = new Set(prev);
+			if (next.has(index)) next.delete(index);
+			else next.add(index);
+			return next;
+		});
+	};
+
 	const handleRestoreVersion = (version: EntryVersion) => {
 		const restored: Entry = {
 			...editedEntry,
@@ -290,6 +328,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 			attachments: version.attachments,
 			expires: version.expires,
 			expiryTime: version.expiryTime,
+			customFields: version.customFields,
 		};
 		// Saved like a normal edit, so the pre-restore state becomes a new revision
 		onSave(KeepassDatabaseService.prepareEntryForSave(restored));
@@ -527,6 +566,84 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					/>
 				</div>
 
+				{!isEditing && editedEntry.customFields.map((field, index) => (
+					<div className="field-group" key={index}>
+						<label>{field.key}</label>
+						<div className="field-value-container">
+							<input
+								type={field.protected && !revealedCustomFields.has(index) ? 'password' : 'text'}
+								value={KeepassDatabaseService.getFieldString(field.value)}
+								className={`field-value ${field.protected ? 'monospace' : ''}`}
+								readOnly
+							/>
+							{field.protected && (
+								<button
+									className="visibility-button"
+									onClick={() => toggleCustomFieldReveal(index)}
+									title={revealedCustomFields.has(index) ? 'Hide value' : 'Show value'}
+								>
+									{revealedCustomFields.has(index) ? <HidePasswordIcon /> : <ShowPasswordIcon />}
+								</button>
+							)}
+							{renderCopyButton(
+								() => copyToClipboard(KeepassDatabaseService.getFieldString(field.value), field.key),
+								`Copy ${field.key}`,
+								field.key
+							)}
+						</div>
+					</div>
+				))}
+
+				{isEditing && (
+					<div className="field-group">
+						<label>Custom Fields</label>
+						<div className="custom-fields-list">
+							{editedEntry.customFields.map((field, index) => (
+								<div className="custom-field-row" key={index}>
+									<input
+										type="text"
+										className="field-value custom-field-key"
+										value={field.key}
+										placeholder="Name"
+										onChange={(e) => handleCustomFieldChange(index, { key: e.target.value })}
+									/>
+									<input
+										type="text"
+										className="field-value custom-field-value"
+										value={KeepassDatabaseService.getFieldString(field.value)}
+										placeholder="Value"
+										onChange={(e) => handleCustomFieldChange(index, { value: e.target.value })}
+									/>
+									<button
+										className={`custom-field-protect ${field.protected ? 'active' : ''}`}
+										onClick={() => handleCustomFieldChange(index, { protected: !field.protected })}
+										title={field.protected ? 'Value is protected (stored encrypted, shown masked)' : 'Protect value'}
+										type="button"
+									>
+										<SecurityShieldIcon />
+									</button>
+									<button
+										className="attachment-action-button remove"
+										onClick={() => handleRemoveCustomField(index)}
+										title="Remove field"
+										type="button"
+									>
+										<CloseActionIcon />
+									</button>
+								</div>
+							))}
+							<button
+								className="add-attachment-button"
+								onClick={handleAddCustomField}
+								type="button"
+							>
+								<AddActionIcon />
+								Add field
+							</button>
+						</div>
+					</div>
+				)}
+
 				{(isEditing || editedEntry.attachments.length > 0) && (
 					<div className="field-group">
 						<label>Attachments</label>
@@ -674,6 +791,14 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 													<span className="history-field-value">{version.expiryTime.toLocaleString()}</span>
 												</div>
 											)}
+											{version.customFields.map((field, fieldIndex) => (
+												<div className="history-field" key={fieldIndex}>
+													<span className="history-field-label">{field.key}</span>
+													<span className="history-field-value">
+														{field.protected ? '••••••••••••' : KeepassDatabaseService.getFieldString(field.value)}
+													</span>
+												</div>
+											))}
 											<button
 												className="history-restore-button"
 												onClick={() => handleRestoreVersion(version)}

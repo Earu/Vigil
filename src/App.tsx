@@ -18,6 +18,9 @@ function App() {
 	const [searchQuery, setSearchQuery] = useState('');
 	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
 	const [showInitialBreachReport, setShowInitialBreachReport] = useState(false);
+	// Incremented each time the title bar shield button is clicked; PasswordView
+	// opens the security report whenever it changes
+	const [securityReportRequestId, setSecurityReportRequestId] = useState(0);
 	const [showSettings, setShowSettings] = useState(false);
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
@@ -99,12 +102,14 @@ function App() {
 				searchQuery={searchQuery}
 				onSearch={setSearchQuery}
 				onOpenSettings={() => setShowSettings(true)}
+				onOpenSecurityReport={() => setSecurityReportRequestId(id => id + 1)}
 			/>
 			<PasswordView
 				database={database}
 				searchQuery={searchQuery}
 				onDatabaseChange={handleDatabaseChange}
 				showInitialBreachReport={showInitialBreachReport}
+				securityReportRequestId={securityReportRequestId}
 			/>
 		</>
 	) : (

@@ -109,6 +109,54 @@
     height: 0.95rem;
 }
 
+.custom-fields-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.custom-field-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.custom-field-row .custom-field-key {
+    flex: 0 0 34%;
+}
+
+.custom-field-row .custom-field-value {
+    flex: 1;
+    min-width: 0;
+}
+
+.custom-field-protect {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem;
+    background: transparent;
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-tertiary);
+    cursor: pointer;
+}
+
+.custom-field-protect:hover {
+    color: var(--text-secondary);
+    border-color: var(--border-hover);
+}
+
+.custom-field-protect.active {
+    color: var(--text-primary);
+    background-color: var(--overlay-medium);
+}
+
+.custom-field-protect svg {
+    width: 0.9rem;
+    height: 0.9rem;
+}
+
 .add-attachment-button {
     display: flex;
     align-items: center;

@@ -16,9 +16,10 @@ interface PasswordViewProps {
 	searchQuery: string;
 	onDatabaseChange?: (database: Database) => void;
 	showInitialBreachReport?: boolean;
+	securityReportRequestId?: number;
 }
 
-export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport }: PasswordViewProps) => {
+export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId }: PasswordViewProps) => {
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -26,6 +27,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const [weakEntries, setWeakEntries] = useState<BreachedEntry[]>([]);
 	const [breachedEmailEntries, setBreachedEmailEntries] = useState<BreachedEmailEntry[]>([]);
 	const [showBreachReport, setShowBreachReport] = useState(false);
+	const [reportOpenedManually, setReportOpenedManually] = useState(false);
 	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
 	const [isCheckingEmails, setIsCheckingEmails] = useState(false);
 	const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -51,13 +53,28 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		}
 	}, [showInitialBreachReport]);
 
+	// Title bar shield button: open the report even when nothing was found
+	useEffect(() => {
+		if (!securityReportRequestId) return;
+		const { breached, weak } = BreachCheckService.findBreachedAndWeakEntries(database.root);
+		setBreachedEntries(breached);
+		setWeakEntries(weak);
+		if (userSettingsService.getHibpApiKey() != null) {
+			setBreachedEmailEntries(BreachCheckService.findBreachedEmails(database.root).breached);
+		}
+		setReportOpenedManually(true);
+		setShowBreachReport(true);
+	}, [securityReportRequestId]);
+
 	useEffect(() => {
 		const updateBreachStatus = () => {
-			const { breached, weak } = BreachCheckService.findBreachedAndWeakEntries(database.root);
+			const { breached, weak, allEntriesCached } = BreachCheckService.findBreachedAndWeakEntries(database.root);
 			setBreachedEntries(breached);
 			setWeakEntries(weak);
 
-			if (isCheckingBreaches && (breached.length > 0 || weak.length > 0)) {
+			// Done when there is something to show, or when every entry has a
+			// cached verdict (a clean vault would otherwise spin forever)
+			if (isCheckingBreaches && (breached.length > 0 || weak.length > 0 || allEntriesCached)) {
 				setIsCheckingBreaches(false);
 			}
 		};
@@ -69,10 +86,10 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 				return;
 			}
 
-			const { breached } = BreachCheckService.findBreachedEmails(database.root);
+			const { breached, allEmailsCached } = BreachCheckService.findBreachedEmails(database.root);
 			setBreachedEmailEntries(breached);
 
-			if (isCheckingEmails && breached.length > 0) {
+			if (isCheckingEmails && (breached.length > 0 || allEmailsCached)) {
 				setIsCheckingEmails(false);
 			}
 		};
@@ -281,7 +298,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					/>
 				)}
 			</div>
-			{(showBreachReport && (breachedEntries.length > 0 || breachedEmailEntries.length > 0 || isCheckingBreaches || isCheckingEmails)) && (
+			{(showBreachReport && (reportOpenedManually || breachedEntries.length > 0 || breachedEmailEntries.length > 0 || isCheckingBreaches || isCheckingEmails)) && (
 				<BreachReport
 					database={database}
 					breachedEntries={breachedEntries}
@@ -292,6 +309,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					isCheckingEmails={isCheckingEmails}
 					onClose={() => {
 						setShowBreachReport(false);
+						setReportOpenedManually(false);
 						setBreachedEntries([]);
 						setWeakEntries([]);
 						setBreachedEmailEntries([]);
