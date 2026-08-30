@@ -4,6 +4,7 @@ import { clearClipboard, openExternal, getPlatform, getAppIconPath } from './uti
 import {
     saveFile,
     saveToFile,
+    saveAttachment,
     getFilePath,
     openFile,
     readFile,
@@ -33,6 +34,10 @@ export function setupIpcHandlers(): void {
 
     ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array) => {
         return await saveToFile(filePath, data);
+    });
+
+    ipcMain.handle('save-attachment', async (_, name: string, data: Uint8Array) => {
+        return await saveAttachment(name, data);
     });
 
     ipcMain.handle('get-file-path', async (_, filePath: string) => {

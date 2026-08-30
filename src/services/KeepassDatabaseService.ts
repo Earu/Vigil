@@ -1,5 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { Database, Group, Entry } from '../types/database';
+import { Database, Group, Entry, Attachment } from '../types/database';
 
 interface SaveResult {
     success: boolean;
@@ -39,6 +39,11 @@ export class KeepassDatabaseService {
                     notes: entry.fields.get('Notes')?.toString(),
                     created: entry.times.creationTime as Date,
                     modified: entry.times.lastModTime as Date,
+                    attachments: [...entry.binaries].map(([name, binary]) => ({
+                        name,
+                        // kdbx4 wraps binaries as { hash, value }, kdbx3 stores them raw
+                        data: (binary as kdbxweb.KdbxBinaryWithHash).value ?? binary,
+                    })),
                 })),
             };
         };
@@ -64,7 +69,25 @@ export class KeepassDatabaseService {
             notes: '',
             created: new Date(),
             modified: new Date(),
+            attachments: [],
         };
+    }
+
+    static getAttachmentBytes(attachment: Attachment): Uint8Array {
+        if (attachment.data instanceof kdbxweb.ProtectedValue) {
+            return attachment.data.getBinary();
+        }
+        return new Uint8Array(attachment.data);
+    }
+
+    static getAttachmentSize(attachment: Attachment): number {
+        return attachment.data.byteLength;
+    }
+
+    static formatAttachmentSize(bytes: number): string {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     }
 
     static getPasswordString(password: string | kdbxweb.ProtectedValue): string {
@@ -135,6 +158,7 @@ export class KeepassDatabaseService {
         if (obj === null || typeof obj !== 'object') return obj;
         if (obj instanceof Date) return new Date(obj);
         if (obj instanceof kdbxweb.ProtectedValue) return obj;
+        if (obj instanceof ArrayBuffer || ArrayBuffer.isView(obj)) return obj;
         if (Array.isArray(obj)) {
             return obj.map(item => this.deepCopyWithDates(item));
         }
@@ -452,7 +476,7 @@ export class KeepassDatabaseService {
         }
     }
 
-    private static updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx) {
+    private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx): Promise<void> {
         // Update group name
         kdbxGroup.name = group.name;
 
@@ -463,7 +487,7 @@ export class KeepassDatabaseService {
 
         // Process all entries in one pass
         const updatedEntries: kdbxweb.KdbxEntry[] = [];
-        group.entries.forEach((entry: Entry) => {
+        for (const entry of group.entries) {
             let kdbxEntry = entry.id ? existingEntries.get(entry.id) : undefined;
             if (!kdbxEntry) {
                 kdbxEntry = kdbxDb.createEntry(kdbxGroup);
@@ -485,8 +509,15 @@ export class KeepassDatabaseService {
             kdbxEntry.times.creationTime = entry.created;
             kdbxEntry.times.lastModTime = entry.modified;
 
+            // Sync attachments: registering through createBinary puts the data in
+            // the database binary pool and dedupes identical content by hash
+            kdbxEntry.binaries.clear();
+            for (const attachment of entry.attachments ?? []) {
+                kdbxEntry.binaries.set(attachment.name, await kdbxDb.createBinary(attachment.data));
+            }
+
             updatedEntries.push(kdbxEntry);
-        });
+        }
 
         // Replace all entries at once
         kdbxGroup.entries = updatedEntries;
@@ -498,15 +529,15 @@ export class KeepassDatabaseService {
 
         // Process all groups in one pass
         const updatedGroups: kdbxweb.KdbxGroup[] = [];
-        group.groups.forEach((subgroup: Group) => {
+        for (const subgroup of group.groups) {
             let kdbxSubgroup = existingGroups.get(subgroup.id);
             if (!kdbxSubgroup) {
                 kdbxSubgroup = kdbxDb.createGroup(kdbxGroup, subgroup.name);
                 subgroup.id = kdbxSubgroup.uuid.toString();
             }
-            this.updateGroup(subgroup, kdbxSubgroup, kdbxDb);
+            await this.updateGroup(subgroup, kdbxSubgroup, kdbxDb);
             updatedGroups.push(kdbxSubgroup);
-        });
+        }
 
         // Replace all groups at once
         kdbxGroup.groups = updatedGroups;
@@ -522,8 +553,11 @@ export class KeepassDatabaseService {
 
             const root = kdbxDb.getDefaultGroup();
             if (root) {
-                this.updateGroup(database.root, root, kdbxDb);
+                await this.updateGroup(database.root, root, kdbxDb);
             }
+
+            // Drop binaries no longer referenced by any entry
+            kdbxDb.cleanup({ binaries: true });
 
             // Save the updated database
             const arrayBuffer = await kdbxDb.save();

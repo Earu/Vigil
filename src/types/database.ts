@@ -1,5 +1,10 @@
 import * as kdbxweb from 'kdbxweb';
 
+export interface Attachment {
+	name: string;
+	data: ArrayBuffer | kdbxweb.ProtectedValue;
+}
+
 export interface Entry {
 	id: string;
 	title: string;
@@ -9,6 +14,7 @@ export interface Entry {
 	notes?: string;
 	created: Date;
 	modified: Date;
+	attachments: Attachment[];
 }
 
 export interface Group {

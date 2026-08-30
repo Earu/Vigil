@@ -43,3 +43,94 @@
 .strength-suggestions li:last-child {
     margin-bottom: 0;
 }
+.attachments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+}
+
+.attachment-icon {
+    width: 0.9rem;
+    height: 0.9rem;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.attachment-name {
+    flex: 1;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.attachment-size {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.attachment-action-button {
+    padding: 0.25rem;
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+}
+
+.attachment-action-button:hover {
+    background-color: var(--overlay-dark);
+    color: var(--text-secondary);
+}
+
+.attachment-action-button.remove:hover {
+    color: var(--color-error);
+}
+
+.attachment-action-button svg {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.add-attachment-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.6rem;
+    background-color: var(--overlay-medium);
+    border: 1px dashed var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-tertiary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.add-attachment-button:hover {
+    background-color: var(--overlay-dark);
+    border-color: var(--border-hover);
+    color: var(--text-secondary);
+}
+
+.add-attachment-button svg {
+    width: 0.9rem;
+    height: 0.9rem;
+}
