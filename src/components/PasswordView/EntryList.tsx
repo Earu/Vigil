@@ -2,8 +2,8 @@ import { useMemo, useSyncExternalStore } from 'react';
 import { Entry, Group, Database } from '../../types/database';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
-import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
-import { AddActionIcon, KeyActionIcon, CloseActionIcon } from '../../icons/actions/ActionIcons';
+import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
+import { AddActionIcon, KeyActionIcon, CloseActionIcon, TrashActionIcon, RestoreActionIcon } from '../../icons/actions/ActionIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
 
 interface EntryListProps {
@@ -15,6 +15,7 @@ interface EntryListProps {
 	onNewEntry: () => void;
 	onRemoveEntry: (entry: Entry) => void;
 	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
+	onEmptyRecycleBin?: () => void;
 }
 
 export const EntryList = ({
@@ -26,6 +27,7 @@ export const EntryList = ({
 	onNewEntry,
 	onRemoveEntry,
 	onMoveEntry,
+	onEmptyRecycleBin,
 }: EntryListProps) => {
 	// Re-render when breach statuses change so the indicators stay current
 	useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
@@ -99,10 +101,19 @@ export const EntryList = ({
 					</span>
 				</div>
 				{!searchQuery && (
-					<button className="new-entry-button" onClick={onNewEntry} title="Add new entry">
-						<AddActionIcon />
-						New Entry
-					</button>
+					group.isRecycleBin ? (
+						sortedEntries.length > 0 && onEmptyRecycleBin && (
+							<button className="new-entry-button empty-bin-button" onClick={onEmptyRecycleBin} title="Permanently delete everything in the recycle bin">
+								<TrashActionIcon />
+								Empty Bin
+							</button>
+						)
+					) : (
+						<button className="new-entry-button" onClick={onNewEntry} title="Add new entry">
+							<AddActionIcon />
+							New Entry
+						</button>
+					)
 				)}
 			</div>
 			<div className="entries">
@@ -134,6 +145,11 @@ export const EntryList = ({
 							<div className="entry-info">
 								<div className="entry-title">
 									{entry.title}
+									{KeepassDatabaseService.isEntryExpired(entry) && (
+										<span className="expired-indicator" title={`Expired ${entry.expiryTime?.toLocaleString()}`}>
+											<ExpiredClockIcon className="expired-icon" />
+										</span>
+									)}
 									{(() => {
 										const status = getEntryStatus(entry);
 										return (
@@ -163,6 +179,18 @@ export const EntryList = ({
 								</div>
 							)}
 						</div>
+						{database && onMoveEntry && KeepassDatabaseService.isEntryInRecycleBin(database, entry.id) && (
+							<button
+								className="restore-entry-button"
+								onClick={(e) => {
+									e.stopPropagation();
+									onMoveEntry(entry, database.root);
+								}}
+								title="Restore entry"
+							>
+								<RestoreActionIcon />
+							</button>
+						)}
 						<button
 							className="remove-entry-button"
 							onClick={() => onRemoveEntry(entry)}

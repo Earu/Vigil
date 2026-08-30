@@ -267,3 +267,36 @@
     width: 0.85rem;
     height: 0.85rem;
 }
+
+.expiry-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* Specific enough to beat the generic .field-group label styling */
+.field-group .expiry-controls .expiry-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0;
+    font-size: 0.85rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+    text-transform: none;
+    letter-spacing: normal;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.expiry-toggle input {
+    margin: 0;
+}
+
+.expiry-input {
+    flex: 1;
+}
+
+.expired-warning-header .breach-warning-icon {
+    color: var(--color-error);
+}

@@ -13,6 +13,8 @@ export interface EntryVersion {
 	notes?: string;
 	modified: Date;
 	attachments: Attachment[];
+	expires: boolean;
+	expiryTime?: Date;
 }
 
 export interface Entry {
