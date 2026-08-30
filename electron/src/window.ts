@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain, app } from 'electron';
 import path from 'path';
+import { handleFileOpen } from './file-operations';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
@@ -76,6 +77,10 @@ export function createWindow() {
         if (pendingFileOpen) {
             win.webContents.send('file-opened', pendingFileOpen);
             pendingFileOpen = null;
+        } else if ((global as any).startupFilePath) {
+            // Database passed on the command line or via file association
+            handleFileOpen((global as any).startupFilePath);
+            (global as any).startupFilePath = undefined;
         }
     });
 
