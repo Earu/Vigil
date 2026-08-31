@@ -45,3 +45,6 @@ native/**/cmake_install.cmake
 public
 # TypeScript incremental build state
 *.tsbuildinfo
+
+# native addon build output (compiled per-platform, never committed)
+electron/native/touchid/build/
