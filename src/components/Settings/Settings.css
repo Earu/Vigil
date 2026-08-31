@@ -631,3 +631,43 @@ select.db-input {
     height: 2px;
     background-color: var(--accent);
 }
+
+.browser-associations {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-top: 0.5rem;
+}
+
+.browser-associations > label {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.browser-association-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.browser-association-row span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* .clear-cache-button is full-width by default; keep it compact in the row */
+.browser-association-row button {
+    width: auto;
+    flex-shrink: 0;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+}

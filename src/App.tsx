@@ -12,6 +12,8 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
 import { BreachCheckService } from './services/BreachCheckService';
 import { userSettingsService } from './services/UserSettingsService';
+import { BrowserIntegrationService } from './services/BrowserIntegrationService';
+import { BrowserPairingDialog } from './components/BrowserPairingDialog';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -24,6 +26,7 @@ function App() {
 	const [showSettings, setShowSettings] = useState(false);
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
+	const [pairingRequest, setPairingRequest] = useState<{ fingerprint: string; resolve: (name: string | null) => void } | null>(null);
 
 	useEffect(() => {
 		const handleUpdateStatus = (status: { state: string; version?: string }) => {
@@ -86,6 +89,44 @@ function App() {
 			events.forEach(name => window.removeEventListener(name, handleActivity));
 		};
 	}, [database, autoLockEnabled, autoLockDuration]);
+
+	// Answer credential/pairing requests forwarded by the browser
+	// integration socket server in the main process
+	useEffect(() => {
+		if (!database || !kdbxDb || !window.electron) return;
+
+		const handler = async ({ id, action, payload }: { id: number; action: string; payload: any }) => {
+			try {
+				const result = await BrowserIntegrationService.handleRequest(action, payload, {
+					database,
+					kdbxDb,
+					saveDatabase: async () => {
+						await handleDatabaseChange(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+					},
+					requestPairing: (fingerprint) => new Promise((resolve) => {
+						setPairingRequest({
+							fingerprint,
+							resolve: (name) => {
+								setPairingRequest(null);
+								resolve(name);
+							},
+						});
+					}),
+				});
+				window.electron?.browserIntegrationRespond(id, result);
+				if (action === 'associate' && !result.errorCode) {
+					// Settings listens for this to refresh its pairing list live
+					window.dispatchEvent(new CustomEvent('vigil-browser-associations-changed'));
+				}
+			} catch (err) {
+				console.error('Browser integration request failed:', err);
+				window.electron?.browserIntegrationRespond(id, { errorCode: 17 });
+			}
+		};
+
+		const unsubscribe = window.electron.on('browser-integration-request', handler);
+		return () => unsubscribe();
+	}, [database, kdbxDb]);
 
 	const handleDatabaseOpen = async (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
 		// One window per vault: if another window already has this file open,
@@ -196,6 +237,13 @@ function App() {
 				}}
 			/>
 			<ToastContainer />
+			{pairingRequest && (
+				<BrowserPairingDialog
+					fingerprint={pairingRequest.fingerprint}
+					onSubmit={(name) => pairingRequest.resolve(name)}
+					onCancel={() => pairingRequest.resolve(null)}
+				/>
+			)}
 		</ThemeProvider>
 	);
 }

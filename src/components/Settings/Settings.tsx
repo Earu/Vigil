@@ -8,6 +8,7 @@ import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { ImportService } from '../../services/ImportService';
 import { ExportService } from '../../services/ExportService';
+import { BrowserIntegrationService } from '../../services/BrowserIntegrationService';
 import { KeepassDatabaseService, KdfInfo } from '../../services/KeepassDatabaseService';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
@@ -41,6 +42,8 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [kdfInfo, setKdfInfo] = useState<KdfInfo | null>(null);
     const [historyMax, setHistoryMax] = useState(10);
     const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security'>('general');
+    const [browserIntegration, setBrowserIntegration] = useState<{ enabled: boolean; running: boolean } | null>(null);
+    const [browserAssociations, setBrowserAssociations] = useState<Array<{ name: string; key: string }>>([]);
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
     // the database
@@ -70,6 +73,19 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         return () => unsubscribe();
     }, []);
 
+    useEffect(() => {
+        if (!isOpen || !window.electron) return;
+        window.electron.getBrowserIntegrationStatus()
+            .then(status => setBrowserIntegration({ enabled: status.enabled, running: status.running }))
+            .catch(() => {});
+        const refreshAssociations = () =>
+            setBrowserAssociations(kdbxDb ? BrowserIntegrationService.listAssociations(kdbxDb) : []);
+        refreshAssociations();
+        // A pairing completed while this dialog is open shows up immediately
+        window.addEventListener('vigil-browser-associations-changed', refreshAssociations);
+        return () => window.removeEventListener('vigil-browser-associations-changed', refreshAssociations);
+    }, [isOpen, kdbxDb]);
+
     if (!isOpen) return null;
 
     const updateStatusText = (() => {
@@ -88,6 +104,37 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         const newApiKey = e.target.value;
         setApiKey(newApiKey);
         userSettingsService.setHibpApiKey(newApiKey || undefined);
+    };
+
+    const handleBrowserIntegrationToggle = async (enabled: boolean) => {
+        if (!window.electron) return;
+        const result = await window.electron.setBrowserIntegrationEnabled(enabled);
+        setBrowserIntegration({ enabled, running: result.running });
+        if (!result.success) {
+            (window as any).showToast?.({
+                message: result.error || 'Failed to start the browser integration server',
+                type: 'error',
+                duration: 5000
+            });
+            return;
+        }
+        if (enabled) {
+            const count = result.written?.length ?? 0;
+            (window as any).showToast?.({
+                message: count > 0
+                    ? `Browser integration enabled and registered with ${count} browser${count > 1 ? 's' : ''}`
+                    : 'Browser integration enabled, but no supported browsers were found',
+                type: count > 0 ? 'success' : 'warning',
+                duration: 4000
+            });
+        }
+    };
+
+    const handleRemoveAssociation = (name: string) => {
+        if (!kdbxDb) return;
+        BrowserIntegrationService.removeAssociation(kdbxDb, name);
+        onDatabaseChange?.();
+        setBrowserAssociations(BrowserIntegrationService.listAssociations(kdbxDb));
     };
 
     const handleCsvExport = async () => {
@@ -644,6 +691,44 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </div>
                         </div>
                     </div>
+                    )}
+
+                    {currentTab === 'security' && window.electron && (
+                        <div className="settings-section">
+                            <h3>Browser Integration</h3>
+                            <div className="database-controls">
+                                <div className="auto-lock-toggle">
+                                    <label htmlFor="browser-integration-enabled">Enable KeePassXC-Browser support</label>
+                                    <input
+                                        type="checkbox"
+                                        id="browser-integration-enabled"
+                                        checked={!!browserIntegration?.enabled}
+                                        onChange={(e) => handleBrowserIntegrationToggle(e.target.checked)}
+                                    />
+                                </div>
+                                <p className="database-help">
+                                    Lets the KeePassXC-Browser extension fill credentials from your vaults.
+                                    Enabling registers Vigil with the browsers on this machine
+                                    {browserIntegration?.running ? '; the connection server is running' : ''}
+                                </p>
+                                {kdbxDb && browserAssociations.length > 0 && (
+                                    <div className="browser-associations">
+                                        <label>Connected browsers (this database)</label>
+                                        {browserAssociations.map((association) => (
+                                            <div key={association.name} className="browser-association-row">
+                                                <span>{association.name}</span>
+                                                <button
+                                                    className="clear-cache-button"
+                                                    onClick={() => handleRemoveAssociation(association.name)}
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     )}
 
                     {currentTab === 'general' && kdbxDb && (
