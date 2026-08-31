@@ -212,6 +212,7 @@ async function handleDecryptedMessage(action: string, message: any): Promise<any
             return await askVaults('passkeys-register', {
                 publicKey: message.publicKey,
                 origin: message.origin,
+                relatedOrigins: message.relatedOrigins,
                 groupName: message.groupName,
                 keys: message.keys ?? [],
             }, 120000);
@@ -219,6 +220,7 @@ async function handleDecryptedMessage(action: string, message: any): Promise<any
             return await askVaults('passkeys-get', {
                 publicKey: message.publicKey,
                 origin: message.origin,
+                relatedOrigins: message.relatedOrigins,
                 keys: message.keys ?? [],
             }, 120000);
         case 'generate-password': {

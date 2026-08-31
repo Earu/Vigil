@@ -32,6 +32,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [showApiKey, setShowApiKey] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [fetchFavicons, setFetchFavicons] = useState<boolean>(userSettingsService.getFetchFavicons());
+    const [allowPasskeysLocalhost, setAllowPasskeysLocalhost] = useState<boolean>(userSettingsService.getAllowPasskeysLocalhost());
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
     const [dbName, setDbName] = useState('');
     const [dbDesc, setDbDesc] = useState('');
@@ -711,6 +712,22 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     Lets the KeePassXC-Browser extension fill credentials from your vaults.
                                     Enabling registers Vigil with the browsers on this machine
                                     {browserIntegration?.running ? '; the connection server is running' : ''}
+                                </p>
+                                <div className="auto-lock-toggle">
+                                    <label htmlFor="allow-passkeys-localhost">Allow passkeys on localhost</label>
+                                    <input
+                                        type="checkbox"
+                                        id="allow-passkeys-localhost"
+                                        checked={allowPasskeysLocalhost}
+                                        onChange={(e) => {
+                                            setAllowPasskeysLocalhost(e.target.checked);
+                                            userSettingsService.setAllowPasskeysLocalhost(e.target.checked);
+                                        }}
+                                    />
+                                </div>
+                                <p className="database-help">
+                                    Passkeys normally require https sites. Enable this only if you develop
+                                    against locally hosted sites
                                 </p>
                                 {kdbxDb && browserAssociations.length > 0 && (
                                     <div className="browser-associations">

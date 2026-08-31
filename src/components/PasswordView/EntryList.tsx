@@ -3,7 +3,8 @@ import { Entry, Group, Database } from '../../types/database';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
-import { AddActionIcon, KeyActionIcon, CloseActionIcon, TrashActionIcon, RestoreActionIcon } from '../../icons/actions/ActionIcons';
+import { AddActionIcon, KeyActionIcon, CloseActionIcon, TrashActionIcon, RestoreActionIcon, PasskeyActionIcon } from '../../icons/actions/ActionIcons';
+import { PasskeyService } from '../../services/PasskeyService';
 import { userSettingsService } from '../../services/UserSettingsService';
 
 interface EntryListProps {
@@ -210,6 +211,11 @@ export const EntryList = ({
 									{KeepassDatabaseService.isEntryExpired(entry) && (
 										<span className="expired-indicator" title={`Expired ${entry.expiryTime?.toLocaleString()}`}>
 											<ExpiredClockIcon className="expired-icon" />
+										</span>
+									)}
+									{PasskeyService.passkeyFromFields(entry.customFields) && (
+										<span className="passkey-indicator" title="This entry holds a passkey">
+											<PasskeyActionIcon className="passkey-list-icon" />
 										</span>
 									)}
 									{(() => {

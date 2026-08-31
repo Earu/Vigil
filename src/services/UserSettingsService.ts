@@ -11,17 +11,23 @@ interface UserSettings {
     // Fetching entry icons from Google's favicon service sends each entry's
     // domain to Google, so it is opt-in
     fetchFavicons?: boolean;
+    // WebAuthn treats localhost as a secure context, but serving passkeys to
+    // arbitrary local processes is opt-in (matches KeePassXC's setting)
+    allowPasskeysLocalhost?: boolean;
 }
 
 const SETTINGS_KEY = 'vigil_user_settings';
 
 class UserSettingsService {
-    private settings: UserSettings;
+    // Loaded on first access so importing this module never touches
+    // localStorage (it is absent in the test environment)
+    private settings: UserSettings | null = null;
     private version = 0;
     private listeners = new Set<() => void>();
 
-    constructor() {
-        this.settings = this.loadSettings();
+    private get current(): UserSettings {
+        if (!this.settings) this.settings = this.loadSettings();
+        return this.settings;
     }
 
     subscribe = (listener: () => void): (() => void) => {
@@ -34,10 +40,12 @@ class UserSettingsService {
     };
 
     private loadSettings(): UserSettings {
-        const savedSettings = localStorage.getItem(SETTINGS_KEY);
-        if (savedSettings) {
-            return JSON.parse(savedSettings);
-        }
+        try {
+            const savedSettings = localStorage.getItem(SETTINGS_KEY);
+            if (savedSettings) {
+                return JSON.parse(savedSettings);
+            }
+        } catch { /* storage unavailable; use defaults */ }
 
         // Default settings
         return {
@@ -49,74 +57,85 @@ class UserSettingsService {
     }
 
     private saveSettings(): void {
-        localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.settings));
+        try {
+            localStorage.setItem(SETTINGS_KEY, JSON.stringify(this.current));
+        } catch { /* storage unavailable */ }
         this.version++;
         this.listeners.forEach(listener => listener());
     }
 
     getFetchFavicons(): boolean {
-        return this.settings.fetchFavicons ?? false;
+        return this.current.fetchFavicons ?? false;
     }
 
     setFetchFavicons(enabled: boolean): void {
-        this.settings.fetchFavicons = enabled;
+        this.current.fetchFavicons = enabled;
+        this.saveSettings();
+    }
+
+    getAllowPasskeysLocalhost(): boolean {
+        return this.current.allowPasskeysLocalhost ?? false;
+    }
+
+    setAllowPasskeysLocalhost(enabled: boolean): void {
+        this.current.allowPasskeysLocalhost = enabled;
         this.saveSettings();
     }
 
     getTheme(): Theme {
-        return this.settings.theme;
+        return this.current.theme;
     }
 
     setTheme(theme: Theme): void {
-        this.settings.theme = theme;
+        this.current.theme = theme;
         this.saveSettings();
     }
 
     getHibpApiKey(): string | undefined {
-        return this.settings.hibpApiKey;
+        return this.current.hibpApiKey;
     }
 
     setHibpApiKey(apiKey: string | undefined): void {
-        this.settings.hibpApiKey = apiKey;
+        this.current.hibpApiKey = apiKey;
         this.saveSettings();
     }
 
     getAutoLockEnabled(): boolean {
-        return this.settings.autoLockEnabled;
+        return this.current.autoLockEnabled;
     }
 
     setAutoLockEnabled(enabled: boolean): void {
-        this.settings.autoLockEnabled = enabled;
+        this.current.autoLockEnabled = enabled;
         this.saveSettings();
     }
 
     getAutoLockDuration(): number {
-        return this.settings.autoLockDuration;
+        return this.current.autoLockDuration;
     }
 
     setAutoLockDuration(duration: number): void {
-        this.settings.autoLockDuration = duration;
+        this.current.autoLockDuration = duration;
         this.saveSettings();
     }
 
     getKeyFilePath(databasePath: string): string | undefined {
-        return this.settings.keyFilePaths?.[databasePath];
+        return this.current.keyFilePaths?.[databasePath];
     }
 
     setKeyFilePath(databasePath: string, keyFilePath: string | undefined): void {
-        const paths = { ...(this.settings.keyFilePaths ?? {}) };
+        const paths = { ...(this.current.keyFilePaths ?? {}) };
         if (keyFilePath) {
             paths[databasePath] = keyFilePath;
         } else {
             delete paths[databasePath];
         }
-        this.settings.keyFilePaths = paths;
+        this.current.keyFilePaths = paths;
         this.saveSettings();
     }
 
     // Method to get all settings (useful for debugging or backup)
     getAllSettings(): UserSettings {
-        return { ...this.settings };
+        return { ...this.current };
     }
 }
 

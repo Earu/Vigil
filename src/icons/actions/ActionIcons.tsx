@@ -279,3 +279,23 @@ export const ImageActionIcon: React.FC<ActionIconProps> = ({ className, color = 
         <polyline points="21 15 16 10 5 21" />
     </svg>
 );
+
+// Person-in-circle, the common passkey glyph
+export const PasskeyActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={style}
+    >
+        <circle cx="10" cy="8" r="4" />
+        <path d="M3 21v-1a7 7 0 0 1 11-5.7" />
+        <circle cx="18" cy="14" r="3" />
+        <path d="M18 17v4l2-2" />
+    </svg>
+);
