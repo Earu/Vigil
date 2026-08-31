@@ -40,7 +40,7 @@
     box-shadow: 0 8px 24px var(--accent-muted);
 }
 
-.lock-icon {
+.auth-lock-icon {
     width: 2rem;
     height: 2rem;
     color: var(--accent-contrast);
@@ -241,7 +241,7 @@
     gap: 1rem;
 }
 
-.cancel-button {
+.auth-cancel-button {
     flex: 1;
     padding: 0.75rem 1.5rem;
     background: var(--overlay-medium);
@@ -253,7 +253,7 @@
     transition: all 0.2s ease;
 }
 
-.cancel-button:hover {
+.auth-cancel-button:hover {
     background: var(--overlay-dark);
 }
 
@@ -425,7 +425,7 @@
     transform: translateY(-1px);
 }
 
-.import-icon {
+.auth-import-icon {
     width: 1.25rem;
     height: 1.25rem;
 }
@@ -492,7 +492,7 @@
     max-height: calc(100vh - 40px - 2rem);
 }
 
-.modal-header {
+.auth-modal-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -501,14 +501,14 @@
     flex-shrink: 0;
 }
 
-.modal-header h3 {
+.auth-modal-header h3 {
     margin: 0;
     font-size: 1.25rem;
     font-weight: 600;
     color: var(--text-primary);
 }
 
-.close-button {
+.auth-close-button {
     background: none;
     border: none;
     color: var(--text-light);
@@ -519,7 +519,7 @@
     transition: color 0.2s ease;
 }
 
-.close-button:hover {
+.auth-close-button:hover {
     color: var(--text-primary);
 }
 
@@ -589,7 +589,7 @@
     font-weight: 500;
 }
 
-.modal-footer {
+.auth-modal-footer {
     display: flex;
     justify-content: flex-end;
     gap: 1rem;
@@ -613,7 +613,7 @@
     background: var(--overlay-dark);
 }
 
-.primary-button {
+.auth-primary-button {
     padding: 0.75rem 1.5rem;
     background: var(--accent);
     color: var(--accent-contrast);
@@ -624,7 +624,7 @@
     transition: all 0.2s ease;
 }
 
-.primary-button:hover {
+.auth-primary-button:hover {
     background: var(--accent-hover);
 }
 .key-file-chip {

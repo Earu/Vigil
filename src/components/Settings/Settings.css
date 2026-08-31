@@ -52,6 +52,16 @@
     align-items: center;
     justify-content: center;
     border-radius: var(--radius-md);
+    background: none;
+    border: none;
+    color: var(--text-light);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.settings-header .close-button:hover {
+    background-color: var(--overlay-medium);
+    color: var(--text-primary);
 }
 
 .settings-header .close-button svg {

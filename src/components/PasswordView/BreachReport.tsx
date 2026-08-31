@@ -57,7 +57,7 @@ export const BreachReport = ({
 
     const renderBreachedEntry = ({ entry, group, count }: BreachedEntry) => (
         <div key={entry.id} className="breached-entry">
-            <div className="entry-info">
+            <div className="report-entry-info">
                 <h3>{entry.title}</h3>
                 <p className="username">{entry.username}</p>
                 <p className="group-path">Group: {group.name}</p>
@@ -72,7 +72,7 @@ export const BreachReport = ({
 
     const renderWeakEntry = ({ entry, group, strength }: BreachedEntry) => (
         <div key={entry.id} className="breached-entry">
-            <div className="entry-info">
+            <div className="report-entry-info">
                 <h3>{entry.title}</h3>
                 <p className="username">{entry.username}</p>
                 <p className="group-path">Group: {group.name}</p>
@@ -95,7 +95,7 @@ export const BreachReport = ({
             <div className="breach-report">
                 <div className="breach-report-header">
                     <h2>Security Report</h2>
-                    <button className="close-button" onClick={onClose}>
+                    <button className="report-close-button" onClick={onClose}>
                         <CloseActionIcon />
                     </button>
                 </div>
@@ -185,7 +185,7 @@ export const BreachReport = ({
                             <div className="breached-entries">
                                 {breachedEmailEntries.map(entry => (
                                     <div key={entry.entry.id} className="breached-entry">
-                                        <div className="entry-info">
+                                        <div className="report-entry-info">
                                             <h3>{entry.entry.title}</h3>
                                             <p className="username">{entry.entry.username}</p>
                                             <p className="group-path">Group: {entry.group.name}</p>
@@ -215,7 +215,7 @@ export const BreachReport = ({
                             <div className="breached-entries">
                                 {expiredEntries.map(({ entry, group }) => (
                                     <div key={entry.id} className="breached-entry">
-                                        <div className="entry-info">
+                                        <div className="report-entry-info">
                                             <h3>{entry.title}</h3>
                                             <p className="username">{entry.username}</p>
                                             <p className="group-path">Group: {group.name}</p>

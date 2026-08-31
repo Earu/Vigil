@@ -120,7 +120,7 @@ export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: Au
             <div className="main-content">
                 <div className="database-form">
                     <div className="form-icon">
-                        <LockAuthIcon className="lock-icon" />
+                        <LockAuthIcon className="auth-lock-icon" />
                     </div>
                     <h1>{isCreatingNew ? 'Create Database' : 'Open Database'}</h1>
 

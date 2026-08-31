@@ -557,7 +557,7 @@ export const PasswordForm = ({
                     <div className="form-buttons">
                         {isCreatingNew && (
                             <button
-                                className="cancel-button"
+                                className="auth-cancel-button"
                                 onClick={() => {
                                     setIsCreatingNew(false);
                                     setSelectedFile(null);
