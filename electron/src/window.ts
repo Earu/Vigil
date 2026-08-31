@@ -21,15 +21,29 @@ export function findVaultWindow(filePath: string): BrowserWindow | undefined {
     return win && !win.isDestroyed() ? win : undefined;
 }
 
-export function registerVault(filePath: string, win: BrowserWindow): void {
-    unregisterWindow(win);
-    vaultWindows.set(normalizeVaultPath(filePath), win);
+// Notified with the open-vault count after every registry change; browser
+// integration uses the 0 <-> n transitions for lock/unlock signals
+let vaultWindowsListener: ((count: number) => void) | null = null;
+
+export function onVaultWindowsChanged(listener: (count: number) => void): void {
+    vaultWindowsListener = listener;
 }
 
-export function unregisterWindow(win: BrowserWindow): void {
+function removeWindow(win: BrowserWindow): void {
     for (const [key, value] of vaultWindows) {
         if (value === win) vaultWindows.delete(key);
     }
+}
+
+export function registerVault(filePath: string, win: BrowserWindow): void {
+    removeWindow(win);
+    vaultWindows.set(normalizeVaultPath(filePath), win);
+    vaultWindowsListener?.(getVaultWindows().length);
+}
+
+export function unregisterWindow(win: BrowserWindow): void {
+    removeWindow(win);
+    vaultWindowsListener?.(getVaultWindows().length);
 }
 
 export function getVaultWindows(): BrowserWindow[] {
