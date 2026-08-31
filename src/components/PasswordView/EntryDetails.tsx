@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Entry, EntryVersion, Attachment, CustomField } from '../../types/database';
+import { TotpService } from '../../services/TotpService';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
@@ -89,6 +90,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
 	const [showVersionPassword, setShowVersionPassword] = useState(false);
 	const [revealedCustomFields, setRevealedCustomFields] = useState<Set<number>>(new Set());
+	const [totpCode, setTotpCode] = useState<string>('');
+	const [totpSecondsLeft, setTotpSecondsLeft] = useState<number>(0);
+	const [totpInput, setTotpInput] = useState('');
+	const [totpError, setTotpError] = useState('');
 	const timerRef = useRef<NodeJS.Timeout>();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
@@ -102,6 +107,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		setExpandedVersion(null);
 		setShowVersionPassword(false);
 		setRevealedCustomFields(new Set());
+		setTotpInput('');
+		setTotpError('');
 		if (!isNew && entry) {
 			setEditedEntry(entry);
 			setIsEditing(false);
@@ -317,6 +324,73 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		});
 	};
 
+	const totpConfig = useMemo(
+		() => TotpService.getConfig(editedEntry.customFields),
+		[editedEntry.customFields]
+	);
+
+	// TOTP fields get dedicated UI; keep them out of the generic custom field
+	// list but preserve original indices for the handlers
+	const visibleCustomFields = useMemo(
+		() => editedEntry.customFields
+			.map((field, index) => ({ field, index }))
+			.filter(({ field }) => !TotpService.isTotpKey(field.key)),
+		[editedEntry.customFields]
+	);
+
+	useEffect(() => {
+		if (!totpConfig) {
+			setTotpCode('');
+			return;
+		}
+		let cancelled = false;
+		const tick = async () => {
+			try {
+				const code = await TotpService.generateCode(totpConfig);
+				if (!cancelled) {
+					setTotpCode(code);
+					setTotpSecondsLeft(TotpService.secondsRemaining(totpConfig));
+				}
+			} catch {
+				if (!cancelled) setTotpCode('');
+			}
+		};
+		tick();
+		const interval = setInterval(tick, 1000);
+		return () => {
+			cancelled = true;
+			clearInterval(interval);
+		};
+	}, [totpConfig]);
+
+	const handleAddTotp = () => {
+		const config = TotpService.parseUserInput(totpInput);
+		if (!config) {
+			setTotpError('Enter a base32 secret or an otpauth:// URI');
+			return;
+		}
+		setEditedEntry(prev => ({
+			...prev,
+			customFields: [
+				...prev.customFields.filter(f => !TotpService.isTotpKey(f.key)),
+				{
+					key: 'otp',
+					value: TotpService.buildOtpAuthUri(config, prev.title),
+					protected: true,
+				},
+			],
+		}));
+		setTotpInput('');
+		setTotpError('');
+	};
+
+	const handleRemoveTotp = () => {
+		setEditedEntry(prev => ({
+			...prev,
+			customFields: prev.customFields.filter(f => !TotpService.isTotpKey(f.key)),
+		}));
+	};
+
 	const handleRestoreVersion = (version: EntryVersion) => {
 		const restored: Entry = {
 			...editedEntry,
@@ -494,6 +568,75 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					)}
 				</div>
 
+				{!isEditing && totpConfig && totpCode && (
+					<div className="field-group">
+						<label>One-Time Code</label>
+						<div className="field-value-container">
+							<div className="totp-display">
+								<span className="totp-code">
+									{totpCode.slice(0, Math.ceil(totpCode.length / 2))}&thinsp;{totpCode.slice(Math.ceil(totpCode.length / 2))}
+								</span>
+								<span className={`totp-countdown ${totpSecondsLeft <= 5 ? 'expiring' : ''}`}>
+									{totpSecondsLeft}s
+								</span>
+							</div>
+							{renderCopyButton(
+								() => copyToClipboard(totpCode, 'One-time code'),
+								'Copy one-time code',
+								'One-time code'
+							)}
+						</div>
+						<div className="totp-progress">
+							<div
+								className="totp-progress-bar"
+								style={{ width: `${(totpSecondsLeft / totpConfig.period) * 100}%` }}
+							/>
+						</div>
+					</div>
+				)}
+
+				{isEditing && (
+					<div className="field-group">
+						<label>One-Time Password</label>
+						{totpConfig ? (
+							<div className="totp-configured-row">
+								<span className="totp-configured-text">
+									TOTP configured ({totpConfig.digits} digits, {totpConfig.period}s, {totpConfig.algorithm})
+								</span>
+								<button
+									className="attachment-action-button remove"
+									onClick={handleRemoveTotp}
+									title="Remove one-time password"
+									type="button"
+								>
+									<CloseActionIcon />
+								</button>
+							</div>
+						) : (
+							<>
+								<div className="totp-add-row">
+									<input
+										type="text"
+										className="field-value"
+										value={totpInput}
+										placeholder="Secret or otpauth:// URI"
+										onChange={(e) => { setTotpInput(e.target.value); setTotpError(''); }}
+									/>
+									<button
+										className="totp-add-button"
+										onClick={handleAddTotp}
+										disabled={!totpInput.trim()}
+										type="button"
+									>
+										Add
+									</button>
+								</div>
+								{totpError && <div className="totp-error">{totpError}</div>}
+							</>
+						)}
+					</div>
+				)}
+
 				<div className="field-group">
 					<label>URL</label>
 					<div className="field-value-container">
@@ -566,7 +709,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					/>
 				</div>
 
-				{!isEditing && editedEntry.customFields.map((field, index) => (
+				{!isEditing && visibleCustomFields.map(({ field, index }) => (
 					<div className="field-group" key={index}>
 						<label>{field.key}</label>
 						<div className="field-value-container">
@@ -598,7 +741,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 					<div className="field-group">
 						<label>Custom Fields</label>
 						<div className="custom-fields-list">
-							{editedEntry.customFields.map((field, index) => (
+							{visibleCustomFields.map(({ field, index }) => (
 								<div className="custom-field-row" key={index}>
 									<input
 										type="text"
