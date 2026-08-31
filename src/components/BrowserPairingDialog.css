@@ -1,0 +1,85 @@
+.pairing-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1200;
+    backdrop-filter: blur(4px);
+}
+
+.pairing-dialog {
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    width: 90%;
+    max-width: 420px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.pairing-dialog h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.pairing-dialog p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-tertiary);
+    line-height: 1.4;
+}
+
+.pairing-name-input {
+    padding: 0.6rem 0.8rem;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    color: var(--color-white);
+    font-size: 0.9rem;
+}
+
+.pairing-name-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.pairing-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+}
+
+.pairing-actions button {
+    padding: 0.5rem 1.1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.pairing-cancel-button {
+    background-color: var(--overlay-medium);
+    border: 1px solid var(--border-primary);
+    color: var(--text-tertiary);
+}
+
+.pairing-cancel-button:hover {
+    background-color: var(--overlay-dark);
+    color: var(--text-secondary);
+}
+
+.pairing-allow-button {
+    background-color: var(--accent);
+    border: 1px solid transparent;
+    color: var(--accent-contrast);
+    font-weight: 600;
+}
+
+.pairing-allow-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

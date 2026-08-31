@@ -32,6 +32,10 @@ export function unregisterWindow(win: BrowserWindow): void {
     }
 }
 
+export function getVaultWindows(): BrowserWindow[] {
+    return [...new Set(vaultWindows.values())].filter(win => !win.isDestroyed());
+}
+
 // A window showing the unlock screen (no vault open) that can take a file
 export function findIdleWindow(): BrowserWindow | undefined {
     return BrowserWindow.getAllWindows().find(win =>

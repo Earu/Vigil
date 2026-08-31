@@ -37,6 +37,10 @@ export interface IElectronAPI {
 	reportVaultOpened: (filePath: string) => Promise<{ duplicate: boolean }>;
 	reportVaultClosed: () => Promise<void>;
 	qrCaptureScreens: () => Promise<{ success: boolean; images?: string[]; error?: string }>;
+	browserIntegrationRespond: (id: number, result: unknown) => void;
+	getBrowserIntegrationStatus: () => Promise<{ enabled: boolean; running: boolean; socketPath: string }>;
+	setBrowserIntegrationEnabled: (enabled: boolean) => Promise<{ success: boolean; running: boolean; written?: string[]; error?: string }>;
+	installBrowserManifests: () => Promise<{ success: boolean; written: string[]; error?: string }>;
 	getUpdateStatus: () => Promise<UpdateStatus>;
 	checkForUpdates: () => Promise<UpdateStatus>;
 	installUpdate: () => Promise<void>;

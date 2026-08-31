@@ -2,7 +2,9 @@ import { app, BrowserWindow, powerMonitor } from 'electron';
 import { createWindow, findVaultWindow, findIdleWindow, focusWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
 import { setupAutoUpdater } from './src/updater';
+import { setupBrowserIntegration } from './src/browser-integration';
 import { handleFileOpen } from './src/file-operations';
+import path from 'path';
 
 declare global {
     namespace NodeJS {
@@ -11,6 +13,13 @@ declare global {
         }
     }
 }
+
+// In dev the app path has no package.json, so Electron would fall back to
+// "Electron" and put userData in ~/.config/Electron; pin the name so dev and
+// packaged builds share ~/.config/Vigil. setName alone is not enough:
+// userData is derived before app code runs and must be re-pointed explicitly
+app.setName('Vigil');
+app.setPath('userData', path.join(app.getPath('appData'), 'Vigil'));
 
 function triggerLock() {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -69,6 +78,7 @@ app.on('second-instance', (_event, argv) => {
 app.whenReady().then(() => {
     setupIpcHandlers();
     setupAutoUpdater();
+    setupBrowserIntegration();
     if (process.platform === 'linux' && !process.env.WAYLAND_DISPLAY) {
         // On X11 a transparent window created right at 'ready' can come up
         // with an opaque visual; a short delay avoids it
