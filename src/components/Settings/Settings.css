@@ -506,3 +506,25 @@
     color: var(--color-error);
     border-color: var(--color-error);
 }
+
+.update-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.update-status-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.update-status-row button {
+    width: auto;
+    flex-shrink: 0;
+}
+
+.update-status-row button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, powerMonitor } from 'electron';
 import { createWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
+import { setupAutoUpdater } from './src/updater';
 import { handleFileOpen } from './src/file-operations';
 
 declare global {
@@ -28,6 +29,7 @@ if (process.platform === 'linux') {
 
 app.whenReady().then(() => {
     setupIpcHandlers();
+    setupAutoUpdater();
     if (process.platform === 'linux' && !process.env.WAYLAND_DISPLAY) {
         // On X11 a transparent window created right at 'ready' can come up
         // with an opaque visual; a short delay avoids it

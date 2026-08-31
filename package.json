@@ -1,7 +1,7 @@
 {
 	"name": "vigil",
 	"private": true,
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"description": "A password manager with modern UI, security checks, and more.",
 	"author": "Ryan",
 	"scripts": {
@@ -31,6 +31,7 @@
 		"detect-libc": "^2.0.3",
 		"electron": "^29.4.6",
 		"electron-builder": "^24.13.3",
+		"electron-updater": "^6.8.9",
 		"esbuild": "^0.20.2",
 		"node-addon-api": "^8.3.0",
 		"typescript": "~5.6.2",
@@ -57,20 +58,28 @@
 		"extraMetadata": {
 			"main": "dist-electron/main.js"
 		},
+		"publish": {
+			"provider": "github",
+			"owner": "Earu",
+			"repo": "Vigil"
+		},
 		"mac": {
 			"target": "dmg",
-			"icon": "build/icons/icon.icns"
+			"icon": "build/icons/icon.icns",
+			"artifactName": "vigil-macos-${arch}-v${version}.${ext}"
 		},
 		"linux": {
 			"target": "AppImage",
 			"icon": "build/icons/icon.png",
+			"artifactName": "vigil-linux-${arch}-v${version}.${ext}",
 			"executableArgs": [
 				"--ozone-platform-hint=auto"
 			]
 		},
 		"win": {
 			"target": "nsis",
-			"icon": "build/icons/icon.ico"
+			"icon": "build/icons/icon.ico",
+			"artifactName": "vigil-windows-${arch}-v${version}.${ext}"
 		},
 		"fileAssociations": [
 			{
