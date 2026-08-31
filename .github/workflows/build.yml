@@ -60,7 +60,7 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libnss3 libsecret-1-dev
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev
 
     - name: Build Electron app
       run: npm run electron:build -- --publish never
