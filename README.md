@@ -14,14 +14,21 @@ A modern, secure password manager with a beautiful user interface, built using E
 | Modern UI | Clean, dense interface with light and dark themes |
 | File attachments | Add, download and remove files on any entry |
 | Entry history | Every edit records a revision, browse and restore past versions |
-| One-time codes | TOTP with live codes, reads KeePassXC, KeePass and KeeTrayTOTP fields |
+| One-time codes | TOTP with live codes, add secrets by scanning a QR code (screen, clipboard or image) |
+| Browser integration | Autofill, save and update logins via the KeePassXC-Browser extension (Linux, macOS) |
+| Import | Bitwarden, LastPass, 1Password, KeePassXC and generic CSV, format auto-detected |
+| Export | KeePassXC-compatible CSV export |
+| Password generator | Character and passphrase modes with entropy estimate |
 | Custom fields | Arbitrary entry fields with per-field protection |
 | Key files | Unlock with a key file alongside the master password |
 | Entry expiry | Expiry dates with visual indicators for expired entries |
 | Recycle bin | Deleted entries and groups can be restored or purged |
 | Security report | Breached, weak, exposed and expired credentials (HaveIBeenPwned) |
 | Biometrics | Windows Hello/biometric unlock, credentials in the system keychain |
-| Strong crypto | Argon2 password hashing |
+| Strong crypto | Argon2 password hashing, Argon2id defaults for new databases |
+| Database settings | Master password change, KDF tuning, name, description, history retention |
+| Multiple vaults | Each database opens in its own window |
+| Large vaults | Virtualized entry list, fast unlock, search and save with thousands of entries |
 | Safe saves | Atomic writes, external changes to the file are merged, not clobbered |
 | Auto-updates | Self-updating builds on Windows and Linux |
 | Cross-platform | Windows, macOS, Linux |
