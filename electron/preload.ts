@@ -38,6 +38,9 @@ const api: IElectronAPI = {
 		return () => { ipcRenderer.off(channel, wrapper) }
 	},
 	checkEmailBreaches: (email: string, apiKey: string) => ipcRenderer.invoke('check-email-breaches', email, apiKey),
+	isHardwareKeyPresent: () => ipcRenderer.invoke('hardware-key-present'),
+	listHardwareKeys: () => ipcRenderer.invoke('hardware-key-list'),
+	hardwareKeyChallenge: (serial, slot, challenge) => ipcRenderer.invoke('hardware-key-challenge', serial, slot, challenge),
 	showNotification: (options) => ipcRenderer.invoke('show-notification', options),
 	reportVaultOpened: (filePath: string) => ipcRenderer.invoke('vault-opened', filePath),
 	reportVaultClosed: () => ipcRenderer.invoke('vault-closed'),

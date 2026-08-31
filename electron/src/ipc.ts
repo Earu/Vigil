@@ -22,12 +22,44 @@ import {
     disableBiometrics
 } from './biometrics';
 import { checkEmailBreaches } from './hibp';
+import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
 import path from 'path';
 
 export function setupIpcHandlers(): void {
     // Crypto handlers
     ipcMain.handle('argon2', async (_, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
         return await hashPassword(password, salt, memory, iterations, length, parallelism, type, version);
+    });
+
+    // Hardware key (YubiKey challenge-response) handlers
+    ipcMain.handle('hardware-key-present', () => {
+        return hardwareKeyPresent();
+    });
+
+    ipcMain.handle('hardware-key-list', async () => {
+        return await listHardwareKeys();
+    });
+
+    ipcMain.handle('hardware-key-challenge', async (event, serial: number | null, slot: number, challenge: ArrayBuffer) => {
+        // 'hardware-key-touch' opens the renderer's touch prompt; the paired
+        // 'hardware-key-touch-done' closes it however the challenge ends
+        let touchSignaled = false;
+        try {
+            const response = await hardwareKeyChallenge(
+                serial,
+                slot === 1 ? 1 : 2,
+                new Uint8Array(challenge),
+                () => {
+                    touchSignaled = true;
+                    if (!event.sender.isDestroyed()) event.sender.send('hardware-key-touch');
+                }
+            );
+            return { success: true, response };
+        } catch (error) {
+            return { success: false, error: error instanceof Error ? error.message : String(error) };
+        } finally {
+            if (touchSignaled && !event.sender.isDestroyed()) event.sender.send('hardware-key-touch-done');
+        }
     });
 
     // File operation handlers

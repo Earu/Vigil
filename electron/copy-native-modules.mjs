@@ -2,10 +2,13 @@ import { familySync, GLIBC } from 'detect-libc';
 import fs from 'fs';
 import path from 'path';
 
-const modulesToCopy = ['keytar', '@node-rs/argon2'];
+const modulesToCopy = ['keytar', '@node-rs/argon2', 'node-hid'];
 if (process.platform === 'win32') {
     modulesToCopy.push('passport-desktop');
 }
+
+// Modules whose prebuild file name says nothing about the module
+const outputNames = { 'node-hid': 'node-hid.node' };
 
 // Get the platform-specific path for node native modules
 function getModulePath(moduleName) {
@@ -43,6 +46,23 @@ function getModulePath(moduleName) {
         return path.join(nativeModulePath, nativeFile);
     }
 
+    // node-hid ships prebuilds per platform; on Linux the hidraw variant is
+    // the one the wrapper selects by default
+    if (moduleName === 'node-hid') {
+        const platform = process.platform;
+        const arch = process.arch;
+        let name;
+        if (platform === 'linux') {
+            const muslSuffix = familySync() === GLIBC ? '' : '-musl';
+            name = `HID_hidraw-linux-${arch}${muslSuffix}`;
+        } else if (platform === 'win32') {
+            name = `HID-win32-${arch}`;
+        } else {
+            name = `HID-darwin-${arch}`;
+        }
+        return path.join(basePath, 'prebuilds', name, 'node-napi-v4.node');
+    }
+
     // Default handling for other modules
     const buildPath = path.join(basePath, 'build', 'Release');
     const files = fs.readdirSync(buildPath);
@@ -60,7 +80,7 @@ if (!fs.existsSync(destDir)) {
 for (const moduleName of modulesToCopy) {
     try {
         const modulePath = getModulePath(moduleName);
-        const fileName = path.basename(modulePath);
+        const fileName = outputNames[moduleName] ?? path.basename(modulePath);
         const targetPath = path.join(process.cwd(), 'dist-electron', fileName);
         fs.copyFileSync(modulePath, targetPath);
         console.log(`Copied ${fileName} to dist-electron`);
