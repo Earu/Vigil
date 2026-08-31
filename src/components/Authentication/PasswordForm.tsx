@@ -363,6 +363,8 @@ export const PasswordForm = ({
         try {
             const credentials = await buildCredentials(password);
             const db = kdbxweb.Kdbx.create(credentials, databaseName.trim());
+            // kdbxweb defaults to Argon2d with 1 MiB / 2 iterations, far too weak
+            KeepassDatabaseService.setKdf(db, { type: 'argon2id', iterations: 3, memoryMiB: 64, parallelism: 4 });
 
             // Seed the new database with imported passwords if any
             if (browserPasswords && browserPasswords.entries.length > 0) {

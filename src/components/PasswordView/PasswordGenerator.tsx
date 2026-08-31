@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import './PasswordGenerator.css';
 import * as kdbxweb from 'kdbxweb';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
+import { PassphraseService, PassphraseOptions } from '../../services/PassphraseService';
 import { CloseActionIcon, CopyActionIcon, RefreshActionIcon } from '../../icons/actions/ActionIcons';
 
 interface PasswordGeneratorProps {
@@ -24,8 +25,18 @@ interface PasswordOptions {
     customChars: string;
 }
 
+type GeneratorMode = 'characters' | 'words';
+
 export const PasswordGenerator = ({ onClose, onSave, currentPassword }: PasswordGeneratorProps) => {
     const [generatedPassword, setGeneratedPassword] = useState('');
+    const [mode, setMode] = useState<GeneratorMode>('characters');
+    const [passphraseOptions, setPassphraseOptions] = useState<PassphraseOptions>({
+        wordCount: 5,
+        separator: '-',
+        capitalize: false,
+        includeNumber: false,
+    });
+    const [passphraseBits, setPassphraseBits] = useState<number | null>(null);
     const [options, setOptions] = useState<PasswordOptions>(() => {
         const defaultOptions = {
             length: 20,
@@ -112,9 +123,37 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
             .join('');
 
         setGeneratedPassword(password);
+        setPassphraseBits(null);
 
         // Check strength of generated password locally (no network call)
         setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(password));
+    };
+
+    const generatePassphrase = (opts: PassphraseOptions = passphraseOptions) => {
+        const phrase = PassphraseService.generate(opts);
+        const bits = PassphraseService.entropyBits(opts);
+        setGeneratedPassword(phrase);
+        setPassphraseBits(bits);
+        const score = bits < 45 ? 1 : bits < 60 ? 2 : bits < 80 ? 3 : 4;
+        setPasswordStrength({ score, feedback: { warning: '', suggestions: [] } });
+    };
+
+    const regenerate = () => {
+        if (mode === 'words') generatePassphrase();
+        else generatePassword();
+    };
+
+    const switchMode = (next: GeneratorMode) => {
+        if (next === mode) return;
+        setMode(next);
+        if (next === 'words') generatePassphrase();
+        else generatePassword();
+    };
+
+    const updatePassphraseOptions = (patch: Partial<PassphraseOptions>) => {
+        const next = { ...passphraseOptions, ...patch };
+        setPassphraseOptions(next);
+        generatePassphrase(next);
     };
 
     const handleSave = () => {
@@ -155,6 +194,21 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                     </button>
                 </div>
 
+                <div className="generator-tabs">
+                    <button
+                        className={`generator-tab ${mode === 'characters' ? 'active' : ''}`}
+                        onClick={() => switchMode('characters')}
+                    >
+                        Characters
+                    </button>
+                    <button
+                        className={`generator-tab ${mode === 'words' ? 'active' : ''}`}
+                        onClick={() => switchMode('words')}
+                    >
+                        Passphrase
+                    </button>
+                </div>
+
                 <div className="generated-password-section">
                     <div className="password-display">
                         <input
@@ -167,7 +221,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                             <button onClick={copyToClipboard} title="Copy password">
                                 <CopyActionIcon />
                             </button>
-                            <button onClick={generatePassword} title="Generate new password">
+                            <button onClick={regenerate} title="Generate new password">
                                 <RefreshActionIcon />
                             </button>
                         </div>
@@ -186,12 +240,76 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 {passwordStrength.score === 2 && 'Fair'}
                                 {passwordStrength.score === 3 && 'Strong'}
                                 {passwordStrength.score === 4 && 'Very Strong'}
+                                {passphraseBits !== null && ` (~${passphraseBits} bits)`}
                             </div>
                         </div>
                     )}
                 </div>
 
                 <div className="password-options">
+                    {mode === 'words' && (
+                        <>
+                            <div className="option-group">
+                                <label>Number of Words</label>
+                                <div className="length-control">
+                                    <input
+                                        type="range"
+                                        min="3"
+                                        max="12"
+                                        value={passphraseOptions.wordCount}
+                                        onChange={(e) => updatePassphraseOptions({ wordCount: parseInt(e.target.value) })}
+                                    />
+                                    <input
+                                        type="number"
+                                        min="3"
+                                        max="12"
+                                        value={passphraseOptions.wordCount}
+                                        onChange={(e) => {
+                                            const n = parseInt(e.target.value);
+                                            if (!isNaN(n)) updatePassphraseOptions({ wordCount: Math.min(12, Math.max(3, n)) });
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                            <div className="option-group">
+                                <label>Word Separator</label>
+                                <input
+                                    type="text"
+                                    className="generator-separator-input"
+                                    maxLength={4}
+                                    value={passphraseOptions.separator}
+                                    onChange={(e) => updatePassphraseOptions({ separator: e.target.value })}
+                                    placeholder="-"
+                                />
+                            </div>
+                            <div className="option-group">
+                                <label>Options</label>
+                                <div className="checkbox-group">
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            checked={passphraseOptions.capitalize}
+                                            onChange={(e) => updatePassphraseOptions({ capitalize: e.target.checked })}
+                                        />
+                                        Capitalize words
+                                    </label>
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            checked={passphraseOptions.includeNumber}
+                                            onChange={(e) => updatePassphraseOptions({ includeNumber: e.target.checked })}
+                                        />
+                                        Include a number
+                                    </label>
+                                </div>
+                            </div>
+                            <p className="generator-wordlist-note">
+                                Words are drawn from the EFF large wordlist (7,776 words, ~12.9 bits of entropy per word).
+                            </p>
+                        </>
+                    )}
+                    {mode === 'characters' && (
+                    <>
                     <div className="option-group">
                         <label>Password Length</label>
                         <div className="length-control">
@@ -299,6 +417,8 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                             placeholder="Add your own characters"
                         />
                     </div>
+                    </>
+                    )}
                 </div>
 
                 <div className="generator-modal-footer">
