@@ -8,13 +8,27 @@ A modern, secure password manager with a beautiful user interface, built using E
 
 ## Features
 
-- Secure KeePass (.kdbx) database support
-- Modern and intuitive user interface
-- HaveIBeenPwned integration for password security checks
-- Windows Hello/Biometric authentication support
-- Secure credential storage using system keychain
-- Strong encryption with Argon2 password hashing
-- Cross-platform support (Windows, macOS, Linux)
+| Feature | Details |
+| --- | --- |
+| KeePass databases | Full .kdbx support, compatible with KeePass, KeePassXC and others |
+| Modern UI | Clean, dense interface with light and dark themes |
+| File attachments | Add, download and remove files on any entry |
+| Entry history | Every edit records a revision, browse and restore past versions |
+| One-time codes | TOTP with live codes, reads KeePassXC, KeePass and KeeTrayTOTP fields |
+| Custom fields | Arbitrary entry fields with per-field protection |
+| Key files | Unlock with a key file alongside the master password |
+| Entry expiry | Expiry dates with visual indicators for expired entries |
+| Recycle bin | Deleted entries and groups can be restored or purged |
+| Security report | Breached, weak, exposed and expired credentials (HaveIBeenPwned) |
+| Biometrics | Windows Hello/biometric unlock, credentials in the system keychain |
+| Strong crypto | Argon2 password hashing |
+| Safe saves | Atomic writes, external changes to the file are merged, not clobbered |
+| Auto-updates | Self-updating builds on Windows and Linux |
+| Cross-platform | Windows, macOS, Linux |
+
+## Download
+
+Grab the latest installer from the [releases page](https://github.com/Earu/Vigil/releases): Windows installer (x64), Linux AppImage (x64) or macOS DMG (Apple Silicon). The Windows and Linux builds update themselves when a new release is published.
 
 ## Development
 
