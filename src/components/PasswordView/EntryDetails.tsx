@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Entry, EntryVersion, Attachment, CustomField } from '../../types/database';
-import { TotpService } from '../../services/TotpService';
+import { TotpService, MigrationAccount, TotpConfig } from '../../services/TotpService';
 import { QrScanService } from '../../services/QrScanService';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
@@ -121,6 +121,9 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	const [totpSecondsLeft, setTotpSecondsLeft] = useState<number>(0);
 	const [totpInput, setTotpInput] = useState('');
 	const [totpError, setTotpError] = useState('');
+	// Non-null while a multi-account Google Authenticator export awaits a pick
+	const [migrationAccounts, setMigrationAccounts] = useState<MigrationAccount[] | null>(null);
+	const [migrationSelected, setMigrationSelected] = useState(0);
 	const timerRef = useRef<NodeJS.Timeout>();
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const lastCopiedText = useRef('');
@@ -447,12 +450,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		};
 	}, [totpConfig]);
 
-	const applyTotpText = (text: string, invalidMessage: string): boolean => {
-		const config = TotpService.parseUserInput(text);
-		if (!config) {
-			setTotpError(invalidMessage);
-			return false;
-		}
+	const applyTotpConfig = (config: TotpConfig) => {
 		setEditedEntry(prev => ({
 			...prev,
 			customFields: [
@@ -466,6 +464,15 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		}));
 		setTotpInput('');
 		setTotpError('');
+	};
+
+	const applyTotpText = (text: string, invalidMessage: string): boolean => {
+		const config = TotpService.parseUserInput(text);
+		if (!config) {
+			setTotpError(invalidMessage);
+			return false;
+		}
+		applyTotpConfig(config);
 		return true;
 	};
 
@@ -479,7 +486,18 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			return;
 		}
 		if (result.text.startsWith('otpauth-migration://')) {
-			setTotpError('Google Authenticator export QR codes are unsupported; show the QR for a single account instead');
+			const accounts = TotpService.parseMigrationUri(result.text);
+			if (!accounts || accounts.length === 0) {
+				setTotpError('Could not read the Google Authenticator export QR');
+				return;
+			}
+			if (accounts.length === 1) {
+				applyTotpConfig(accounts[0].config);
+				return;
+			}
+			// Several accounts in the export: let the user pick the one that
+			// belongs to this entry
+			setMigrationAccounts(accounts);
 			return;
 		}
 		applyTotpText(result.text, 'The QR code holds no TOTP secret');
@@ -1109,6 +1127,49 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					</div>
 				)}
 
+				{migrationAccounts && (
+					<div className="pairing-overlay">
+						<div className="pairing-dialog">
+							<h3>Choose an account</h3>
+							<p>The Google Authenticator export holds {migrationAccounts.length} accounts. Pick the one for this entry.</p>
+							<div className="passkey-entry-list">
+								{migrationAccounts.map((account, i) => (
+									<label key={i} className="passkey-entry-row">
+										<input
+											type="radio"
+											name="migration-account"
+											checked={migrationSelected === i}
+											onChange={() => setMigrationSelected(i)}
+										/>
+										<span className="passkey-entry-title">{account.issuer || account.name || 'Unnamed account'}</span>
+										{account.issuer && account.name && <span className="passkey-entry-username">{account.name}</span>}
+									</label>
+								))}
+							</div>
+							<div className="pairing-actions">
+								<button
+									className="pairing-cancel-button"
+									onClick={() => {
+										setMigrationAccounts(null);
+										setMigrationSelected(0);
+									}}
+								>
+									Cancel
+								</button>
+								<button
+									className="pairing-allow-button"
+									onClick={() => {
+										applyTotpConfig(migrationAccounts[migrationSelected].config);
+										setMigrationAccounts(null);
+										setMigrationSelected(0);
+									}}
+								>
+									Use this account
+								</button>
+							</div>
+						</div>
+					</div>
+				)}
 				{showPasswordGenerator && (
 					<PasswordGenerator
 						onClose={() => setShowPasswordGenerator(false)}
