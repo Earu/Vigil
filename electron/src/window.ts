@@ -77,7 +77,7 @@ export function createWindow(startupFile?: string) {
                         ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
                           "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
                           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-                          "img-src 'self' data: https://www.google.com https://*.gstatic.com; " +
+                          "img-src 'self' data: blob: https://www.google.com https://*.gstatic.com; " +
                           "font-src 'self' https://fonts.gstatic.com; " +
                           "connect-src 'self' ws://localhost:5173 http://localhost:5173 https://api.pwnedpasswords.com https://haveibeenpwned.com; " +
                           "base-uri 'self'; " +
@@ -86,7 +86,7 @@ export function createWindow(startupFile?: string) {
                         : "default-src 'self';" +
                           "script-src 'self';" +
                           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;" +
-                          "img-src 'self' data: https://www.google.com https://*.gstatic.com;" +
+                          "img-src 'self' data: blob: https://www.google.com https://*.gstatic.com;" +
                           "font-src 'self' https://fonts.gstatic.com;" +
                           "connect-src 'self' https://api.pwnedpasswords.com https://haveibeenpwned.com;" +
                           "base-uri 'self';" +

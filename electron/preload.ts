@@ -40,6 +40,7 @@ const api: IElectronAPI = {
 	showNotification: (options) => ipcRenderer.invoke('show-notification', options),
 	reportVaultOpened: (filePath: string) => ipcRenderer.invoke('vault-opened', filePath),
 	reportVaultClosed: () => ipcRenderer.invoke('vault-closed'),
+	qrCaptureScreens: () => ipcRenderer.invoke('qr-capture-screens'),
 	getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
 	checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 	installUpdate: () => ipcRenderer.invoke('install-update')

@@ -207,6 +207,29 @@
     color: var(--color-error);
 }
 
+.totp-qr-button {
+    padding: 0.35rem;
+    background: none;
+    border: none;
+    border-radius: var(--radius-md);
+    color: var(--text-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.totp-qr-button:hover {
+    background-color: var(--overlay-medium);
+    color: var(--text-secondary);
+}
+
+.totp-qr-button svg {
+    width: 1rem;
+    height: 1rem;
+}
+
 .custom-fields-list {
     display: flex;
     flex-direction: column;

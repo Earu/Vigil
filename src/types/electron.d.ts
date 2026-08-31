@@ -36,6 +36,7 @@ export interface IElectronAPI {
 	showNotification: (options: { title: string, body: string }) => Promise<void>;
 	reportVaultOpened: (filePath: string) => Promise<{ duplicate: boolean }>;
 	reportVaultClosed: () => Promise<void>;
+	qrCaptureScreens: () => Promise<{ success: boolean; images?: string[]; error?: string }>;
 	getUpdateStatus: () => Promise<UpdateStatus>;
 	checkForUpdates: () => Promise<UpdateStatus>;
 	installUpdate: () => Promise<void>;
