@@ -1,0 +1,20 @@
+/* Builds on the pairing dialog styles (pairing-overlay etc.) */
+
+.hardware-key-touch-dialog {
+    text-align: center;
+    align-items: center;
+}
+
+.hardware-key-touch-icon {
+    width: 2.2rem;
+    height: 2.2rem;
+    color: var(--text-secondary);
+    margin: 0 auto 0.5rem;
+    display: block;
+    animation: hardware-key-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes hardware-key-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+}

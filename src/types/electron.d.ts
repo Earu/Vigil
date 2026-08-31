@@ -7,6 +7,14 @@ export type UpdateStatus =
 	| { state: 'downloaded'; version: string }
 	| { state: 'error'; message: string };
 
+export interface HardwareKeyInfo {
+	path: string;
+	product: string;
+	serial: number | null;
+	slot1Configured: boolean;
+	slot2Configured: boolean;
+}
+
 export interface IElectronAPI {
 	focusWindow: () => Promise<void>;
 	minimizeWindow: () => Promise<void>;
@@ -34,6 +42,9 @@ export interface IElectronAPI {
 	getPlatform: () => Promise<string>;
 	on: (channel: string, callback: (...args: any[]) => void) => () => void;
 	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;
+	isHardwareKeyPresent: () => Promise<boolean>;
+	listHardwareKeys: () => Promise<{ keys: HardwareKeyInfo[]; blocked: boolean }>;
+	hardwareKeyChallenge: (serial: number | null, slot: 1 | 2, challenge: ArrayBuffer) => Promise<{ success: boolean; response?: Uint8Array; error?: string }>;
 	showNotification: (options: { title: string, body: string }) => Promise<void>;
 	reportVaultOpened: (filePath: string) => Promise<{ duplicate: boolean }>;
 	reportVaultClosed: () => Promise<void>;

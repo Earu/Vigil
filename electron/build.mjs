@@ -8,6 +8,7 @@ const config = {
 	external: [
 		'electron',
 		'keytar',
+		'node-hid',
 		// Exclude all .node files
 		'*.node',
 		// Exclude native modules

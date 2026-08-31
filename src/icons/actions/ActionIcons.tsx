@@ -157,6 +157,24 @@ export const KeyActionIcon: React.FC<ActionIconProps> = ({ className, color = 'c
         <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
     </svg>
 );
+export const UsbKeyIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={style}
+    >
+        <rect x="2" y="8" width="13" height="8" rx="1" />
+        <path d="M15 10h5a1 1 0 0 1 1 1v2a1 1 0 0 1-1 1h-5" />
+        <circle cx="7" cy="12" r="1.5" />
+    </svg>
+);
+
 export const AttachmentActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
     <svg
         xmlns="http://www.w3.org/2000/svg"

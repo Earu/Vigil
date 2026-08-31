@@ -1,5 +1,10 @@
 export type Theme = 'dark' | 'light' | 'system';
 
+export interface HardwareKeyPreference {
+    serial: number | null;
+    slot: 1 | 2;
+}
+
 interface UserSettings {
     theme: Theme;
     hibpApiKey?: string;
@@ -8,6 +13,8 @@ interface UserSettings {
     // Remembered key file path per database path. Only paths are stored,
     // never key material
     keyFilePaths?: Record<string, string>;
+    // Remembered hardware key (YubiKey challenge-response) per database path
+    hardwareKeys?: Record<string, HardwareKeyPreference>;
     // Fetching entry icons from Google's favicon service sends each entry's
     // domain to Google, so it is opt-in
     fetchFavicons?: boolean;
@@ -130,6 +137,21 @@ class UserSettingsService {
             delete paths[databasePath];
         }
         this.current.keyFilePaths = paths;
+        this.saveSettings();
+    }
+
+    getHardwareKey(databasePath: string): HardwareKeyPreference | undefined {
+        return this.current.hardwareKeys?.[databasePath];
+    }
+
+    setHardwareKey(databasePath: string, key: HardwareKeyPreference | undefined): void {
+        const keys = { ...(this.current.hardwareKeys ?? {}) };
+        if (key) {
+            keys[databasePath] = key;
+        } else {
+            delete keys[databasePath];
+        }
+        this.current.hardwareKeys = keys;
         this.saveSettings();
     }
 

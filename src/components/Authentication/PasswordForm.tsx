@@ -5,9 +5,47 @@ import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { ImportService, ImportResult } from '../../services/ImportService';
 import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
-import { KeyActionIcon } from '../../icons/actions/ActionIcons';
+import { KeyActionIcon, UsbKeyIcon } from '../../icons/actions/ActionIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
+
+interface HardwareKeySelection {
+    serial: number | null;
+    slot: 1 | 2;
+    label: string;
+}
+
+// Challenge-response against the YubiKey's HMAC-SHA1 slot, KeePassXC scheme.
+// kdbxweb calls this on load and on every save (the challenge is derived from
+// seeds that regenerate when saving), so touch-required slots prompt each time
+const hardwareKeyChallengeCallback = (serial: number | null, slot: 1 | 2) =>
+    async (challenge: ArrayBuffer): Promise<ArrayBuffer> => {
+        const result = await window.electron?.hardwareKeyChallenge(serial, slot, challenge);
+        if (!result?.success || !result.response) {
+            throw new Error(result?.error ?? 'HARDWARE_KEY_FAILED');
+        }
+        const bytes = new Uint8Array(result.response);
+        const out = new ArrayBuffer(bytes.length);
+        new Uint8Array(out).set(bytes);
+        return out;
+    };
+
+const hardwareKeyLabel = (serial: number | null) => serial != null ? `YubiKey ${serial}` : 'YubiKey';
+
+const hardwareKeyErrorMessage = (code: string): string => {
+    switch (code) {
+        case 'HARDWARE_KEY_NOT_FOUND':
+            return 'Hardware key not found. Plug in your YubiKey and try again.';
+        case 'HARDWARE_KEY_TOUCH_TIMEOUT':
+            return 'Hardware key timed out waiting for touch';
+        case 'HARDWARE_KEY_TIMEOUT':
+            return 'The hardware key did not respond. Is the selected slot configured for challenge-response?';
+        case 'HARDWARE_KEY_ACCESS_DENIED':
+            return 'Hardware key could not be opened. On Linux, install the Yubico udev rules and replug the key.';
+        default:
+            return 'Hardware key communication failed';
+    }
+};
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -49,6 +87,26 @@ export const PasswordForm = ({
     const [isBiometricsAvailable, setIsBiometricsAvailable] = useState(false);
     const [showPasswordInput, setShowPasswordInput] = useState(!initialBiometricsEnabled);
     const [keyFile, setKeyFile] = useState<{ path: string; name: string } | null>(null);
+    const [hardwareKey, setHardwareKey] = useState<HardwareKeySelection | null>(null);
+    const [hardwareKeyPresent, setHardwareKeyPresent] = useState(false);
+
+    // The hardware key option only shows when one is plugged in; poll so it
+    // appears when the key is inserted while sitting on this screen. The
+    // probe is pure USB enumeration, it never opens the device
+    useEffect(() => {
+        if (!window.electron?.isHardwareKeyPresent) return;
+        let cancelled = false;
+        const probe = async () => {
+            const present = await window.electron!.isHardwareKeyPresent().catch(() => false);
+            if (!cancelled) setHardwareKeyPresent(present);
+        };
+        probe();
+        const timer = setInterval(probe, 2500);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, []);
 
     const keyFileName = (path: string) => path.split(/[/\\]/).pop() || path;
 
@@ -56,27 +114,35 @@ export const PasswordForm = ({
         if (databasePath) {
             const remembered = userSettingsService.getKeyFilePath(databasePath);
             setKeyFile(remembered ? { path: remembered, name: keyFileName(remembered) } : null);
+            const rememberedHw = userSettingsService.getHardwareKey(databasePath);
+            setHardwareKey(rememberedHw ? { ...rememberedHw, label: hardwareKeyLabel(rememberedHw.serial) } : null);
         } else {
             setKeyFile(null);
+            setHardwareKey(null);
         }
     }, [databasePath]);
 
     const buildCredentials = async (passwordStr: string): Promise<kdbxweb.Credentials> => {
-        if (!keyFile) {
-            return new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(passwordStr));
+        let keyFileData: ArrayBuffer | undefined;
+        if (keyFile) {
+            const result = await window.electron?.readFile(keyFile.path);
+            if (!result?.success || !result.data) {
+                throw new Error('KEYFILE_READ_FAILED');
+            }
+            // Copy into a fresh, exactly-sized buffer before handing it to kdbxweb
+            keyFileData = new Uint8Array(result.data).buffer;
         }
-        const result = await window.electron?.readFile(keyFile.path);
-        if (!result?.success || !result.data) {
-            throw new Error('KEYFILE_READ_FAILED');
-        }
-        // Copy into a fresh, exactly-sized buffer before handing it to kdbxweb
-        const keyFileData = new Uint8Array(result.data).buffer;
-        return new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString(passwordStr), keyFileData);
+        return new kdbxweb.Credentials(
+            kdbxweb.ProtectedValue.fromString(passwordStr),
+            keyFileData,
+            hardwareKey ? hardwareKeyChallengeCallback(hardwareKey.serial, hardwareKey.slot) : undefined
+        );
     };
 
     const rememberKeyFile = (dbPath: string | null | undefined) => {
         if (dbPath) {
             userSettingsService.setKeyFilePath(dbPath, keyFile?.path);
+            userSettingsService.setHardwareKey(dbPath, hardwareKey ? { serial: hardwareKey.serial, slot: hardwareKey.slot } : undefined);
         }
     };
 
@@ -88,9 +154,34 @@ export const PasswordForm = ({
         }
     };
 
+    const handleSelectHardwareKey = async () => {
+        if (!window.electron) return;
+        const result = await window.electron.listHardwareKeys();
+        if (result.blocked) {
+            setError(hardwareKeyErrorMessage('HARDWARE_KEY_ACCESS_DENIED'));
+            return;
+        }
+        const key = result.keys[0];
+        if (!key) {
+            setError('No hardware key detected. Plug in your YubiKey and try again.');
+            return;
+        }
+        // Slot 2 is the challenge-response convention (slot 1 ships with the
+        // factory OTP credential)
+        const slot: 1 | 2 = !key.slot2Configured && key.slot1Configured ? 1 : 2;
+        setHardwareKey({ serial: key.serial, slot, label: hardwareKeyLabel(key.serial) });
+        setError('');
+    };
+
     const unlockError = (err: unknown): string => {
         if (err instanceof Error && err.message === 'KEYFILE_READ_FAILED') {
             return `Failed to read key file ${keyFile?.path}`;
+        }
+        if (err instanceof Error && err.message.startsWith('HARDWARE_KEY')) {
+            return hardwareKeyErrorMessage(err.message);
+        }
+        if (hardwareKey) {
+            return 'Invalid password or wrong hardware key response';
         }
         return keyFile
             ? 'Invalid password or key file'
@@ -388,7 +479,11 @@ export const PasswordForm = ({
             onDatabaseOpen(KeepassDatabaseService.convertKdbxToDatabase(db), db);
         } catch (err) {
             console.error('Failed to create database:', err);
-            setError(err instanceof Error ? err.message : 'Failed to create database');
+            if (err instanceof Error && err.message.startsWith('HARDWARE_KEY')) {
+                setError(hardwareKeyErrorMessage(err.message));
+            } else {
+                setError(err instanceof Error ? err.message : 'Failed to create database');
+            }
         } finally {
             setIsLoading(false);
         }
@@ -457,6 +552,46 @@ export const PasswordForm = ({
                         Key file (optional)
                     </button>
                 )
+            )}
+
+            {(selectedFile || isCreatingNew) && window.electron && (
+                hardwareKey ? (
+                    <div className="key-file-chip" title={`Challenge-response on slot ${hardwareKey.slot}`}>
+                        <UsbKeyIcon className="key-file-icon" />
+                        <span className="key-file-name">{hardwareKey.label}</span>
+                        <div className="slot-toggle">
+                            <button
+                                className={hardwareKey.slot === 1 ? 'active' : ''}
+                                onClick={() => setHardwareKey({ ...hardwareKey, slot: 1 })}
+                                title="Use slot 1"
+                            >
+                                1
+                            </button>
+                            <button
+                                className={hardwareKey.slot === 2 ? 'active' : ''}
+                                onClick={() => setHardwareKey({ ...hardwareKey, slot: 2 })}
+                                title="Use slot 2"
+                            >
+                                2
+                            </button>
+                        </div>
+                        <button
+                            className="clear-file"
+                            onClick={() => {
+                                setHardwareKey(null);
+                                setError('');
+                            }}
+                            title="Remove hardware key"
+                        >
+                            ×
+                        </button>
+                    </div>
+                ) : hardwareKeyPresent ? (
+                    <button className="add-key-file" onClick={handleSelectHardwareKey} type="button">
+                        <UsbKeyIcon className="key-file-icon" />
+                        Hardware key (optional)
+                    </button>
+                ) : null
             )}
 
             {selectedFile && !isCreatingNew && isBiometricsAvailable && (

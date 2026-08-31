@@ -15,6 +15,7 @@ import { userSettingsService } from './services/UserSettingsService';
 import { BrowserIntegrationService } from './services/BrowserIntegrationService';
 import { BrowserPairingDialog } from './components/BrowserPairingDialog';
 import { PasskeyConsentDialog } from './components/PasskeyConsentDialog';
+import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
 import { PasskeyConsentRequest } from './services/BrowserIntegrationService';
 
 function App() {
@@ -30,6 +31,7 @@ function App() {
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
 	const [pairingRequest, setPairingRequest] = useState<{ fingerprint: string; resolve: (name: string | null) => void } | null>(null);
 	const [passkeyConsent, setPasskeyConsent] = useState<{ request: PasskeyConsentRequest; resolve: (credentialId: string | null) => void } | null>(null);
+	const [hardwareKeyTouchPending, setHardwareKeyTouchPending] = useState(false);
 
 	useEffect(() => {
 		const handleUpdateStatus = (status: { state: string; version?: string }) => {
@@ -56,6 +58,24 @@ function App() {
 
 		return () => unsubscribe?.();
 	}, [database]);
+
+	// The YubiKey is blinking and waiting for a touch (unlock or save with a
+	// touch-required challenge-response slot). The prompt closes on the
+	// paired done event, whichever way the challenge ends
+	useEffect(() => {
+		const unsubTouch = window.electron?.on('hardware-key-touch', () => {
+			window.electron?.focusWindow();
+			setHardwareKeyTouchPending(true);
+		});
+		const unsubDone = window.electron?.on('hardware-key-touch-done', () => {
+			setHardwareKeyTouchPending(false);
+		});
+
+		return () => {
+			unsubTouch?.();
+			unsubDone?.();
+		};
+	}, []);
 
 	// Auto-lock on inactivity: the countdown restarts on user input, so an
 	// open session in active use never locks mid-work
@@ -265,6 +285,7 @@ function App() {
 					onCancel={() => passkeyConsent.resolve(null)}
 				/>
 			)}
+			{hardwareKeyTouchPending && <HardwareKeyTouchDialog />}
 		</ThemeProvider>
 	);
 }
