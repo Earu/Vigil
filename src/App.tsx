@@ -14,6 +14,8 @@ import { BreachCheckService } from './services/BreachCheckService';
 import { userSettingsService } from './services/UserSettingsService';
 import { BrowserIntegrationService } from './services/BrowserIntegrationService';
 import { BrowserPairingDialog } from './components/BrowserPairingDialog';
+import { PasskeyConsentDialog } from './components/PasskeyConsentDialog';
+import { PasskeyConsentRequest } from './services/BrowserIntegrationService';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -27,6 +29,7 @@ function App() {
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
 	const [pairingRequest, setPairingRequest] = useState<{ fingerprint: string; resolve: (name: string | null) => void } | null>(null);
+	const [passkeyConsent, setPasskeyConsent] = useState<{ request: PasskeyConsentRequest; resolve: (credentialId: string | null) => void } | null>(null);
 
 	useEffect(() => {
 		const handleUpdateStatus = (status: { state: string; version?: string }) => {
@@ -104,11 +107,22 @@ function App() {
 						await handleDatabaseChange(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
 					},
 					requestPairing: (fingerprint) => new Promise((resolve) => {
+						window.electron?.focusWindow().catch(() => {});
 						setPairingRequest({
 							fingerprint,
 							resolve: (name) => {
 								setPairingRequest(null);
 								resolve(name);
+							},
+						});
+					}),
+					requestPasskeyConsent: (request) => new Promise((resolve) => {
+						window.electron?.focusWindow().catch(() => {});
+						setPasskeyConsent({
+							request,
+							resolve: (credentialId) => {
+								setPasskeyConsent(null);
+								resolve(credentialId);
 							},
 						});
 					}),
@@ -242,6 +256,13 @@ function App() {
 					fingerprint={pairingRequest.fingerprint}
 					onSubmit={(name) => pairingRequest.resolve(name)}
 					onCancel={() => pairingRequest.resolve(null)}
+				/>
+			)}
+			{passkeyConsent && (
+				<PasskeyConsentDialog
+					request={passkeyConsent.request}
+					onSubmit={(credentialId) => passkeyConsent.resolve(credentialId)}
+					onCancel={() => passkeyConsent.resolve(null)}
 				/>
 			)}
 		</ThemeProvider>

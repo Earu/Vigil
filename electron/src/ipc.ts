@@ -54,6 +54,12 @@ export function setupIpcHandlers(): void {
 
     // Window controls: resolved from the sender so they work with any
     // number of windows
+    // Raise the window when a browser-driven dialog needs the user's eyes
+    ipcMain.handle('focus-window', (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (win) focusWindow(win);
+    });
+
     ipcMain.handle('minimize-window', (event) => {
         BrowserWindow.fromWebContents(event.sender)?.minimize();
     });

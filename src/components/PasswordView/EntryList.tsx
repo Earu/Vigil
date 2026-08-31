@@ -132,7 +132,14 @@ export const EntryList = ({
 	const getEntryStatus = (entry: Entry) => {
 		const path = KeepassDatabaseService.getPath();
 		if (!path) return null;
-		return BreachStatusStore.getEntryStatus(path, entry.id);
+		const status = BreachStatusStore.getEntryStatus(path, entry.id);
+		if (!status) return null;
+		// Passwordless entries (passkey-only) can't have a breached or weak
+		// password; drop those flags even from a stale cached status
+		if (!KeepassDatabaseService.getPasswordString(entry.password)) {
+			return { ...status, isPwned: false, strength: null };
+		}
+		return status;
 	};
 
 	return (

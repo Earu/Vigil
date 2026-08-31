@@ -1,0 +1,43 @@
+/* Builds on the pairing dialog styles (pairing-overlay etc.) */
+
+.passkey-dialog strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.passkey-entry-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    max-height: 12rem;
+    overflow-y: auto;
+}
+
+.passkey-entry-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.passkey-entry-row:hover {
+    background-color: var(--overlay-medium);
+}
+
+.passkey-entry-row input {
+    margin: 0;
+}
+
+.passkey-entry-title {
+    color: var(--text-primary);
+}
+
+.passkey-entry-username {
+    color: var(--text-tertiary);
+    margin-left: auto;
+}

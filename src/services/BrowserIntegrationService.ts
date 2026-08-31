@@ -2,6 +2,7 @@ import * as kdbxweb from 'kdbxweb';
 import { Database } from '../types/database';
 import { TotpService } from './TotpService';
 import { PasswordGeneratorService } from './PasswordGeneratorService';
+import { PasskeyService, PasskeyEntryInfo, PASSKEY_ERRORS } from './PasskeyService';
 
 // Renderer side of the KeePassXC-Browser protocol: answers the requests the
 // main-process socket server forwards. Association keys are stored the way
@@ -15,12 +16,24 @@ const ERROR_ASSOCIATION_FAILED = 8;
 const ERROR_NO_LOGINS_FOUND = 15;
 const ERROR_DENIED = 17;
 
+export interface PasskeyConsentRequest {
+    kind: 'register' | 'get';
+    rpId: string;
+    origin: string;
+    username?: string;
+    // get: matching credentials the user picks from
+    entries?: Array<{ title: string; username: string; credentialId: string }>;
+}
+
 export interface BrowserRequestContext {
     database: Database;
     kdbxDb: kdbxweb.Kdbx;
     saveDatabase: () => Promise<void>;
     // Shows the pairing dialog; resolves with the connection name or null
     requestPairing: (keyFingerprint: string) => Promise<string | null>;
+    // Shows the passkey consent dialog; resolves with the chosen credentialId
+    // ('register' resolves with any non-null value on approval), null on deny
+    requestPasskeyConsent?: (request: PasskeyConsentRequest) => Promise<string | null>;
 }
 
 export class BrowserIntegrationService {
@@ -168,6 +181,55 @@ export class BrowserIntegrationService {
                 entry.times.lastModTime = new Date();
                 await ctx.saveDatabase();
                 return { hash: await this.databaseHash(kdbxDb) };
+            }
+
+            // Passkey errors ride INSIDE the response object (KeePassXC shape:
+            // { response: { errorCode } }); only association failures use the
+            // protocol-level error envelope
+            case 'passkeys-register': {
+                if (!this.isAssociated(kdbxDb, payload.keys)) {
+                    return { errorCode: ERROR_ASSOCIATION_FAILED };
+                }
+                const result = await PasskeyService.register(kdbxDb, payload.publicKey, payload.origin, payload.groupName);
+                if (result.response.errorCode || !result.store) {
+                    return { response: result.response };
+                }
+                const consent = await ctx.requestPasskeyConsent?.({
+                    kind: 'register',
+                    rpId: result.rpId!,
+                    origin: payload.origin,
+                    username: result.username,
+                });
+                if (!consent) {
+                    return { response: { errorCode: PASSKEY_ERRORS.REQUEST_CANCELED } };
+                }
+                result.store();
+                await ctx.saveDatabase();
+                return { response: result.response };
+            }
+
+            case 'passkeys-get': {
+                if (!this.isAssociated(kdbxDb, payload.keys)) {
+                    return { errorCode: ERROR_ASSOCIATION_FAILED };
+                }
+                const allowed = PasskeyService.allowedEntries(kdbxDb, payload.publicKey, payload.origin);
+                if ('errorCode' in allowed) {
+                    return { response: { errorCode: allowed.errorCode } };
+                }
+                const chosenId = await ctx.requestPasskeyConsent?.({
+                    kind: 'get',
+                    rpId: allowed.rpId,
+                    origin: payload.origin,
+                    entries: allowed.entries.map((e: PasskeyEntryInfo) => ({
+                        title: e.title, username: e.username, credentialId: e.credentialId,
+                    })),
+                });
+                const selected = allowed.entries.find(e => e.credentialId === chosenId);
+                if (!selected) {
+                    return { response: { errorCode: PASSKEY_ERRORS.REQUEST_CANCELED } };
+                }
+                const response = await PasskeyService.assert(selected, payload.publicKey, payload.origin, allowed.rpId);
+                return { response };
             }
 
             case 'generate-password': {

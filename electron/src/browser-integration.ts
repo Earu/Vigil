@@ -146,13 +146,24 @@ async function askVaults(action: string, payload: any, timeoutMs: number): Promi
     }
 
     let lastError = ERROR_DATABASE_NOT_OPENED;
+    let lastInner: any = null;
     for (const win of windows) {
         const result = await askRenderer(win, action, payload, timeoutMs);
-        if (!result.errorCode) return result;
+        if (!result.errorCode) {
+            // Passkey errors are carried inside the response object; a vault
+            // with no matching credential reports no-logins-found there, so
+            // keep asking the other vaults before settling for that answer
+            if (action === 'passkeys-get' && result.response?.errorCode === ERROR_NO_LOGINS_FOUND) {
+                lastInner = result;
+                continue;
+            }
+            return result;
+        }
         lastError = result.errorCode;
         // associate prompts the user in the first window only
         if (action === 'associate') break;
     }
+    if (lastInner) return lastInner;
     return { errorCode: lastError };
 }
 
@@ -197,6 +208,19 @@ async function handleDecryptedMessage(action: string, message: any): Promise<any
                 group: message.group,
                 groupUuid: message.groupUuid,
             }, 60000);
+        case 'passkeys-register':
+            return await askVaults('passkeys-register', {
+                publicKey: message.publicKey,
+                origin: message.origin,
+                groupName: message.groupName,
+                keys: message.keys ?? [],
+            }, 120000);
+        case 'passkeys-get':
+            return await askVaults('passkeys-get', {
+                publicKey: message.publicKey,
+                origin: message.origin,
+                keys: message.keys ?? [],
+            }, 120000);
         case 'generate-password': {
             // The renderer generates with the user's saved generator
             // settings; fall back to a local default when no vault is open
