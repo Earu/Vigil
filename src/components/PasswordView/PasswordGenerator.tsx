@@ -148,9 +148,9 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     return (
         <div className="modal-overlay">
             <div className="password-generator-modal">
-                <div className="modal-header">
+                <div className="generator-modal-header">
                     <h2>Generate New Password</h2>
-                    <button className="close-button" onClick={onClose}>
+                    <button className="generator-close-button" onClick={onClose}>
                         <CloseActionIcon />
                     </button>
                 </div>
@@ -173,14 +173,14 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                         </div>
                     </div>
                     {passwordStrength && (
-                        <div className={`password-strength strength-${passwordStrength.score}`}>
-                            <div className="strength-bar">
+                        <div className={`generator-password-strength strength-${passwordStrength.score}`}>
+                            <div className="generator-strength-bar">
                                 <div
                                     className="strength-fill"
                                     style={{ width: `${(passwordStrength.score + 1) * 20}%` }}
                                 />
                             </div>
-                            <div className="strength-label">
+                            <div className="generator-strength-label">
                                 {passwordStrength.score === 0 && 'Very Weak'}
                                 {passwordStrength.score === 1 && 'Weak'}
                                 {passwordStrength.score === 2 && 'Fair'}
@@ -301,11 +301,11 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                     </div>
                 </div>
 
-                <div className="modal-footer">
-                    <button className="cancel-button" onClick={onClose}>
+                <div className="generator-modal-footer">
+                    <button className="generator-cancel-button" onClick={onClose}>
                         Cancel
                     </button>
-                    <button className="save-button" onClick={handleSave}>
+                    <button className="generator-save-button" onClick={handleSave}>
                         Save
                     </button>
                 </div>

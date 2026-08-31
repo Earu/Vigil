@@ -85,17 +85,17 @@ export const DatabaseForm = ({
                     className="import-browser-button"
                     onClick={() => setShowImportModal(true)}
                 >
-                    <ImportAuthIcon className="import-icon" />
+                    <ImportAuthIcon className="auth-import-icon" />
                     Import from CSV
                 </button>
             </div>
             {showImportModal && (
                 <div className="browser-select-overlay">
                     <div className="browser-select-modal">
-                        <div className="modal-header">
+                        <div className="auth-modal-header">
                             <h3>Import Passwords from CSV</h3>
                             <button
-                                className="close-button"
+                                className="auth-close-button"
                                 onClick={() => setShowImportModal(false)}
                             >
                                 ×
@@ -108,7 +108,7 @@ export const DatabaseForm = ({
                                 You can export these from your browser's password manager.
                             </p>
                         </div>
-                        <div className="modal-footer">
+                        <div className="auth-modal-footer">
                             <button
                                 className="secondary-button"
                                 onClick={() => setShowImportModal(false)}
@@ -116,7 +116,7 @@ export const DatabaseForm = ({
                                 Cancel
                             </button>
                             <button
-                                className="primary-button"
+                                className="auth-primary-button"
                                 onClick={handleCsvImport}
                             >
                                 Select CSV File

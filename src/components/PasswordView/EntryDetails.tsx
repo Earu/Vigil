@@ -363,7 +363,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							<EditActionIcon />
 						</button>
 					)}
-					<button className="close-button" onClick={onClose}>
+					<button className="entry-close-button" onClick={onClose}>
 						<CloseActionIcon />
 					</button>
 				</div>
@@ -699,11 +699,11 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 
 				{(isEditing || isNew) && (
 					<div className="field-group actions">
-						<button className="cancel-button" onClick={handleCancel}>
+						<button className="entry-cancel-button" onClick={handleCancel}>
 							Cancel
 						</button>
 						<button
-							className="save-button"
+							className="entry-save-button"
 							onClick={handleSave}
 							disabled={!editedEntry.title.trim()}
 						>
