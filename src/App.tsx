@@ -15,8 +15,9 @@ import { userSettingsService } from './services/UserSettingsService';
 import { BrowserIntegrationService } from './services/BrowserIntegrationService';
 import { BrowserPairingDialog } from './components/BrowserPairingDialog';
 import { PasskeyConsentDialog } from './components/PasskeyConsentDialog';
+import { SetLoginConsentDialog } from './components/SetLoginConsentDialog';
 import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
-import { PasskeyConsentRequest } from './services/BrowserIntegrationService';
+import { PasskeyConsentRequest, SetLoginConsentRequest } from './services/BrowserIntegrationService';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -31,6 +32,7 @@ function App() {
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
 	const [pairingRequest, setPairingRequest] = useState<{ fingerprint: string; resolve: (name: string | null) => void } | null>(null);
 	const [passkeyConsent, setPasskeyConsent] = useState<{ request: PasskeyConsentRequest; resolve: (credentialId: string | null) => void } | null>(null);
+	const [setLoginConsent, setSetLoginConsent] = useState<{ request: SetLoginConsentRequest; resolve: (allowed: boolean) => void } | null>(null);
 	const [hardwareKeyTouchPending, setHardwareKeyTouchPending] = useState(false);
 
 	useEffect(() => {
@@ -143,6 +145,16 @@ function App() {
 							resolve: (credentialId) => {
 								setPasskeyConsent(null);
 								resolve(credentialId);
+							},
+						});
+					}),
+					requestSetLoginConsent: (request) => new Promise((resolve) => {
+						window.electron?.focusWindow().catch(() => {});
+						setSetLoginConsent({
+							request,
+							resolve: (allowed) => {
+								setSetLoginConsent(null);
+								resolve(allowed);
 							},
 						});
 					}),
@@ -283,6 +295,13 @@ function App() {
 					request={passkeyConsent.request}
 					onSubmit={(credentialId) => passkeyConsent.resolve(credentialId)}
 					onCancel={() => passkeyConsent.resolve(null)}
+				/>
+			)}
+			{setLoginConsent && (
+				<SetLoginConsentDialog
+					request={setLoginConsent.request}
+					onSubmit={() => setLoginConsent.resolve(true)}
+					onCancel={() => setLoginConsent.resolve(false)}
 				/>
 			)}
 			{hardwareKeyTouchPending && <HardwareKeyTouchDialog />}
