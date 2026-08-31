@@ -15,6 +15,7 @@
 	"dependencies": {
 		"@node-rs/argon2": "^2.0.2",
 		"@types/zxcvbn": "^4.4.5",
+		"jsqr": "^1.4.0",
 		"kdbxweb": "^2.1.1",
 		"keytar": "^7.9.0",
 		"passport-desktop": "^0.1.2",
@@ -23,6 +24,7 @@
 		"zxcvbn": "^4.4.2"
 	},
 	"devDependencies": {
+		"@types/qrcode": "^1.5.6",
 		"@types/react": "^18.3.17",
 		"@types/react-dom": "^18.3.5",
 		"@vitejs/plugin-react": "^4.3.4",
@@ -34,6 +36,7 @@
 		"electron-updater": "^6.8.9",
 		"esbuild": "^0.20.2",
 		"node-addon-api": "^8.3.0",
+		"qrcode": "^1.5.4",
 		"typescript": "~5.6.2",
 		"vite": "^6.0.3",
 		"vite-plugin-electron": "^0.28.8",

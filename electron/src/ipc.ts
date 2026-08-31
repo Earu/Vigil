@@ -1,4 +1,4 @@
-import { ipcMain, Notification, app, BrowserWindow } from 'electron';
+import { ipcMain, Notification, app, BrowserWindow, desktopCapturer, screen } from 'electron';
 import { findVaultWindow, registerVault, unregisterWindow, focusWindow } from './window';
 import { hashPassword } from './crypto';
 import { clearClipboard, openExternal, getPlatform, getAppIconPath } from './utils';
@@ -148,6 +148,38 @@ export function setupIpcHandlers(): void {
     });
 
     ipcMain.handle('get-platform', () => getPlatform());
+
+    // QR screen capture; decoding happens in the renderer
+    ipcMain.handle('qr-capture-screens', async (event) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        const wasVisible = senderWindow?.isVisible() ?? false;
+        try {
+            // hide the window so it cannot cover the QR code
+            if (wasVisible) {
+                senderWindow!.hide();
+                await new Promise(resolve => setTimeout(resolve, 400));
+            }
+            const largest = screen.getAllDisplays().reduce(
+                (acc, d) => ({
+                    width: Math.max(acc.width, Math.round(d.size.width * d.scaleFactor)),
+                    height: Math.max(acc.height, Math.round(d.size.height * d.scaleFactor)),
+                }),
+                { width: 1920, height: 1080 }
+            );
+            const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: largest });
+            const images = sources
+                .filter(source => !source.thumbnail.isEmpty())
+                .map(source => source.thumbnail.toPNG().toString('base64'));
+            if (images.length === 0) {
+                return { success: false, error: 'Screen capture produced no image' };
+            }
+            return { success: true, images };
+        } catch (error) {
+            return { success: false, error: error instanceof Error ? error.message : 'Screen capture failed' };
+        } finally {
+            if (wasVisible) senderWindow?.show();
+        }
+    });
 
     // Notification handler
     ipcMain.handle('show-notification', async (_, { title, body }: { title: string, body: string }) => {

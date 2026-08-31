@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Entry, EntryVersion, Attachment, CustomField } from '../../types/database';
 import { TotpService } from '../../services/TotpService';
+import { QrScanService } from '../../services/QrScanService';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
-import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon } from '../../icons/actions/ActionIcons';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
@@ -422,11 +423,11 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		};
 	}, [totpConfig]);
 
-	const handleAddTotp = () => {
-		const config = TotpService.parseUserInput(totpInput);
+	const applyTotpText = (text: string, invalidMessage: string): boolean => {
+		const config = TotpService.parseUserInput(text);
 		if (!config) {
-			setTotpError('Enter a base32 secret or an otpauth:// URI');
-			return;
+			setTotpError(invalidMessage);
+			return false;
 		}
 		setEditedEntry(prev => ({
 			...prev,
@@ -441,6 +442,45 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		}));
 		setTotpInput('');
 		setTotpError('');
+		return true;
+	};
+
+	const handleAddTotp = () => {
+		applyTotpText(totpInput, 'Enter a base32 secret or an otpauth:// URI');
+	};
+
+	const handleQrResult = (result: { text?: string; error?: string }) => {
+		if (!result.text) {
+			setTotpError(result.error ?? 'No QR code found');
+			return;
+		}
+		if (result.text.startsWith('otpauth-migration://')) {
+			setTotpError('Google Authenticator export QR codes are unsupported; show the QR for a single account instead');
+			return;
+		}
+		applyTotpText(result.text, 'The QR code holds no TOTP secret');
+	};
+
+	const handleScanScreen = async () => {
+		setTotpError('');
+		handleQrResult(await QrScanService.scanScreens());
+	};
+
+	const handleScanClipboard = async () => {
+		setTotpError('');
+		handleQrResult(await QrScanService.scanClipboard());
+	};
+
+	const handleScanImageFile = () => {
+		setTotpError('');
+		const input = document.createElement('input');
+		input.type = 'file';
+		input.accept = 'image/*';
+		input.onchange = async (e) => {
+			const file = (e.target as HTMLInputElement).files?.[0];
+			if (file) handleQrResult(await QrScanService.scanFile(file));
+		};
+		input.click();
 	};
 
 	const handleRemoveTotp = () => {
@@ -688,6 +728,19 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										type="button"
 									>
 										Add
+									</button>
+									{window.electron && (
+										<>
+											<button className="totp-qr-button" onClick={handleScanScreen} type="button" title="Scan a QR code shown on your screen (the window hides itself while scanning)">
+												<MonitorActionIcon />
+											</button>
+											<button className="totp-qr-button" onClick={handleScanClipboard} type="button" title="Read a QR code from a screenshot in the clipboard">
+												<ClipboardActionIcon />
+											</button>
+										</>
+									)}
+									<button className="totp-qr-button" onClick={handleScanImageFile} type="button" title="Read a QR code from an image file">
+										<ImageActionIcon />
 									</button>
 								</div>
 								{totpError && <div className="totp-error">{totpError}</div>}
