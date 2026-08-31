@@ -6,7 +6,7 @@ import { ImportAuthIcon } from '../../icons/auth/AuthIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
-import { CsvImportService } from '../../services/CsvImportService';
+import { ImportService } from '../../services/ImportService';
 import { KeepassDatabaseService, KdfInfo } from '../../services/KeepassDatabaseService';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
@@ -101,32 +101,36 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
 
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.csv';
+        input.accept = '.csv,.json';
 
         input.onchange = async (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (!file) return;
 
             try {
-                const passwords = await CsvImportService.importFromCsv(file);
-                
-                // Show confirmation dialog
-                const confirmImport = window.confirm(`You are about to import ${passwords.length} passwords. Are you sure?`);
+                const result = await ImportService.parseFile(file);
+
+                const skippedNote = result.skipped > 0 ? ` (${result.skipped} unsupported items skipped)` : '';
+                const confirmImport = window.confirm(
+                    `Import ${result.entries.length} entries from ${result.source}${skippedNote}?`
+                );
                 if (!confirmImport) return;
 
-                await CsvImportService.importToDatabase(passwords, kdbxDb);
+                // onDatabaseChange performs the save; writing entries here and
+                // saving there avoids a redundant second save
+                ImportService.writeEntries(result, kdbxDb);
                 setShowImportModal(false);
                 onDatabaseChange?.();
 
                 (window as any).showToast?.({
-                    message: `Successfully imported ${passwords.length} passwords`,
+                    message: `Imported ${result.entries.length} entries from ${result.source}`,
                     type: 'success',
                     duration: 3000
                 });
             } catch (err) {
-                console.error('Failed to import CSV:', err);
+                console.error('Failed to import:', err);
                 (window as any).showToast?.({
-                    message: err instanceof Error ? err.message : 'Failed to import CSV file',
+                    message: err instanceof Error ? err.message : 'Failed to import file',
                     type: 'error',
                     duration: 5000
                 });
@@ -621,9 +625,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     onClick={() => setShowImportModal(true)}
                                 >
                                     <ImportAuthIcon className="import-icon" />
-                                    Import from CSV
+                                    Import passwords
                                 </button>
-                                <p className="database-help">Import passwords from a CSV file into your current database</p>
+                                <p className="database-help">Import from Bitwarden (.json or .csv), LastPass, 1Password, or a browser's CSV export; the format is detected automatically</p>
                             </div>
                         </div>
                     )}
@@ -659,10 +663,12 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             </div>
 
             {showImportModal && (
-                <div className="settings-modal-overlay">
+                // Sits inside settings-overlay, whose click-outside handler
+                // closes Settings; keep clicks in this modal to ourselves
+                <div className="settings-modal-overlay" onClick={e => e.stopPropagation()}>
                     <div className="settings-import-modal">
                         <div className="settings-modal-header">
-                            <h3>Import Passwords from CSV</h3>
+                            <h3>Import Passwords</h3>
                             <button
                                 className="close-button"
                                 onClick={() => setShowImportModal(false)}
@@ -671,10 +677,10 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </button>
                         </div>
                         <div className="settings-modal-content">
-                            <p>Select a CSV file containing your exported passwords.</p>
+                            <p>Select an export from your previous password manager.</p>
                             <p className="help-text">
-                                The CSV file should contain columns for URL, username, and password.
-                                You can export these from your browser's password manager.
+                                Bitwarden (.json or .csv), LastPass, 1Password, and browser CSV exports
+                                are detected automatically. Entries land in a new "Imported" group.
                             </p>
                         </div>
                         <div className="settings-modal-footer">
@@ -688,7 +694,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 className="settings-primary-button"
                                 onClick={handleCsvImport}
                             >
-                                Select CSV File
+                                Select File
                             </button>
                         </div>
                     </div>

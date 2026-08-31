@@ -4,6 +4,7 @@ import { PasswordForm } from './PasswordForm';
 import { Database } from '../../types/database';
 import * as kdbxweb from 'kdbxweb';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { ImportResult } from '../../services/ImportService';
 import { LockAuthIcon, UploadAuthIcon } from '../../icons/auth/AuthIcons';
 import './AuthenticationView.css';
 
@@ -29,7 +30,7 @@ export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: Au
     const [databasePath, setDatabasePath] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [initialBiometricsEnabled, setInitialBiometricsEnabled] = useState(false);
-    const [browserPasswords, setBrowserPasswords] = useState<Array<{ url: string; username: string; password: string }> | undefined>(undefined);
+    const [browserPasswords, setBrowserPasswords] = useState<ImportResult | undefined>(undefined);
     const passwordInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
