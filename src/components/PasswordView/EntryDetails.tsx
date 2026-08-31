@@ -754,7 +754,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					<div className="field-value-container">
 						<input
 							type="text"
-							value={editedEntry.url}
+							value={editedEntry.url ?? ''}
 							onChange={(e) => setEditedEntry({ ...editedEntry, url: e.target.value })}
 							className="field-value"
 							readOnly={!isEditing}
@@ -813,7 +813,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				<div className="field-group">
 					<label>Notes</label>
 					<textarea
-						value={editedEntry.notes}
+						value={editedEntry.notes ?? ''}
 						onChange={(e) => setEditedEntry({ ...editedEntry, notes: e.target.value })}
 						className="field-value notes"
 						readOnly={!isEditing}

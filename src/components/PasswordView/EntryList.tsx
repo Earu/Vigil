@@ -1,4 +1,4 @@
-import { useMemo, useSyncExternalStore } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Entry, Group, Database } from '../../types/database';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
@@ -42,6 +42,56 @@ export const EntryList = ({
 		() => KeepassDatabaseService.getAllEntriesFromGroup(group).length,
 		[group]
 	);
+	// Membership set instead of a per-row tree walk (O(n²) on large lists)
+	const recycleBinEntryIds = useMemo(() => {
+		const bin = database ? KeepassDatabaseService.findRecycleBin(database.root) : null;
+		if (!bin) return new Set<string>();
+		return new Set(KeepassDatabaseService.getAllEntriesFromGroup(bin).map(e => e.id));
+	}, [database]);
+
+	// Windowed rendering: only the rows in (and around) the viewport exist in
+	// the DOM; spacer divs keep the scrollbar geometry of the full list
+	const OVERSCAN = 10;
+	const entriesRef = useRef<HTMLDivElement>(null);
+	const [scrollTop, setScrollTop] = useState(0);
+	const [viewportHeight, setViewportHeight] = useState(600);
+	const [rowHeight, setRowHeight] = useState(44);
+
+	useLayoutEffect(() => {
+		const el = entriesRef.current;
+		if (!el) return;
+		const measure = () => setViewportHeight(el.clientHeight);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		return () => observer.disconnect();
+	}, []);
+
+	useLayoutEffect(() => {
+		const el = entriesRef.current;
+		if (el) el.scrollTop = 0;
+		setScrollTop(0);
+	}, [group, searchQuery]);
+
+	// Row height comes from CSS; measure a real row once instead of guessing.
+	// Measuring on every render loops forever when rows have unequal heights:
+	// setRowHeight shifts the window, a different row lands first, and its
+	// different height triggers another setRowHeight
+	const rowHeightMeasured = useRef(false);
+	useLayoutEffect(() => {
+		if (rowHeightMeasured.current) return;
+		const first = entriesRef.current?.querySelector('.entry-item') as HTMLElement | null;
+		if (first && first.offsetHeight > 0) {
+			rowHeightMeasured.current = true;
+			if (Math.abs(first.offsetHeight - rowHeight) > 1) {
+				setRowHeight(first.offsetHeight);
+			}
+		}
+	});
+
+	const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
+	const endIndex = Math.min(sortedEntries.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN);
+	const visibleEntries = sortedEntries.slice(startIndex, endIndex);
 
 	const handleDragStart = (e: React.DragEvent, entry: Entry) => {
 		e.stopPropagation();
@@ -116,8 +166,13 @@ export const EntryList = ({
 					)
 				)}
 			</div>
-			<div className="entries">
-				{sortedEntries.map((entry) => (
+			<div
+				className="entries"
+				ref={entriesRef}
+				onScroll={(e) => setScrollTop((e.target as HTMLElement).scrollTop)}
+			>
+				<div style={{ height: startIndex * rowHeight }} aria-hidden="true" />
+				{visibleEntries.map((entry) => (
 					<div
 						key={entry.id}
 						className={`entry-item ${selectedEntry?.id === entry.id ? 'selected' : ''}`}
@@ -179,7 +234,7 @@ export const EntryList = ({
 								</div>
 							)}
 						</div>
-						{database && onMoveEntry && KeepassDatabaseService.isEntryInRecycleBin(database, entry.id) && (
+						{database && onMoveEntry && recycleBinEntryIds.has(entry.id) && (
 							<button
 								className="restore-entry-button"
 								onClick={(e) => {
@@ -200,6 +255,7 @@ export const EntryList = ({
 						</button>
 					</div>
 				))}
+				<div style={{ height: Math.max(0, (sortedEntries.length - endIndex) * rowHeight) }} aria-hidden="true" />
 			</div>
 		</div>
 	);
