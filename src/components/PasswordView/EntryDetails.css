@@ -110,6 +110,103 @@
     height: 0.95rem;
 }
 
+.totp-display {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+}
+
+.totp-code {
+    font-family: monospace;
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--text-primary);
+    user-select: all;
+}
+
+.totp-countdown {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+
+.totp-countdown.expiring {
+    color: var(--color-error);
+}
+
+.totp-progress {
+    margin-top: 0.3rem;
+    height: 2px;
+    background-color: var(--border-primary);
+    overflow: hidden;
+}
+
+.totp-progress-bar {
+    height: 100%;
+    background-color: var(--text-tertiary);
+    transition: width 1s linear;
+}
+
+.totp-configured-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+}
+
+.totp-configured-text {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.totp-add-row {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.totp-add-row .field-value {
+    flex: 1;
+    min-width: 0;
+}
+
+.totp-add-button {
+    padding: 0.4rem 0.8rem;
+    background-color: var(--overlay-medium);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.8rem;
+}
+
+.totp-add-button:hover:not(:disabled) {
+    background-color: var(--overlay-dark);
+    border-color: var(--border-hover);
+}
+
+.totp-add-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.totp-error {
+    margin-top: 0.3rem;
+    font-size: 0.75rem;
+    color: var(--color-error);
+}
+
 .custom-fields-list {
     display: flex;
     flex-direction: column;
