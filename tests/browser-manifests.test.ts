@@ -4,6 +4,7 @@ import {
     chromiumManifest,
     firefoxManifest,
     manifestTargets,
+    registryTargets,
     selectTargets,
 } from '../electron/src/browser-manifests';
 
@@ -46,8 +47,22 @@ describe('manifestTargets', () => {
         ]);
     });
 
-    it('returns nothing on unsupported platforms', () => {
+    it('returns no manifest directories on windows (registry is used instead)', () => {
         expect(manifestTargets('win32', 'C:\\Users\\user')).toEqual([]);
+    });
+});
+
+describe('registryTargets', () => {
+    it('lists the windows registry keys per browser family', () => {
+        const targets = registryTargets();
+        expect(targets.map(t => t.key)).toEqual([
+            `Software\\Mozilla\\NativeMessagingHosts\\${HOST_NAME}`,
+            `Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`,
+            `Software\\Chromium\\NativeMessagingHosts\\${HOST_NAME}`,
+            `Software\\Microsoft\\Edge\\NativeMessagingHosts\\${HOST_NAME}`,
+        ]);
+        expect(targets.find(t => t.browser === 'Firefox')?.type).toBe('firefox');
+        expect(targets.filter(t => t.type === 'chromium')).toHaveLength(3);
     });
 });
 

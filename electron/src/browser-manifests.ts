@@ -26,6 +26,25 @@ export interface ManifestTarget {
     detect?: string[];
 }
 
+// Windows browsers find native messaging hosts through the registry: the
+// key's default value points at the manifest JSON. Brave and Vivaldi read
+// Chrome's key on Windows, so these four cover the same set as the manifest
+// directories elsewhere (matches what KeePassXC registers)
+export interface RegistryTarget {
+    browser: string;
+    key: string;
+    type: ManifestType;
+}
+
+export function registryTargets(): RegistryTarget[] {
+    return [
+        { browser: 'Firefox', key: `Software\\Mozilla\\NativeMessagingHosts\\${HOST_NAME}`, type: 'firefox' },
+        { browser: 'Chrome', key: `Software\\Google\\Chrome\\NativeMessagingHosts\\${HOST_NAME}`, type: 'chromium' },
+        { browser: 'Chromium', key: `Software\\Chromium\\NativeMessagingHosts\\${HOST_NAME}`, type: 'chromium' },
+        { browser: 'Edge', key: `Software\\Microsoft\\Edge\\NativeMessagingHosts\\${HOST_NAME}`, type: 'chromium' },
+    ];
+}
+
 export function manifestTargets(platform: NodeJS.Platform, home: string): ManifestTarget[] {
     if (platform === 'linux') {
         // Firefox may read either the classic ~/.mozilla or, on XDG-patched
