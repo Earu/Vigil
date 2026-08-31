@@ -104,7 +104,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	const [isEditing, setIsEditing] = useState(isNew);
 	const [clipboardTimer, setClipboardTimer] = useState<number>(0);
 	const [copiedField, setCopiedField] = useState<string>('');
-	const [breachStatus, setBreachStatus] = useState<{ isPwned: boolean; count: number; breachedEmail?: boolean; strength: PasswordStrength } | null>(null);
+	const [breachStatus, setBreachStatus] = useState<{ isPwned: boolean; count: number; breachedEmail?: boolean; strength: PasswordStrength | null } | null>(null);
 	const [passwordStrength, setPasswordStrength] = useState<{
 		score: number;
 		feedback: {
@@ -142,12 +142,19 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			// Check breach status when entry changes
 			const databasePath = KeepassDatabaseService.getPath();
 			if (databasePath) {
-				const status = BreachCheckService.getEntryBreachStatus(databasePath, entry.id);
-				setBreachStatus(status);
-
-				// Check password strength locally (no network call)
+				// No password (passkey-only entries): no breach or strength
+				// warnings, even if a stale cached status says otherwise
 				const password = KeepassDatabaseService.getPasswordString(entry.password);
-				setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(password));
+				if (!password) {
+					setBreachStatus(null);
+					setPasswordStrength(null);
+				} else {
+					const status = BreachCheckService.getEntryBreachStatus(databasePath, entry.id);
+					setBreachStatus(status);
+
+					// Check password strength locally (no network call)
+					setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(password));
+				}
 			}
 		} else if (isNew) {
 			setEditedEntry(KeepassDatabaseService.createNewEntry());
@@ -519,7 +526,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			password: newPassword
 		});
 
-		setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(newPassword));
+		setPasswordStrength(newPassword ? HaveIBeenPwnedService.checkPasswordStrength(newPassword) : null);
 	};
 
 	return (

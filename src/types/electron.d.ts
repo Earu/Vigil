@@ -8,6 +8,7 @@ export type UpdateStatus =
 	| { state: 'error'; message: string };
 
 export interface IElectronAPI {
+	focusWindow: () => Promise<void>;
 	minimizeWindow: () => Promise<void>;
 	maximizeWindow: () => Promise<void>;
 	closeWindow: () => Promise<void>;

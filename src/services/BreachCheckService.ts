@@ -206,6 +206,23 @@ export class BreachCheckService {
     }
 
     public static async checkEntry(databasePath: string, entry: Entry): Promise<boolean> {
+        // No password (passkey-only entries): nothing to breach-check or
+        // rate. Runs before the cache so stale flagged statuses get cleared
+        const passwordString = typeof entry.password === 'string'
+            ? entry.password
+            : entry.password?.getText() ?? '';
+        if (!passwordString) {
+            const emailBreaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username);
+            BreachStatusStore.setEntryStatus(databasePath, entry.id, {
+                isPwned: false,
+                count: 0,
+                strength: null,
+                breachedEmail: emailBreaches !== null && emailBreaches.length > 0
+            });
+            this.incrementProgress(entry.id);
+            return false;
+        }
+
         // Check cache first
         const cachedStatus = BreachStatusStore.getEntryStatus(databasePath, entry.id);
 
@@ -293,7 +310,7 @@ export class BreachCheckService {
         }
     }
 
-    public static getEntryBreachStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength; breachedEmail?: boolean } | null {
+    public static getEntryBreachStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength | null; breachedEmail?: boolean } | null {
         return BreachStatusStore.getEntryStatus(databasePath, entryId);
     }
 
@@ -339,6 +356,10 @@ export class BreachCheckService {
 
         // Check entries in current group
         group.entries.forEach(entry => {
+            // Passwordless entries (passkey-only) have no password to flag,
+            // whatever a stale cached status says
+            if (!this.entryHasPassword(entry)) return;
+
             const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
             hasCheckedEntries = true;
 
@@ -351,7 +372,7 @@ export class BreachCheckService {
                 entry,
                 group: parentGroup,
                 count: status.count,
-                strength: status.strength
+                strength: status.strength ?? undefined
             };
 
             if (status.isPwned) {
@@ -380,11 +401,16 @@ export class BreachCheckService {
         };
     }
 
+    private static entryHasPassword(entry: Entry): boolean {
+        return !!KeepassDatabaseService.getPasswordString(entry.password);
+    }
+
     public static hasBreachedPasswords(group: Group): boolean {
         const databasePath = KeepassDatabaseService.getPath();
         if (!databasePath) return false;
 
         const hasBreached = group.entries.some(entry => {
+            if (!this.entryHasPassword(entry)) return false;
             const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
             return status?.isPwned === true;
         });
@@ -399,6 +425,7 @@ export class BreachCheckService {
         if (!databasePath) return false;
 
         const hasWeakPassword = group.entries.some(entry => {
+            if (!this.entryHasPassword(entry)) return false;
             const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
             return status?.strength && status.strength.score < 3;
         });

@@ -9,7 +9,8 @@ export interface PasswordStrength {
 interface BreachStatus {
     isPwned: boolean;
     count: number;
-    strength: PasswordStrength;
+    // null: no password to rate (passkey-only entries)
+    strength: PasswordStrength | null;
     timestamp: number;
     breachedEmail?: boolean;
 }
@@ -53,7 +54,7 @@ export class BreachStatusStore {
         this.listeners.forEach(listener => listener());
     }
 
-    public static setEntryStatus(databasePath: string, entryId: string, status: { isPwned: boolean; count: number; strength: PasswordStrength; breachedEmail?: boolean }): void {
+    public static setEntryStatus(databasePath: string, entryId: string, status: { isPwned: boolean; count: number; strength: PasswordStrength | null; breachedEmail?: boolean }): void {
         const store = this.getStore();
         if (!store[databasePath]) {
             store[databasePath] = {};
@@ -67,7 +68,7 @@ export class BreachStatusStore {
         this.saveStore();
     }
 
-    public static getEntryStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength; breachedEmail?: boolean } | null {
+    public static getEntryStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength | null; breachedEmail?: boolean } | null {
         const status = this.getStore()[databasePath]?.[entryId];
 
         if (!status) {

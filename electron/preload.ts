@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IElectronAPI } from '../src/types/electron'
 
 const api: IElectronAPI = {
+	focusWindow: () => ipcRenderer.invoke('focus-window'),
 	minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
 	maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
 	closeWindow: () => ipcRenderer.invoke('close-window'),
