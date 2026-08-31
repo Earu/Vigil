@@ -34,6 +34,8 @@ export interface IElectronAPI {
 	on: (channel: string, callback: (...args: any[]) => void) => () => void;
 	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;
 	showNotification: (options: { title: string, body: string }) => Promise<void>;
+	reportVaultOpened: (filePath: string) => Promise<{ duplicate: boolean }>;
+	reportVaultClosed: () => Promise<void>;
 	getUpdateStatus: () => Promise<UpdateStatus>;
 	checkForUpdates: () => Promise<UpdateStatus>;
 	installUpdate: () => Promise<void>;

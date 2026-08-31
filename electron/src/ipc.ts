@@ -1,4 +1,5 @@
-import { ipcMain, Notification, app } from 'electron';
+import { ipcMain, Notification, app, BrowserWindow } from 'electron';
+import { findVaultWindow, registerVault, unregisterWindow, focusWindow } from './window';
 import { hashPassword } from './crypto';
 import { clearClipboard, openExternal, getPlatform, getAppIconPath } from './utils';
 import {
@@ -46,8 +47,48 @@ export function setupIpcHandlers(): void {
         return await getFilePath(filePath);
     });
 
-    ipcMain.handle('open-file', async () => {
-        return await openFile();
+    ipcMain.handle('open-file', async (event) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
+        return await openFile(senderWindow);
+    });
+
+    // Window controls: resolved from the sender so they work with any
+    // number of windows
+    ipcMain.handle('minimize-window', (event) => {
+        BrowserWindow.fromWebContents(event.sender)?.minimize();
+    });
+
+    ipcMain.handle('maximize-window', (event) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (!win) return;
+        if (win.isMaximized()) win.unmaximize();
+        else win.maximize();
+    });
+
+    ipcMain.handle('close-window', (event) => {
+        BrowserWindow.fromWebContents(event.sender)?.close();
+    });
+
+    // One window per vault: renderers report what they have open. If the
+    // vault is already open elsewhere the reply says so and that window is
+    // focused; the caller is expected to back off
+    ipcMain.handle('vault-opened', (event, filePath: string) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        if (!senderWindow || !filePath) return { duplicate: false };
+
+        const existing = findVaultWindow(filePath);
+        if (existing && existing !== senderWindow) {
+            focusWindow(existing);
+            return { duplicate: true };
+        }
+
+        registerVault(filePath, senderWindow);
+        return { duplicate: false };
+    });
+
+    ipcMain.handle('vault-closed', (event) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        if (senderWindow) unregisterWindow(senderWindow);
     });
 
     ipcMain.handle('read-file', async (_, filePath: string) => {

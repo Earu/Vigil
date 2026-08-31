@@ -1,5 +1,5 @@
 import { app, BrowserWindow, powerMonitor } from 'electron';
-import { createWindow } from './src/window';
+import { createWindow, findVaultWindow, findIdleWindow, focusWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
 import { setupAutoUpdater } from './src/updater';
 import { handleFileOpen } from './src/file-operations';
@@ -13,10 +13,30 @@ declare global {
 }
 
 function triggerLock() {
-    const mainWindow = BrowserWindow.getAllWindows()[0];
-    if (!mainWindow?.isDestroyed()) {
-        mainWindow?.webContents.send('trigger-lock');
+    for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) {
+            window.webContents.send('trigger-lock');
+        }
     }
+}
+
+// One window per vault: focus the window that has the file, hand it to a
+// window sitting on the unlock screen, or spawn a fresh window for it
+function routeFileOpen(filePath: string) {
+    const existing = findVaultWindow(filePath);
+    if (existing) {
+        focusWindow(existing);
+        return;
+    }
+
+    const idle = findIdleWindow();
+    if (idle) {
+        handleFileOpen(filePath, idle);
+        focusWindow(idle);
+        return;
+    }
+
+    createWindow(filePath);
 }
 
 // Transparent window support (rounded corners). The --ozone-platform-hint=auto
@@ -26,6 +46,25 @@ if (process.platform === 'linux') {
     // Needed for transparent windows on X11
     app.commandLine.appendSwitch('enable-transparent-visuals');
 }
+
+// Two instances writing the same vault would fight each other; route any
+// second launch (e.g. opening a .kdbx from the file manager) to the first
+if (!app.requestSingleInstanceLock()) {
+    app.quit();
+}
+
+app.on('second-instance', (_event, argv) => {
+    const filePath = argv.find(arg => arg.endsWith('.kdbx'));
+    if (filePath) {
+        routeFileOpen(filePath);
+        return;
+    }
+
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        focusWindow(mainWindow);
+    }
+});
 
 app.whenReady().then(() => {
     setupIpcHandlers();
@@ -70,7 +109,7 @@ if (process.platform !== 'darwin') {
 app.on('open-file', (event, filePath) => {
     event.preventDefault();
     if (app.isReady()) {
-        handleFileOpen(filePath);
+        routeFileOpen(filePath);
     } else {
         global.startupFilePath = filePath;
     }

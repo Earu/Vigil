@@ -51,26 +51,59 @@ function App() {
 		return () => unsubscribe?.();
 	}, [database]);
 
-	// Auto-lock timer effect
+	// Auto-lock on inactivity: the countdown restarts on user input, so an
+	// open session in active use never locks mid-work
 	useEffect(() => {
 		if (!database || !autoLockEnabled) {
 			return;
 		}
 
-		const autoLockDuration = userSettingsService.getAutoLockDuration() * 60 * 1000; // Convert minutes to milliseconds
-		const timer = setTimeout(() => {
+		const duration = autoLockDuration * 60 * 1000;
+		const lock = () => {
 			handleLock();
 			(window as any).showToast?.({
 				message: 'Database was locked automatically',
 				type: 'warning',
 				duration: 3000
 			});
-		}, autoLockDuration);
+		};
 
-		return () => clearTimeout(timer);
+		let timer = setTimeout(lock, duration);
+		let lastReset = Date.now();
+		const handleActivity = () => {
+			// mousemove fires constantly; restarting the timer once a second is plenty
+			if (Date.now() - lastReset < 1000) return;
+			lastReset = Date.now();
+			clearTimeout(timer);
+			timer = setTimeout(lock, duration);
+		};
+
+		const events = ['mousemove', 'mousedown', 'keydown', 'wheel', 'touchstart'] as const;
+		events.forEach(name => window.addEventListener(name, handleActivity, { passive: true }));
+
+		return () => {
+			clearTimeout(timer);
+			events.forEach(name => window.removeEventListener(name, handleActivity));
+		};
 	}, [database, autoLockEnabled, autoLockDuration]);
 
-	const handleDatabaseOpen = (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
+	const handleDatabaseOpen = async (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
+		// One window per vault: if another window already has this file open,
+		// hand over to it instead of racing it for writes
+		const path = KeepassDatabaseService.getPath();
+		if (path && window.electron) {
+			const result = await window.electron.reportVaultOpened(path).catch(() => ({ duplicate: false }));
+			if (result.duplicate) {
+				KeepassDatabaseService.setPath(undefined);
+				(window as any).showToast?.({
+					message: 'This vault is already open in another window',
+					type: 'warning',
+					duration: 4000
+				});
+				return;
+			}
+		}
+
 		setDatabase(database);
 		setKdbxDb(kdbxDb);
 		setShowInitialBreachReport(!!showBreachReport);
@@ -82,6 +115,7 @@ function App() {
 		setShowInitialBreachReport(false);
 		KeepassDatabaseService.setPath(undefined);
 		BreachCheckService.cancelChecks();
+		window.electron?.reportVaultClosed().catch(() => {});
 	};
 
 	const handleDatabaseChange = async (updatedDatabase: Database) => {

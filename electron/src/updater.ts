@@ -14,9 +14,10 @@ let status: UpdateStatus = { state: 'disabled' };
 
 function setStatus(next: UpdateStatus) {
     status = next;
-    const window = BrowserWindow.getAllWindows()[0];
-    if (window && !window.isDestroyed()) {
-        window.webContents.send('update-status', status);
+    for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) {
+            window.webContents.send('update-status', status);
+        }
     }
 }
 
