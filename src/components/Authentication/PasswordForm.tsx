@@ -41,7 +41,9 @@ const hardwareKeyErrorMessage = (code: string): string => {
         case 'HARDWARE_KEY_TIMEOUT':
             return 'The hardware key did not respond. Is the selected slot configured for challenge-response?';
         case 'HARDWARE_KEY_ACCESS_DENIED':
-            return 'Hardware key could not be opened. On Linux, install the Yubico udev rules and replug the key.';
+            return navigator.platform.startsWith('Mac')
+                ? 'Hardware key could not be opened. Grant Vigil the Input Monitoring permission in System Settings > Privacy & Security, then relaunch.'
+                : 'Hardware key could not be opened. On Linux, install the Yubico udev rules and replug the key.';
         default:
             return 'Hardware key communication failed';
     }
