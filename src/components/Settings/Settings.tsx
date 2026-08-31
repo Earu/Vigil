@@ -7,7 +7,7 @@ import { userSettingsService } from '../../services/UserSettingsService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { CsvImportService } from '../../services/CsvImportService';
-import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { KeepassDatabaseService, KdfInfo } from '../../services/KeepassDatabaseService';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { UpdateStatus } from '../../types/electron';
@@ -31,6 +31,35 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [showImportModal, setShowImportModal] = useState(false);
     const [fetchFavicons, setFetchFavicons] = useState<boolean>(userSettingsService.getFetchFavicons());
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+    const [dbName, setDbName] = useState('');
+    const [dbDesc, setDbDesc] = useState('');
+    const [currentPw, setCurrentPw] = useState('');
+    const [newPw, setNewPw] = useState('');
+    const [confirmPw, setConfirmPw] = useState('');
+    const [pwError, setPwError] = useState('');
+    const [kdfInfo, setKdfInfo] = useState<KdfInfo | null>(null);
+    const [historyMax, setHistoryMax] = useState(10);
+    const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security'>('general');
+
+    // Fresh dialog starts on the first tab; the Database tab disappears with
+    // the database
+    useEffect(() => {
+        if (isOpen) setActiveTab('general');
+    }, [isOpen]);
+    const currentTab = activeTab === 'database' && !kdbxDb ? 'general' : activeTab;
+
+    // Seed the database settings form from the open database
+    useEffect(() => {
+        if (!isOpen || !kdbxDb) return;
+        setDbName(kdbxDb.meta.name ?? '');
+        setDbDesc(kdbxDb.meta.desc ?? '');
+        setKdfInfo(KeepassDatabaseService.getKdfInfo(kdbxDb));
+        setHistoryMax(KeepassDatabaseService.getHistoryMaxItems(kdbxDb));
+        setCurrentPw('');
+        setNewPw('');
+        setConfirmPw('');
+        setPwError('');
+    }, [isOpen, kdbxDb]);
 
     useEffect(() => {
         if (!window.electron) return;
@@ -182,6 +211,72 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         await applyKeyFile(null, undefined, 'Key file removed');
     };
 
+    const showSettingsToast = (message: string, type: 'success' | 'error' = 'success') => {
+        (window as any).showToast?.({ message, type, duration: 3000 });
+    };
+
+    const handleApplyDetails = () => {
+        if (!kdbxDb || !dbName.trim()) return;
+        kdbxDb.meta.name = dbName.trim();
+        kdbxDb.meta.desc = dbDesc;
+        onDatabaseChange?.();
+        showSettingsToast('Database details saved');
+    };
+
+    const handleChangePassword = async () => {
+        if (!kdbxDb) return;
+        setPwError('');
+
+        if (!newPw) {
+            setPwError('The new password cannot be empty');
+            return;
+        }
+        if (newPw !== confirmPw) {
+            setPwError('The new passwords do not match');
+            return;
+        }
+        if (!(await KeepassDatabaseService.verifyMasterPassword(kdbxDb, currentPw))) {
+            setPwError('The current password is incorrect');
+            return;
+        }
+
+        await KeepassDatabaseService.changeMasterPassword(kdbxDb, newPw);
+        onDatabaseChange?.();
+
+        // Keep biometric unlock working: it stores the master password
+        const dbPath = KeepassDatabaseService.getPath();
+        if (dbPath && window.electron) {
+            try {
+                const bio = await window.electron.hasBiometricsEnabled(dbPath);
+                if (bio.success && bio.enabled) {
+                    await window.electron.enableBiometrics(dbPath, newPw);
+                }
+            } catch (err) {
+                console.error('Failed to refresh biometric credentials:', err);
+            }
+        }
+
+        setCurrentPw('');
+        setNewPw('');
+        setConfirmPw('');
+        showSettingsToast('Master password changed');
+    };
+
+    const handleApplyKdf = () => {
+        if (!kdbxDb || !kdfInfo) return;
+        KeepassDatabaseService.setKdf(kdbxDb, kdfInfo);
+        onDatabaseChange?.();
+        setKdfInfo(KeepassDatabaseService.getKdfInfo(kdbxDb));
+        showSettingsToast('Key derivation settings applied');
+    };
+
+    const handleApplyHistory = () => {
+        if (!kdbxDb) return;
+        KeepassDatabaseService.setHistoryMaxItems(kdbxDb, historyMax);
+        onDatabaseChange?.();
+        showSettingsToast('History retention updated');
+    };
+
     return (
         <div className="settings-overlay" onClick={onClose}>
             <div className="settings-dialog" onClick={e => e.stopPropagation()}>
@@ -191,7 +286,30 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         <CloseActionIcon />
                     </button>
                 </div>
+                <div className="settings-tabs">
+                    <button
+                        className={`settings-tab ${currentTab === 'general' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('general')}
+                    >
+                        General
+                    </button>
+                    {kdbxDb && (
+                        <button
+                            className={`settings-tab ${currentTab === 'database' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('database')}
+                        >
+                            Database
+                        </button>
+                    )}
+                    <button
+                        className={`settings-tab ${currentTab === 'security' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('security')}
+                    >
+                        Security
+                    </button>
+                </div>
                 <div className="settings-content">
+                    {currentTab === 'general' && (
                     <div className="settings-section">
                         <h3>Appearance</h3>
                         <div className="theme-selector">
@@ -220,19 +338,76 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </div>
                         </div>
                     </div>
+                    )}
 
-                    {kdbxDb && (
+                    {currentTab === 'database' && kdbxDb && (
                         <div className="settings-section">
-                            <h3>Database Management</h3>
-                            <div className="database-controls">
-                                <button
-                                    className="import-csv-button"
-                                    onClick={() => setShowImportModal(true)}
-                                >
-                                    <ImportAuthIcon className="import-icon" />
-                                    Import from CSV
-                                </button>
-                                <p className="database-help">Import passwords from a CSV file into your current database</p>
+                            <div className="db-details-controls">
+                                <label>Database details</label>
+                                <div className="db-field-row">
+                                    <span>Name</span>
+                                    <input
+                                        type="text"
+                                        className="db-input"
+                                        value={dbName}
+                                        onChange={(e) => setDbName(e.target.value)}
+                                    />
+                                </div>
+                                <div className="db-field-row">
+                                    <span>Description</span>
+                                    <input
+                                        type="text"
+                                        className="db-input"
+                                        value={dbDesc}
+                                        placeholder="Optional"
+                                        onChange={(e) => setDbDesc(e.target.value)}
+                                    />
+                                </div>
+                                <div className="db-apply-row">
+                                    <button className="settings-secondary-button" onClick={handleApplyDetails} disabled={!dbName.trim()}>
+                                        Save details
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="master-password-controls">
+                                <label>Master password</label>
+                                <div className="db-field-row">
+                                    <span>Current password</span>
+                                    <input
+                                        type="password"
+                                        className="db-input"
+                                        value={currentPw}
+                                        onChange={(e) => { setCurrentPw(e.target.value); setPwError(''); }}
+                                    />
+                                </div>
+                                <div className="db-field-row">
+                                    <span>New password</span>
+                                    <input
+                                        type="password"
+                                        className="db-input"
+                                        value={newPw}
+                                        onChange={(e) => { setNewPw(e.target.value); setPwError(''); }}
+                                    />
+                                </div>
+                                <div className="db-field-row">
+                                    <span>Confirm new password</span>
+                                    <input
+                                        type="password"
+                                        className="db-input"
+                                        value={confirmPw}
+                                        onChange={(e) => { setConfirmPw(e.target.value); setPwError(''); }}
+                                    />
+                                </div>
+                                {pwError && <p className="db-settings-error">{pwError}</p>}
+                                <div className="db-apply-row">
+                                    <button
+                                        className="settings-secondary-button"
+                                        onClick={handleChangePassword}
+                                        disabled={!currentPw || !newPw || !confirmPw}
+                                    >
+                                        Change password
+                                    </button>
+                                </div>
                             </div>
                             <div className="key-file-controls">
                                 <label>Key file protection</label>
@@ -255,12 +430,98 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     )}
                                 </div>
                             </div>
+                            {kdfInfo && (
+                                <div className="kdf-controls">
+                                    <label>Key derivation</label>
+                                    {(kdfInfo.type === 'argon2d' || kdfInfo.type === 'argon2id') ? (
+                                        <>
+                                            <div className="db-field-row">
+                                                <span>Algorithm</span>
+                                                <select
+                                                    className="db-input"
+                                                    value={kdfInfo.type}
+                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, type: e.target.value as KdfInfo['type'] })}
+                                                >
+                                                    <option value="argon2d">Argon2d</option>
+                                                    <option value="argon2id">Argon2id</option>
+                                                </select>
+                                            </div>
+                                            <div className="db-field-row">
+                                                <span>Memory (MiB)</span>
+                                                <input
+                                                    type="number"
+                                                    className="db-input"
+                                                    min="8" max="4096"
+                                                    value={kdfInfo.memoryMiB ?? 64}
+                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, memoryMiB: Math.max(8, Math.min(4096, parseInt(e.target.value) || 64)) })}
+                                                />
+                                            </div>
+                                            <div className="db-field-row">
+                                                <span>Iterations</span>
+                                                <input
+                                                    type="number"
+                                                    className="db-input"
+                                                    min="1" max="1000"
+                                                    value={kdfInfo.iterations}
+                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, iterations: Math.max(1, Math.min(1000, parseInt(e.target.value) || 1)) })}
+                                                />
+                                            </div>
+                                            <div className="db-field-row">
+                                                <span>Parallelism</span>
+                                                <input
+                                                    type="number"
+                                                    className="db-input"
+                                                    min="1" max="16"
+                                                    value={kdfInfo.parallelism ?? 1}
+                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, parallelism: Math.max(1, Math.min(16, parseInt(e.target.value) || 1)) })}
+                                                />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="db-field-row">
+                                            <span>Encryption rounds</span>
+                                            <input
+                                                type="number"
+                                                className="db-input"
+                                                min="1"
+                                                value={kdfInfo.iterations}
+                                                onChange={(e) => setKdfInfo({ ...kdfInfo, iterations: Math.max(1, parseInt(e.target.value) || 1) })}
+                                            />
+                                        </div>
+                                    )}
+                                    <p className="database-help">Higher values are harder to brute-force and slower to unlock</p>
+                                    <div className="db-apply-row">
+                                        <button className="settings-secondary-button" onClick={handleApplyKdf}>
+                                            Apply key derivation
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="history-retention-controls">
+                                <label>Entry history</label>
+                                <div className="db-field-row">
+                                    <span>Versions kept per entry</span>
+                                    <input
+                                        type="number"
+                                        className="db-input"
+                                        min="0" max="100"
+                                        value={historyMax}
+                                        onChange={(e) => setHistoryMax(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                                    />
+                                </div>
+                                <p className="database-help">Older versions beyond this count are dropped on save</p>
+                                <div className="db-apply-row">
+                                    <button className="settings-secondary-button" onClick={handleApplyHistory}>
+                                        Apply retention
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     )}
 
+                    {currentTab === 'security' && (
                     <div className="settings-section">
-                        <h3>Security</h3>
-                        <div className="auto-lock-controls">
+                                                <div className="auto-lock-controls">
                             <div className="auto-lock-toggle">
                                 <label htmlFor="auto-lock-enabled">Enable automatic locking</label>
                                 <input
@@ -349,8 +610,25 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </div>
                         </div>
                     </div>
+                    )}
 
-                    {window.electron && (
+                    {currentTab === 'general' && kdbxDb && (
+                        <div className="settings-section">
+                            <h3>Import</h3>
+                            <div className="database-controls">
+                                <button
+                                    className="import-csv-button"
+                                    onClick={() => setShowImportModal(true)}
+                                >
+                                    <ImportAuthIcon className="import-icon" />
+                                    Import from CSV
+                                </button>
+                                <p className="database-help">Import passwords from a CSV file into your current database</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {currentTab === 'general' && window.electron && (
                         <div className="settings-section">
                             <h3>Updates</h3>
                             <div className="update-controls">

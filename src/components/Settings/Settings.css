@@ -17,6 +17,8 @@
     border-radius: var(--radius-md);
     width: 90%;
     max-width: 600px;
+    /* Stable size across tabs of different heights */
+    min-height: min(480px, calc(100vh - 64px - 40px));
     max-height: calc(100vh - 64px - 40px);
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
     display: flex;
@@ -527,4 +529,105 @@
 .update-status-row button:disabled {
     opacity: 0.5;
     cursor: default;
+}
+
+.db-details-controls > label,
+.master-password-controls > label,
+.kdf-controls > label,
+.history-retention-controls > label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.db-field-row {
+    display: grid;
+    grid-template-columns: 1fr 14rem;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.db-field-row > span {
+    font-size: 0.8rem;
+    color: var(--text-tertiary);
+}
+
+.db-input {
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    background-color: var(--overlay-light);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.db-input:hover {
+    border-color: var(--border-secondary);
+    background-color: var(--overlay-medium);
+}
+
+.db-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+select.db-input {
+    cursor: pointer;
+}
+
+.db-apply-row {
+    margin-top: 0.6rem;
+}
+
+.db-apply-row button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.db-settings-error {
+    margin: 0.5rem 0 0 0;
+    font-size: 0.75rem;
+    color: var(--color-error);
+}
+
+.settings-tabs {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0 1.25rem;
+    background-color: rgba(0, 0, 0, 0.2);
+    border-bottom: 1px solid var(--border-primary);
+    flex-shrink: 0;
+}
+
+.settings-tab {
+    padding: 0.65rem 1rem;
+    background: none;
+    border: none;
+    color: var(--text-tertiary);
+    font-size: 0.85rem;
+    cursor: pointer;
+    position: relative;
+    transition: color 0.2s ease;
+}
+
+.settings-tab:hover {
+    color: var(--text-secondary);
+}
+
+.settings-tab.active {
+    color: var(--text-primary);
+}
+
+.settings-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background-color: var(--accent);
 }

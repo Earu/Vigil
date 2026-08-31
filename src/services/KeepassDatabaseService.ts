@@ -13,6 +13,13 @@ interface LoadLastDatabaseResult {
     biometricsEnabled: boolean;
 }
 
+export interface KdfInfo {
+    type: 'argon2d' | 'argon2id' | 'aes' | 'aes-kdbx3';
+    iterations: number;
+    memoryMiB?: number;
+    parallelism?: number;
+}
+
 export class KeepassDatabaseService {
     // Fields with dedicated UI; everything else on a kdbx entry is a custom field
     static readonly STANDARD_FIELDS = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
@@ -894,5 +901,75 @@ export class KeepassDatabaseService {
             });
             throw err;
         }
+    }
+
+    // ---- Database settings ----
+
+    static async verifyMasterPassword(kdbxDb: kdbxweb.Kdbx, password: string): Promise<boolean> {
+        const expected = kdbxDb.credentials.passwordHash?.getBinary();
+        if (!expected) return password.length === 0;
+
+        const bytes = kdbxweb.ByteUtils.stringToBytes(password);
+        const hashBuf = await kdbxweb.CryptoEngine.sha256(kdbxweb.ByteUtils.arrayToBuffer(bytes));
+        const actual = new Uint8Array(hashBuf);
+        if (actual.length !== expected.length) return false;
+
+        let diff = 0;
+        for (let i = 0; i < actual.length; i++) diff |= actual[i] ^ expected[i];
+        return diff === 0;
+    }
+
+    static async changeMasterPassword(kdbxDb: kdbxweb.Kdbx, newPassword: string): Promise<void> {
+        await kdbxDb.credentials.setPassword(kdbxweb.ProtectedValue.fromString(newPassword));
+    }
+
+    static getKdfInfo(kdbxDb: kdbxweb.Kdbx): KdfInfo {
+        if (kdbxDb.header.versionMajor < 4) {
+            return { type: 'aes-kdbx3', iterations: Number(kdbxDb.header.keyEncryptionRounds ?? 0) };
+        }
+
+        const params = kdbxDb.header.kdfParameters!;
+        const uuid = kdbxweb.ByteUtils.bytesToBase64(new Uint8Array(params.get('$UUID') as ArrayBuffer));
+        if (uuid === kdbxweb.Consts.KdfId.Aes) {
+            return { type: 'aes', iterations: Number((params.get('R') as kdbxweb.Int64).value) };
+        }
+
+        return {
+            type: uuid === kdbxweb.Consts.KdfId.Argon2id ? 'argon2id' : 'argon2d',
+            iterations: Number((params.get('I') as kdbxweb.Int64).value),
+            memoryMiB: Math.round(Number((params.get('M') as kdbxweb.Int64).value) / (1024 * 1024)),
+            parallelism: Number(params.get('P')),
+        };
+    }
+
+    static setKdf(kdbxDb: kdbxweb.Kdbx, info: KdfInfo): void {
+        if (kdbxDb.header.versionMajor < 4) {
+            kdbxDb.header.keyEncryptionRounds = info.iterations;
+            return;
+        }
+
+        const current = this.getKdfInfo(kdbxDb);
+        if (info.type !== current.type && (info.type === 'argon2d' || info.type === 'argon2id')) {
+            // Resets parameters and generates a fresh salt
+            kdbxDb.header.setKdf(info.type === 'argon2id' ? kdbxweb.Consts.KdfId.Argon2id : kdbxweb.Consts.KdfId.Argon2);
+        }
+
+        const params = kdbxDb.header.kdfParameters!;
+        const VT = kdbxweb.VarDictionary.ValueType;
+        if (info.type === 'aes') {
+            params.set('R', VT.UInt64, kdbxweb.Int64.from(info.iterations));
+            return;
+        }
+        params.set('I', VT.UInt64, kdbxweb.Int64.from(info.iterations));
+        params.set('M', VT.UInt64, kdbxweb.Int64.from((info.memoryMiB ?? 64) * 1024 * 1024));
+        params.set('P', VT.UInt32, info.parallelism ?? 1);
+    }
+
+    static getHistoryMaxItems(kdbxDb: kdbxweb.Kdbx): number {
+        return kdbxDb.meta.historyMaxItems ?? 10;
+    }
+
+    static setHistoryMaxItems(kdbxDb: kdbxweb.Kdbx, maxItems: number): void {
+        kdbxDb.meta.historyMaxItems = maxItems;
     }
 }
