@@ -23,44 +23,6 @@
 	height: 40px;
 }
 
-.macos-window-controls {
-	position: absolute;
-	left: 12px;
-	top: 50%;
-	transform: translateY(-50%);
-	display: flex;
-	gap: 8px;
-	-webkit-app-region: no-drag;
-	z-index: 2;
-}
-
-.macos-window-controls .window-control {
-	width: 12px;
-	height: 12px;
-	border-radius: 50%;
-	border: none;
-	padding: 0;
-	margin: 0;
-	cursor: pointer;
-	transition: all 0.2s ease;
-}
-
-.macos-window-controls .window-control.close {
-	background-color: var(--macos-close);
-}
-
-.macos-window-controls .window-control.minimize {
-	background-color: var(--macos-minimize);
-}
-
-.macos-window-controls .window-control.maximize {
-	background-color: var(--macos-maximize);
-}
-
-.macos-window-controls .window-control:hover {
-	filter: brightness(85%);
-}
-
 .title-bar-drag-area {
 	display: flex;
 	align-items: center;
@@ -106,10 +68,16 @@
 	gap: 24px;
 }
 
+/* Space for the native traffic lights, which macOS draws over the window */
 .title-bar.macos .title-bar-drag-area {
 	position: relative;
 	justify-content: flex-start;
 	padding-left: 80px;
+}
+
+/* Native fullscreen hides the traffic lights */
+.title-bar.macos.fullscreen .title-bar-drag-area {
+	padding-left: 12px;
 }
 
 .search-container {

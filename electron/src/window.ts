@@ -53,10 +53,17 @@ export function createWindow(startupFile?: string) {
     // Linux draws no decorations for frameless windows, so rounded corners
     // are done in the renderer over a transparent window
     const isLinux = process.platform === 'linux';
+    const isMac = process.platform === 'darwin';
     const win = new BrowserWindow({
         width: 1200,
         height: 800,
-        frame: false,
+        // macOS keeps its native frame with a hidden title bar so the system
+        // draws the real traffic lights; other platforms are fully frameless
+        // with buttons drawn by the renderer. Position matches the 40px
+        // title bar: (40 - 12px button) / 2
+        ...(isMac
+            ? { titleBarStyle: 'hidden' as const, trafficLightPosition: { x: 12, y: 14 } }
+            : { frame: false }),
         transparent: isLinux,
         // No backgroundColor on Linux: setting one (even fully transparent)
         // makes the surface opaque and defeats transparent: true
@@ -144,6 +151,16 @@ export function createWindow(startupFile?: string) {
 
     win.on('unmaximize', () => {
         win.webContents.send('maximize-change', false);
+    });
+
+    // macOS fullscreen (green traffic light) hides the buttons, so the
+    // renderer drops the space it reserves for them
+    win.on('enter-full-screen', () => {
+        win.webContents.send('fullscreen-change', true);
+    });
+
+    win.on('leave-full-screen', () => {
+        win.webContents.send('fullscreen-change', false);
     });
 
     if (process.env.NODE_ENV === 'development') {

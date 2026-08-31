@@ -16,6 +16,7 @@ interface TitleBarProps {
 export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, onOpenSettings, onOpenSecurityReport }: TitleBarProps) {
 	const [isMaximized, setIsMaximized] = useState(false);
 	const [isMacOS, setIsMacOS] = useState(false);
+	const [isFullscreen, setIsFullscreen] = useState(false);
 
 	useEffect(() => {
 		// Only run in electron environment
@@ -24,13 +25,19 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 		const unsubscribe = window.electron.onMaximizeChange((maximized: boolean) => {
 			setIsMaximized(maximized);
 		});
+		const unsubscribeFullscreen = window.electron.on('fullscreen-change', (fullscreen: boolean) => {
+			setIsFullscreen(fullscreen);
+		});
 
 		// Check if we're on macOS
 		window.electron.getPlatform().then(platform => {
 			setIsMacOS(platform === 'darwin');
 		});
 
-		return () => unsubscribe();
+		return () => {
+			unsubscribe();
+			unsubscribeFullscreen();
+		};
 	}, []);
 
 	const handleMinimize = () => {
@@ -46,14 +53,7 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 	};
 
 	return (
-		<div className={`title-bar ${inPasswordView ? 'in-password-view' : ''} ${isMacOS ? 'macos' : ''}`}>
-			{isMacOS && (
-				<div className="macos-window-controls">
-					<button className="window-control close" onClick={handleClose} />
-					<button className="window-control minimize" onClick={handleMinimize} />
-					<button className="window-control maximize" onClick={handleMaximize} />
-				</div>
-			)}
+		<div className={`title-bar ${inPasswordView ? 'in-password-view' : ''} ${isMacOS ? 'macos' : ''} ${isFullscreen ? 'fullscreen' : ''}`}>
 			<div className="title-bar-drag-area">
 				<LogoIcon className="title-bar-logo" />
 				<span className="title-bar-text">Vigil</span>
