@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import * as kdbxweb from 'kdbxweb';
 import { Entry, EntryVersion, Attachment, CustomField } from '../../types/database';
 import { TotpService } from '../../services/TotpService';
 import { BreachCheckService } from '../../services/BreachCheckService';
@@ -16,7 +17,31 @@ interface EntryDetailsProps {
 	onClose: () => void;
 	onSave: (entry: Entry) => void;
 	isNew?: boolean;
+	onDirtyChange?: (dirty: boolean) => void;
 }
+
+const fieldText = (value: string | kdbxweb.ProtectedValue | undefined): string =>
+	value === undefined ? '' : KeepassDatabaseService.getFieldString(value);
+
+// Whether the edit form holds changes that would be lost on discard
+const entryModified = (edited: Entry, original: Entry): boolean => {
+	if (edited.title !== original.title) return true;
+	if (edited.username !== original.username) return true;
+	if (fieldText(edited.password) !== fieldText(original.password)) return true;
+	if ((edited.url ?? '') !== (original.url ?? '')) return true;
+	if ((edited.notes ?? '') !== (original.notes ?? '')) return true;
+	if (!!edited.expires !== !!original.expires) return true;
+	if ((edited.expiryTime?.getTime() ?? 0) !== (original.expiryTime?.getTime() ?? 0)) return true;
+
+	if (edited.attachments.length !== original.attachments.length) return true;
+	if (edited.attachments.some((a, i) => a.name !== original.attachments[i].name || a.data !== original.attachments[i].data)) return true;
+
+	if (edited.customFields.length !== original.customFields.length) return true;
+	return edited.customFields.some((f, i) => {
+		const o = original.customFields[i];
+		return f.key !== o.key || f.protected !== o.protected || fieldText(f.value) !== fieldText(o.value);
+	});
+};
 
 interface PasswordStrengthIndicatorProps {
 	score: number;
@@ -73,7 +98,7 @@ const PasswordStrengthIndicator = ({ score, warning, suggestions }: PasswordStre
 	);
 };
 
-export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDetailsProps) => {
+export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
 	const [clipboardTimer, setClipboardTimer] = useState<number>(0);
@@ -96,6 +121,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const [totpError, setTotpError] = useState('');
 	const timerRef = useRef<NodeJS.Timeout>();
 	const fileInputRef = useRef<HTMLInputElement>(null);
+	const lastCopiedText = useRef('');
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
 			return KeepassDatabaseService.createNewEntry();
@@ -154,9 +180,23 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		return () => {
 			if (timerRef.current) {
 				clearInterval(timerRef.current);
+				// Don't let a pending clear die with the component (entry
+				// closed or database locked while the countdown ran)
+				clearCopiedValue();
 			}
 		};
 	}, []);
+
+	// Clear the clipboard only when it still holds what we put there; the
+	// user may have copied something else since. If the read fails, clear
+	// anyway rather than risk leaving a password around.
+	const clearCopiedValue = async () => {
+		try {
+			const current = await navigator.clipboard.readText();
+			if (current !== lastCopiedText.current) return;
+		} catch { /* fall through to clear */ }
+		window.electron?.clearClipboard().catch(console.error);
+	};
 
 	useEffect(() => {
 		if (clipboardTimer > 0) {
@@ -164,7 +204,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 				setClipboardTimer((prev) => {
 					if (prev <= 1) {
 						clearInterval(interval);
-						window.electron?.clearClipboard().catch(console.error);
+						clearCopiedValue();
 						setCopiedField('');
 						return 0;
 					}
@@ -179,6 +219,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 	const copyToClipboard = async (text: string, field: string) => {
 		try {
 			await navigator.clipboard.writeText(text);
+			lastCopiedText.current = text;
 			setClipboardTimer(20);
 			setCopiedField(field);
 			(window as any).showToast?.({
@@ -324,6 +365,24 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 		});
 	};
 
+	const isDirty = useMemo(() => {
+		if (!isEditing && !isNew) return false;
+		const baseline = !isNew && entry ? entry : KeepassDatabaseService.createNewEntry();
+		return entryModified(editedEntry, baseline);
+	}, [editedEntry, entry, isNew, isEditing]);
+
+	useEffect(() => {
+		onDirtyChange?.(isDirty);
+	}, [isDirty]);
+
+	// Unmount always means the form is gone; leave no stale dirty flag behind
+	useEffect(() => () => { onDirtyChange?.(false); }, []);
+
+	const handleClose = () => {
+		if (isDirty && !window.confirm('Discard unsaved changes to this entry?')) return;
+		onClose();
+	};
+
 	const totpConfig = useMemo(
 		() => TotpService.getConfig(editedEntry.customFields),
 		[editedEntry.customFields]
@@ -437,7 +496,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false }: EntryDet
 							<EditActionIcon />
 						</button>
 					)}
-					<button className="entry-close-button" onClick={onClose}>
+					<button className="entry-close-button" onClick={handleClose}>
 						<CloseActionIcon />
 					</button>
 				</div>

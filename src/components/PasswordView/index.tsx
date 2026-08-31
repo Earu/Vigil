@@ -121,9 +121,28 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		setIsCreatingNew(false);
 	}, [selectedGroup.id, searchQuery]);
 
+	// Set by EntryDetails while its edit form holds unsaved changes; a ref
+	// because it must be readable synchronously inside click handlers
+	const detailsDirty = useRef(false);
+	const handleDirtyChange = (dirty: boolean) => { detailsDirty.current = dirty; };
+
+	const confirmDiscardEdits = (): boolean => {
+		if (!detailsDirty.current) return true;
+		if (!window.confirm('Discard unsaved changes to this entry?')) return false;
+		detailsDirty.current = false;
+		return true;
+	};
+
 	const handleGroupSelect = (group: Group) => {
+		if (group.id !== selectedGroup.id && !confirmDiscardEdits()) return;
 		const currentGroup = KeepassDatabaseService.findGroupInDatabase(group.id, database.root);
 		setSelectedGroup(currentGroup || database.root);
+	};
+
+	const handleEntrySelect = (entry: Entry | null) => {
+		if (entry?.id === selectedEntry?.id) return;
+		if (!confirmDiscardEdits()) return;
+		setSelectedEntry(entry);
 	};
 
 	const handleGroupNameChange = (group: Group, newName: string) => {
@@ -139,6 +158,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	};
 
 	const handleNewEntry = () => {
+		if (!confirmDiscardEdits()) return;
 		setIsCreatingNew(true);
 		setSelectedEntry(null);
 	};
@@ -278,7 +298,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					group={selectedGroup}
 					searchQuery={searchQuery}
 					selectedEntry={selectedEntry}
-					onEntrySelect={setSelectedEntry}
+					onEntrySelect={handleEntrySelect}
 					database={database}
 					onNewEntry={handleNewEntry}
 					onRemoveEntry={handleRemoveEntry}
@@ -295,6 +315,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 						onClose={handleCloseEntry}
 						onSave={handleSaveEntry}
 						isNew={isCreatingNew}
+						onDirtyChange={handleDirtyChange}
 					/>
 				)}
 			</div>

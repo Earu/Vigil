@@ -29,8 +29,8 @@
 		"concurrently": "^8.2.2",
 		"cross-env": "^7.0.3",
 		"detect-libc": "^2.0.3",
-		"electron": "^29.4.6",
-		"electron-builder": "^24.13.3",
+		"electron": "^44.0.0",
+		"electron-builder": "^26.15.3",
 		"electron-updater": "^6.8.9",
 		"esbuild": "^0.20.2",
 		"node-addon-api": "^8.3.0",
@@ -92,7 +92,8 @@
 		]
 	},
 	"allowScripts": {
-		"electron@29.4.6": true,
+		"electron@44.0.0": true,
+		"electron-winstaller@5.4.0": true,
 		"esbuild@0.20.2": true,
 		"esbuild@0.24.2": true,
 		"keytar@7.9.0": true,

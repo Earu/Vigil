@@ -6,7 +6,9 @@ const api: IElectronAPI = {
 	maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
 	closeWindow: () => ipcRenderer.invoke('close-window'),
 	onMaximizeChange: (callback) => {
-		ipcRenderer.on('maximize-change', (_, maximized) => callback(maximized))
+		const wrapper = (_: unknown, maximized: boolean) => callback(maximized)
+		ipcRenderer.on('maximize-change', wrapper)
+		return () => { ipcRenderer.off('maximize-change', wrapper) }
 	},
 	saveFile: (data) => ipcRenderer.invoke('save-file', data),
 	saveToFile: (filePath, data) => ipcRenderer.invoke('save-to-file', filePath, data),
@@ -27,8 +29,13 @@ const api: IElectronAPI = {
 	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => ipcRenderer.invoke('argon2', password, salt, memory, iterations, length, parallelism, type, version),
 	openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
 	getPlatform: () => ipcRenderer.invoke('get-platform'),
-	on: (channel: string, callback: Function) => ipcRenderer.on(channel, (_, ...args) => callback(...args)),
-	off: (channel: string, callback: Function) => ipcRenderer.off(channel, (_, ...args) => callback(...args)),
+	// Function identity does not survive the context bridge, so removal by
+	// callback is impossible: `on` returns the unsubscribe function instead
+	on: (channel: string, callback: (...args: any[]) => void) => {
+		const wrapper = (_: unknown, ...args: unknown[]) => callback(...args)
+		ipcRenderer.on(channel, wrapper)
+		return () => { ipcRenderer.off(channel, wrapper) }
+	},
 	checkEmailBreaches: (email: string, apiKey: string) => ipcRenderer.invoke('check-email-breaches', email, apiKey),
 	showNotification: (options) => ipcRenderer.invoke('show-notification', options),
 	getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
