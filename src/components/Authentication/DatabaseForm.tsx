@@ -1,13 +1,13 @@
 import { BrowseAuthIcon, ImportAuthIcon } from '../../icons/auth/AuthIcons';
 import { useState } from 'react';
-import { CsvImportService } from '../../services/CsvImportService';
+import { ImportService, ImportResult } from '../../services/ImportService';
 
 interface DatabaseFormProps {
     setSelectedFile: (file: File | null) => void;
     setDatabasePath: (path: string | null) => void;
     setIsCreatingNew: (isCreating: boolean) => void;
     setError: (error: string | null) => void;
-    setBrowserPasswords: (passwords: Array<{ url: string; username: string; password: string }>) => void;
+    setBrowserPasswords: (passwords: ImportResult) => void;
 }
 
 export const DatabaseForm = ({
@@ -44,20 +44,20 @@ export const DatabaseForm = ({
     const handleCsvImport = async () => {
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.csv';
+        input.accept = '.csv,.json';
 
         input.onchange = async (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
             if (!file) return;
 
             try {
-                const passwords = await CsvImportService.importFromCsv(file);
-                setBrowserPasswords(passwords);
+                const result = await ImportService.parseFile(file);
+                setBrowserPasswords(result);
                 setShowImportModal(false);
                 setIsCreatingNew(true);
             } catch (err) {
-                console.error('Failed to import CSV:', err);
-                setError(err instanceof Error ? err.message : 'Failed to import CSV file');
+                console.error('Failed to import:', err);
+                setError(err instanceof Error ? err.message : 'Failed to import file');
             }
         };
 
@@ -86,14 +86,14 @@ export const DatabaseForm = ({
                     onClick={() => setShowImportModal(true)}
                 >
                     <ImportAuthIcon className="auth-import-icon" />
-                    Import from CSV
+                    Import passwords
                 </button>
             </div>
             {showImportModal && (
                 <div className="browser-select-overlay">
                     <div className="browser-select-modal">
                         <div className="auth-modal-header">
-                            <h3>Import Passwords from CSV</h3>
+                            <h3>Import Passwords</h3>
                             <button
                                 className="auth-close-button"
                                 onClick={() => setShowImportModal(false)}
@@ -102,10 +102,10 @@ export const DatabaseForm = ({
                             </button>
                         </div>
                         <div className="modal-content">
-                            <p>Select a CSV file containing your exported passwords.</p>
+                            <p>Select an export from your previous password manager.</p>
                             <p className="help-text">
-                                The CSV file should contain columns for URL, username, and password.
-                                You can export these from your browser's password manager.
+                                Bitwarden (.json or .csv), LastPass, 1Password, and browser CSV exports
+                                are detected automatically.
                             </p>
                         </div>
                         <div className="auth-modal-footer">
@@ -119,7 +119,7 @@ export const DatabaseForm = ({
                                 className="auth-primary-button"
                                 onClick={handleCsvImport}
                             >
-                                Select CSV File
+                                Select File
                             </button>
                         </div>
                     </div>

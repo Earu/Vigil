@@ -3,6 +3,7 @@ import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { ImportService, ImportResult } from '../../services/ImportService';
 import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
 import { KeyActionIcon } from '../../icons/actions/ActionIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
@@ -20,8 +21,8 @@ interface PasswordFormProps {
     passwordInputRef: React.RefObject<HTMLInputElement>;
     setIsCreatingNew: (isCreating: boolean) => void;
     initialBiometricsEnabled: boolean;
-    browserPasswords?: Array<{ url: string; username: string; password: string }>;
-    setBrowserPasswords?: (passwords: Array<{ url: string; username: string; password: string }> | undefined) => void;
+    browserPasswords?: ImportResult;
+    setBrowserPasswords?: (passwords: ImportResult | undefined) => void;
 }
 
 export const PasswordForm = ({
@@ -363,17 +364,9 @@ export const PasswordForm = ({
             const credentials = await buildCredentials(password);
             const db = kdbxweb.Kdbx.create(credentials, databaseName.trim());
 
-            // Import browser passwords if they exist
-            if (browserPasswords?.length && browserPasswords.length > 0) {
-                const importedGroup = db.createGroup(db.getDefaultGroup(), 'Imported');
-                for (const browserPassword of browserPasswords) {
-                    const entry = db.createEntry(importedGroup);
-                    entry.fields.set('Title', new URL(browserPassword.url).hostname);
-                    entry.fields.set('UserName', browserPassword.username);
-                    entry.fields.set('Password', kdbxweb.ProtectedValue.fromString(browserPassword.password));
-                    entry.fields.set('URL', browserPassword.url);
-                }
-                // Clear the imported passwords
+            // Seed the new database with imported passwords if any
+            if (browserPasswords && browserPasswords.entries.length > 0) {
+                ImportService.writeEntries(browserPasswords, db);
                 setBrowserPasswords?.(undefined);
             }
 
