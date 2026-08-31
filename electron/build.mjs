@@ -17,7 +17,7 @@ const config = {
 		'passport-desktop-win32-x64-msvc'
 	],
 	format: 'cjs',
-	target: 'node18',
+	target: 'node22',
 	sourcemap: true,
 	minify: process.env.NODE_ENV !== 'development'
 };

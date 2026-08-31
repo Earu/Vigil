@@ -36,8 +36,8 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         if (!window.electron) return;
         window.electron.getUpdateStatus().then(setUpdateStatus).catch(() => {});
         const handler = (status: UpdateStatus) => setUpdateStatus(status);
-        window.electron.on('update-status', handler);
-        return () => window.electron?.off('update-status', handler);
+        const unsubscribe = window.electron.on('update-status', handler);
+        return () => unsubscribe();
     }, []);
 
     if (!isOpen) return null;

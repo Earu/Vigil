@@ -19,16 +19,18 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 
 	useEffect(() => {
 		// Only run in electron environment
-		if (window.electron) {
-			window.electron.onMaximizeChange((maximized: boolean) => {
-				setIsMaximized(maximized);
-			});
+		if (!window.electron) return;
 
-			// Check if we're on macOS
-			window.electron.getPlatform().then(platform => {
-				setIsMacOS(platform === 'darwin');
-			});
-		}
+		const unsubscribe = window.electron.onMaximizeChange((maximized: boolean) => {
+			setIsMaximized(maximized);
+		});
+
+		// Check if we're on macOS
+		window.electron.getPlatform().then(platform => {
+			setIsMacOS(platform === 'darwin');
+		});
+
+		return () => unsubscribe();
 	}, []);
 
 	const handleMinimize = () => {

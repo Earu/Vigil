@@ -11,7 +11,7 @@ export interface IElectronAPI {
 	minimizeWindow: () => Promise<void>;
 	maximizeWindow: () => Promise<void>;
 	closeWindow: () => Promise<void>;
-	onMaximizeChange: (callback: (maximized: boolean) => void) => void;
+	onMaximizeChange: (callback: (maximized: boolean) => void) => () => void;
 	saveFile: (data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
 	saveToFile: (filePath: string, data: Uint8Array) => Promise<{ success: boolean; error?: string }>;
 	saveAttachment: (name: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
@@ -31,8 +31,7 @@ export interface IElectronAPI {
 	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => Promise<ArrayBuffer>;
 	openExternal: (url: string) => Promise<void>;
 	getPlatform: () => Promise<string>;
-	on: (channel: string, callback: (...args: any[]) => void) => void;
-	off: (channel: string, callback: (...args: any[]) => void) => void;
+	on: (channel: string, callback: (...args: any[]) => void) => () => void;
 	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;
 	showNotification: (options: { title: string, body: string }) => Promise<void>;
 	getUpdateStatus: () => Promise<UpdateStatus>;

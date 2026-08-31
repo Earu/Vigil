@@ -52,7 +52,7 @@ export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: Au
                 }
             };
 
-            window.electron.on('file-opened', handleFileOpened);
+            const unsubscribe = window.electron.on('file-opened', handleFileOpened);
 
             // Load last database only if no direct file open
             const loadLastDatabase = async () => {
@@ -72,10 +72,7 @@ export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: Au
 
             loadLastDatabase();
 
-            return () => {
-                if (!window.electron) return;
-                window.electron.off('file-opened', handleFileOpened);
-            };
+            return () => unsubscribe();
         }
     }, []);
 

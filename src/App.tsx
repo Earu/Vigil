@@ -35,8 +35,8 @@ function App() {
 				});
 			}
 		};
-		window.electron?.on('update-status', handleUpdateStatus);
-		return () => window.electron?.off('update-status', handleUpdateStatus);
+		const unsubscribe = window.electron?.on('update-status', handleUpdateStatus);
+		return () => unsubscribe?.();
 	}, []);
 
 	useEffect(() => {
@@ -46,11 +46,9 @@ function App() {
 			}
 		};
 
-		window.electron?.on('trigger-lock', handleLockEvent);
+		const unsubscribe = window.electron?.on('trigger-lock', handleLockEvent);
 
-		return () => {
-			window.electron?.off('trigger-lock', handleLockEvent);
-		};
+		return () => unsubscribe?.();
 	}, [database]);
 
 	// Auto-lock timer effect
