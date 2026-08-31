@@ -1,4 +1,5 @@
 import { app, ipcMain, BrowserWindow } from 'electron';
+import { spawnSync } from 'child_process';
 import net from 'net';
 import fs from 'fs';
 import os from 'os';
@@ -12,6 +13,7 @@ import {
     chromiumManifest,
     firefoxManifest,
     manifestTargets,
+    registryTargets,
     selectTargets,
 } from './browser-manifests';
 
@@ -78,8 +80,17 @@ let requestCounter = 0;
 const pendingRendererRequests = new Map<number, (result: any) => void>();
 
 export function getSocketPath(): string {
+    // Windows named pipes live in their own namespace, not the filesystem
+    if (process.platform === 'win32') return '\\\\.\\pipe\\vigil.BrowserServer';
     const runtimeDir = process.env.XDG_RUNTIME_DIR || os.tmpdir();
     return path.join(runtimeDir, 'vigil.BrowserServer');
+}
+
+// Stale socket files only exist on unix; pipes vanish with their server
+function removeSocketFile(): void {
+    if (process.platform !== 'win32') {
+        fs.rmSync(getSocketPath(), { force: true });
+    }
 }
 
 const configFile = () => path.join(app.getPath('userData'), 'browser-integration.json');
@@ -283,7 +294,7 @@ export function startServer(): { success: boolean; error?: string } {
     if (server) return { success: true };
     const socketPath = getSocketPath();
     try {
-        fs.rmSync(socketPath, { force: true });
+        removeSocketFile();
         server = net.createServer((socket) => {
             clients.add(socket);
             socket.on('close', () => clients.delete(socket));
@@ -328,7 +339,7 @@ export function stopServer(): void {
     for (const socket of clients) socket.destroy();
     clients.clear();
     sessions.clear();
-    fs.rmSync(getSocketPath(), { force: true });
+    removeSocketFile();
 }
 
 // ---- native messaging manifests ----
@@ -385,6 +396,12 @@ exec "${executable}" "${proxyJsPath}"
 `;
 }
 
+// Same idea as the .sh wrapper; @echo off keeps cmd's command echo out of
+// the native messaging stdout stream, which must carry only framed JSON
+function windowsWrapperScript(proxyJsPath: string): string {
+    return `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${process.execPath}" "${proxyJsPath}"\r\n`;
+}
+
 export function installManifests(): { success: boolean; written: string[]; error?: string } {
     try {
         const baseDir = path.join(app.getPath('userData'), 'browser');
@@ -392,6 +409,33 @@ export function installManifests(): { success: boolean; written: string[]; error
 
         const proxyJs = path.join(baseDir, 'vigil-proxy.js');
         fs.writeFileSync(proxyJs, proxyScript());
+
+        if (process.platform === 'win32') {
+            const wrapper = path.join(baseDir, 'vigil-proxy.cmd');
+            fs.writeFileSync(wrapper, windowsWrapperScript(proxyJs));
+            // One manifest file per family, pointed at from the registry
+            const manifestFiles: Record<ManifestType, string> = {
+                chromium: path.join(baseDir, `${HOST_NAME}.chromium.json`),
+                firefox: path.join(baseDir, `${HOST_NAME}.firefox.json`),
+            };
+            fs.writeFileSync(manifestFiles.chromium, chromiumManifest(wrapper));
+            fs.writeFileSync(manifestFiles.firefox, firefoxManifest(wrapper));
+
+            const written: string[] = [];
+            let lastError: string | undefined;
+            for (const target of registryTargets()) {
+                const key = `HKCU\\${target.key}`;
+                const result = spawnSync('reg.exe',
+                    ['add', key, '/ve', '/t', 'REG_SZ', '/d', manifestFiles[target.type], '/f'],
+                    { windowsHide: true });
+                if (result.status === 0) written.push(key);
+                else lastError = result.stderr?.toString().trim() || `reg.exe exited with ${result.status}`;
+            }
+            return written.length > 0
+                ? { success: true, written }
+                : { success: false, written, error: lastError ?? 'No registry keys written' };
+        }
+
         const wrapper = path.join(baseDir, 'vigil-proxy.sh');
         fs.writeFileSync(wrapper, wrapperScript(proxyJs), { mode: 0o755 });
 
@@ -417,11 +461,6 @@ export function installManifests(): { success: boolean; written: string[]; error
 // ---- app wiring ----
 
 export function setupBrowserIntegration(): void {
-    // Windows needs a named pipe server and registry-based manifests; until
-    // that exists, report the feature as unsupported instead of half-working
-    const supported = process.platform !== 'win32';
-    const unsupportedError = 'Browser integration is not supported on Windows yet';
-
     // Tell connected extensions when the first vault unlocks or the last one
     // locks, so their icon state follows the app instead of lagging a poll
     let vaultCount = getVaultWindows().length;
@@ -440,16 +479,13 @@ export function setupBrowserIntegration(): void {
     });
 
     ipcMain.handle('browser-integration-status', () => ({
-        supported,
+        supported: true,
         enabled: isEnabled(),
         running: server !== null,
         socketPath: getSocketPath(),
     }));
 
     ipcMain.handle('browser-integration-set-enabled', (_event, enabled: boolean) => {
-        if (!supported) {
-            return { success: false, running: false, written: [], error: unsupportedError };
-        }
         persistEnabled(enabled);
         if (enabled) {
             const result = startServer();
@@ -463,13 +499,10 @@ export function setupBrowserIntegration(): void {
     });
 
     ipcMain.handle('browser-integration-install-manifests', () => {
-        if (!supported) {
-            return { success: false, written: [], error: unsupportedError };
-        }
         return installManifests();
     });
 
-    if (supported && isEnabled()) {
+    if (isEnabled()) {
         startServer();
         // Re-write the manifests on every start: the proxy wrapper bakes in
         // the current binary path, which changes between dev and packaged runs

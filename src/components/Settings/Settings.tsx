@@ -708,13 +708,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     />
                                 </div>
                                 <p className="database-help">
-                                    {browserIntegration && !browserIntegration.supported
-                                        ? 'Browser integration is not supported on Windows yet.'
-                                        : <>
-                                            Lets the KeePassXC-Browser extension fill credentials from your vaults.
-                                            Enabling registers Vigil with the browsers on this machine
-                                            {browserIntegration?.running ? '; the connection server is running' : ''}
-                                        </>}
+                                    Lets the KeePassXC-Browser extension fill credentials from your vaults.
+                                    Enabling registers Vigil with the browsers on this machine
+                                    {browserIntegration?.running ? '; the connection server is running' : ''}
                                 </p>
                                 {kdbxDb && browserAssociations.length > 0 && (
                                     <div className="browser-associations">
