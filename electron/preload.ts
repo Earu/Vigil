@@ -38,6 +38,8 @@ const api: IElectronAPI = {
 	},
 	checkEmailBreaches: (email: string, apiKey: string) => ipcRenderer.invoke('check-email-breaches', email, apiKey),
 	showNotification: (options) => ipcRenderer.invoke('show-notification', options),
+	reportVaultOpened: (filePath: string) => ipcRenderer.invoke('vault-opened', filePath),
+	reportVaultClosed: () => ipcRenderer.invoke('vault-closed'),
 	getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
 	checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
 	installUpdate: () => ipcRenderer.invoke('install-update')

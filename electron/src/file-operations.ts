@@ -130,7 +130,7 @@ export async function getFilePath(filePath: string): Promise<string | null> {
     }
 }
 
-export async function openFile(): Promise<{ success: boolean, error?: string, filePath?: string }> {
+export async function openFile(targetWindow?: BrowserWindow): Promise<{ success: boolean, error?: string, filePath?: string }> {
     const { filePaths, canceled } = await dialog.showOpenDialog({
         properties: ['openFile'],
         filters: [{ name: 'KeePass Database', extensions: ['kdbx'] }]
@@ -142,7 +142,7 @@ export async function openFile(): Promise<{ success: boolean, error?: string, fi
 
     try {
         const filePath = filePaths[0];
-        await handleFileOpen(filePath);
+        await handleFileOpen(filePath, targetWindow);
         return { success: true, filePath };
     } catch (error) {
         console.error('Failed to open file:', error);
@@ -176,20 +176,23 @@ export async function readFile(filePath: string): Promise<{ success: boolean, er
     }
 }
 
-export async function handleFileOpen(filePath: string): Promise<void> {
+export async function handleFileOpen(filePath: string, targetWindow?: BrowserWindow): Promise<void> {
     try {
         const result = await fs.promises.readFile(filePath);
-        const mainWindow = BrowserWindow.getAllWindows()[0];
+        const window = targetWindow ?? BrowserWindow.getAllWindows()[0];
+        if (!window || window.isDestroyed()) return;
+
         const fileData = {
             data: result,
             path: filePath
         };
 
-        if (mainWindow?.webContents.isLoading()) {
-            // This will be handled by the window module
-            mainWindow.webContents.send('set-pending-file-open', fileData);
-        } else if (mainWindow) {
-            mainWindow.webContents.send('file-opened', fileData);
+        if (window.webContents.isLoading()) {
+            window.webContents.once('did-finish-load', () => {
+                window.webContents.send('file-opened', fileData);
+            });
+        } else {
+            window.webContents.send('file-opened', fileData);
         }
     } catch (error) {
         console.error('Failed to open file:', error);

@@ -1,10 +1,51 @@
-import { BrowserWindow, ipcMain, app } from 'electron';
+import { BrowserWindow, app } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { handleFileOpen } from './file-operations';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
-export function createWindow() {
+// One window per vault: which window has which vault open
+const vaultWindows = new Map<string, BrowserWindow>();
+
+export function normalizeVaultPath(filePath: string): string {
+    try {
+        return fs.realpathSync(filePath);
+    } catch {
+        return path.resolve(filePath);
+    }
+}
+
+export function findVaultWindow(filePath: string): BrowserWindow | undefined {
+    const win = vaultWindows.get(normalizeVaultPath(filePath));
+    return win && !win.isDestroyed() ? win : undefined;
+}
+
+export function registerVault(filePath: string, win: BrowserWindow): void {
+    unregisterWindow(win);
+    vaultWindows.set(normalizeVaultPath(filePath), win);
+}
+
+export function unregisterWindow(win: BrowserWindow): void {
+    for (const [key, value] of vaultWindows) {
+        if (value === win) vaultWindows.delete(key);
+    }
+}
+
+// A window showing the unlock screen (no vault open) that can take a file
+export function findIdleWindow(): BrowserWindow | undefined {
+    return BrowserWindow.getAllWindows().find(win =>
+        !win.isDestroyed() && ![...vaultWindows.values()].includes(win)
+    );
+}
+
+export function focusWindow(win: BrowserWindow): void {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+}
+
+export function createWindow(startupFile?: string) {
     // Linux draws no decorations for frameless windows, so rounded corners
     // are done in the renderer over a transparent window
     const isLinux = process.platform === 'linux';
@@ -74,52 +115,31 @@ export function createWindow() {
 
     // Add this handler for when the window is ready
     win.webContents.on('did-finish-load', () => {
-        if (pendingFileOpen) {
+        if (startupFile) {
+            // Vault this window was spawned for; only deliver it once so a
+            // renderer reload doesn't re-trigger the unlock screen
+            handleFileOpen(startupFile, win);
+            startupFile = undefined;
+        } else if (pendingFileOpen) {
             win.webContents.send('file-opened', pendingFileOpen);
             pendingFileOpen = null;
         } else if ((global as any).startupFilePath) {
             // Database passed on the command line or via file association
-            handleFileOpen((global as any).startupFilePath);
+            handleFileOpen((global as any).startupFilePath, win);
             (global as any).startupFilePath = undefined;
         }
     });
 
-    // Register window-specific IPC handlers
-    type WindowHandler = [string, (...args: any[]) => any];
-    const windowHandlers: WindowHandler[] = [
-        ['minimize-window', () => win.minimize()],
-        ['maximize-window', () => {
-            if (win.isMaximized()) {
-                win.unmaximize();
-            } else {
-                win.maximize();
-            }
-        }],
-        ['close-window', () => win.close()]
-    ];
-
-    // Register each handler and store their removal functions
-    const removeHandlers = windowHandlers.map(([channel, handler]) => {
-        ipcMain.handle(channel, handler);
-        return () => {
-            try {
-                ipcMain.removeHandler(channel);
-            } catch (error) {
-                console.warn(`Handler ${channel} already removed`);
-            }
-        };
-    });
-
     win.on('closed', () => {
-        removeHandlers.forEach(remove => remove());
+        unregisterWindow(win);
     });
 
     win.on('maximize', () => {
-        win.webContents.send('window-maximized', true);
+        win.webContents.send('maximize-change', true);
     });
 
     win.on('unmaximize', () => {
-        win.webContents.send('window-maximized', false);
+        win.webContents.send('maximize-change', false);
     });
 
     if (process.env.NODE_ENV === 'development') {
