@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: rename to entitlements.mac.plist and set TEAMID when the app
+     gets a Developer ID (see electron/native/touchid/README.md). Do NOT
+     activate on the unsigned build. -->
+<plist version="1.0">
+<dict>
+	<!-- Data protection keychain access (Touch ID gated items) -->
+	<key>com.apple.application-identifier</key>
+	<string>TEAMID.com.vigil.app</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>TEAMID.com.vigil.app</string>
+	</array>
+	<!-- Electron under hardened runtime -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<!-- Keeps ELECTRON_RUN_AS_NODE working for the browser-integration proxy -->
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+</dict>
+</plist>
