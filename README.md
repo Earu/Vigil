@@ -14,13 +14,15 @@ A modern, secure password manager with a beautiful user interface, built using E
 | Modern UI | Clean, dense interface with light and dark themes |
 | File attachments | Add, download and remove files on any entry |
 | Entry history | Every edit records a revision, browse and restore past versions |
-| One-time codes | TOTP with live codes, add secrets by scanning a QR code (screen, clipboard or image) |
-| Browser integration | Autofill, save and update logins via the KeePassXC-Browser extension (Linux, macOS) |
+| One-time codes | TOTP with live codes, add secrets by scanning a QR code (screen, clipboard or image) or a Google Authenticator export |
+| Browser integration | Autofill, save and update logins via the KeePassXC-Browser extension (Windows, Linux, macOS) |
+| Passkeys | Create and use passkeys in the browser, stored in your database, KeePassXC-compatible |
 | Import | Bitwarden, LastPass, 1Password, KeePassXC and generic CSV, format auto-detected |
 | Export | KeePassXC-compatible CSV export |
 | Password generator | Character and passphrase modes with entropy estimate |
 | Custom fields | Arbitrary entry fields with per-field protection |
 | Key files | Unlock with a key file alongside the master password |
+| Hardware keys | YubiKey challenge-response as an extra unlock factor, KeePassXC-compatible |
 | Entry expiry | Expiry dates with visual indicators for expired entries |
 | Recycle bin | Deleted entries and groups can be restored or purged |
 | Security report | Breached, weak, exposed and expired credentials (HaveIBeenPwned) |
