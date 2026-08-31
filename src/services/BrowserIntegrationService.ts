@@ -26,6 +26,15 @@ export interface PasskeyConsentRequest {
     entries?: Array<{ title: string; username: string; credentialId: string }>;
 }
 
+export interface SetLoginConsentRequest {
+    url: string;
+    login: string;
+    // create: a new entry; update: overwriting an existing entry's password
+    mode: 'create' | 'update';
+    // set on update: the title of the entry that would be overwritten
+    entryTitle?: string;
+}
+
 export interface BrowserRequestContext {
     database: Database;
     kdbxDb: kdbxweb.Kdbx;
@@ -35,6 +44,11 @@ export interface BrowserRequestContext {
     // Shows the passkey consent dialog; resolves with the chosen credentialId
     // ('register' resolves with any non-null value on approval), null on deny
     requestPasskeyConsent?: (request: PasskeyConsentRequest) => Promise<string | null>;
+    // Shows the save-login confirmation; resolves true to allow the write.
+    // The browser extension does not send association keys with set-login, so
+    // this user confirmation is the gate (same as KeePassXC). When absent, the
+    // write fails closed
+    requestSetLoginConsent?: (request: SetLoginConsentRequest) => Promise<boolean>;
 }
 
 export class BrowserIntegrationService {
@@ -168,6 +182,21 @@ export class BrowserIntegrationService {
                 if (payload.uuid) {
                     entry = [...this.allEntries(root)].find(e => this.uuidHex(e.uuid) === payload.uuid);
                 }
+
+                // set-login carries no association key, so a rogue local
+                // process could otherwise write or overwrite entries silently.
+                // Gate on an explicit user confirmation (fail closed if the
+                // host provides no way to ask)
+                const consent = ctx.requestSetLoginConsent
+                    ? await ctx.requestSetLoginConsent({
+                        url: payload.url ?? '',
+                        login: payload.login ?? '',
+                        mode: entry ? 'update' : 'create',
+                        entryTitle: entry ? this.fieldString(entry.fields.get('Title')) : undefined,
+                    })
+                    : false;
+                if (!consent) return { errorCode: ERROR_DENIED };
+
                 if (entry) {
                     entry.pushHistory();
                 } else {

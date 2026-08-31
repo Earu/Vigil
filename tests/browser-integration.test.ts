@@ -33,6 +33,7 @@ const ctxFor = (kdbxDb: kdbxweb.Kdbx, pairingName: string | null = null) => ({
     kdbxDb,
     saveDatabase: vi.fn(async () => {}),
     requestPairing: vi.fn(async () => pairingName),
+    requestSetLoginConsent: vi.fn(async () => true),
 });
 
 describe('url matching', () => {
@@ -130,6 +131,31 @@ describe('set-login', () => {
         expect(entry.fields.get('UserName')).toBe('newuser');
         expect((entry.fields.get('Password') as kdbxweb.ProtectedValue).getText()).toBe('newpass');
         expect(ctx.saveDatabase).toHaveBeenCalled();
+    });
+
+    it('is denied when the user declines the confirmation, and writes nothing', async () => {
+        const db = await makeDb();
+        const ctx = { ...ctxFor(db), requestSetLoginConsent: vi.fn(async () => false) };
+        const before = db.getDefaultGroup().groups.find(g => g.name === 'Browser Passwords');
+        const result = await Svc.handleRequest('set-login', {
+            url: 'https://new.example.org/login', login: 'newuser', password: 'newpass',
+        }, ctx);
+
+        expect(result.errorCode).toBe(17); // ERROR_DENIED
+        expect(ctx.requestSetLoginConsent).toHaveBeenCalled();
+        expect(ctx.saveDatabase).not.toHaveBeenCalled();
+        // no Browser Passwords group materialised from a denied write
+        expect(db.getDefaultGroup().groups.find(g => g.name === 'Browser Passwords')).toBe(before);
+    });
+
+    it('fails closed when the host provides no confirmation callback', async () => {
+        const db = await makeDb();
+        const ctx = { database: {} as any, kdbxDb: db, saveDatabase: vi.fn(async () => {}), requestPairing: vi.fn(async () => null) };
+        const result = await Svc.handleRequest('set-login', {
+            url: 'https://new.example.org/login', login: 'x', password: 'y',
+        }, ctx);
+        expect(result.errorCode).toBe(17);
+        expect(ctx.saveDatabase).not.toHaveBeenCalled();
     });
 
     it('updates an existing entry by uuid and keeps history', async () => {

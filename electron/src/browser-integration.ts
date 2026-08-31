@@ -346,7 +346,20 @@ export function startServer(): { success: boolean; error?: string } {
             });
             socket.on('error', () => { /* client vanished; nothing to do */ });
         });
-        server.listen(socketPath);
+        server.listen(socketPath, () => {
+            // Lock the socket to the current user. XDG_RUNTIME_DIR is already
+            // 0700, but the os.tmpdir() fallback (e.g. /tmp) is world-traversable,
+            // so without this another local user on the machine could reach the
+            // vault. Windows named pipes are not filesystem objects and keep
+            // libuv's default DACL; restricting those needs a separate native fix
+            if (process.platform !== 'win32') {
+                try {
+                    fs.chmodSync(socketPath, 0o600);
+                } catch (err) {
+                    console.error('Failed to restrict browser socket permissions:', err);
+                }
+            }
+        });
         server.on('error', (err) => {
             console.error('Browser integration server error:', err);
         });
