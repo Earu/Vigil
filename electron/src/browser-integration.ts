@@ -5,7 +5,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import nacl from 'tweetnacl';
-import { getVaultWindows } from './window';
+import { getVaultWindows, onVaultWindowsChanged } from './window';
 import {
     HOST_NAME,
     ManifestType,
@@ -62,6 +62,17 @@ const incrementNonce = (nonce: Uint8Array): Uint8Array => {
 
 let server: net.Server | null = null;
 const sessions = new Map<string, Session>();
+const clients = new Set<net.Socket>();
+
+// Unsolicited lock/unlock signals are plain JSON per the protocol, sent to
+// every connected proxy so the extension updates its state without polling
+function broadcastSignal(action: 'database-locked' | 'database-unlocked'): void {
+    for (const socket of clients) {
+        if (!socket.destroyed) {
+            socket.write(JSON.stringify({ action }) + '\n');
+        }
+    }
+}
 
 let requestCounter = 0;
 const pendingRendererRequests = new Map<number, (result: any) => void>();
@@ -136,11 +147,17 @@ async function askVaults(action: string, payload: any, timeoutMs: number): Promi
 
 // ---- protocol ----
 
+// Fallback used when no vault window is open to apply the user's generator
+// settings. Rejection sampling keeps the character distribution uniform
 function generatePassword(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+-=';
-    const bytes = crypto.randomBytes(32);
+    const limit = 256 - (256 % chars.length);
     let password = '';
-    for (const byte of bytes) password += chars[byte % chars.length];
+    while (password.length < 32) {
+        for (const byte of crypto.randomBytes(32)) {
+            if (byte < limit && password.length < 32) password += chars[byte % chars.length];
+        }
+    }
     return password;
 }
 
@@ -169,8 +186,14 @@ async function handleDecryptedMessage(action: string, message: any): Promise<any
                 group: message.group,
                 groupUuid: message.groupUuid,
             }, 60000);
-        case 'generate-password':
-            return { password: generatePassword(), entries: [{ password: generatePassword() }] };
+        case 'generate-password': {
+            // The renderer generates with the user's saved generator
+            // settings; fall back to a local default when no vault is open
+            const result = await askVaults('generate-password', {}, 5000);
+            if (!result.errorCode && result.password) return result;
+            const password = generatePassword();
+            return { password, entries: [{ password }] };
+        }
         case 'lock-database':
             for (const win of BrowserWindow.getAllWindows()) {
                 win.webContents.send('trigger-lock');
@@ -262,6 +285,8 @@ export function startServer(): { success: boolean; error?: string } {
     try {
         fs.rmSync(socketPath, { force: true });
         server = net.createServer((socket) => {
+            clients.add(socket);
+            socket.on('close', () => clients.delete(socket));
             let buffer = '';
             socket.on('data', async (chunk) => {
                 buffer += chunk.toString('utf8');
@@ -300,6 +325,8 @@ export function stopServer(): void {
         server.close();
         server = null;
     }
+    for (const socket of clients) socket.destroy();
+    clients.clear();
     sessions.clear();
     fs.rmSync(getSocketPath(), { force: true });
 }
@@ -394,6 +421,15 @@ export function setupBrowserIntegration(): void {
     // that exists, report the feature as unsupported instead of half-working
     const supported = process.platform !== 'win32';
     const unsupportedError = 'Browser integration is not supported on Windows yet';
+
+    // Tell connected extensions when the first vault unlocks or the last one
+    // locks, so their icon state follows the app instead of lagging a poll
+    let vaultCount = getVaultWindows().length;
+    onVaultWindowsChanged((count) => {
+        if (count > vaultCount) broadcastSignal('database-unlocked');
+        else if (count === 0 && vaultCount > 0) broadcastSignal('database-locked');
+        vaultCount = count;
+    });
 
     ipcMain.on('browser-integration-response', (_event, { id, result }: { id: number; result: any }) => {
         const resolve = pendingRendererRequests.get(id);

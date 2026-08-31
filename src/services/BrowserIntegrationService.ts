@@ -1,6 +1,7 @@
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../types/database';
 import { TotpService } from './TotpService';
+import { PasswordGeneratorService } from './PasswordGeneratorService';
 
 // Renderer side of the KeePassXC-Browser protocol: answers the requests the
 // main-process socket server forwards. Association keys are stored the way
@@ -167,6 +168,13 @@ export class BrowserIntegrationService {
                 entry.times.lastModTime = new Date();
                 await ctx.saveDatabase();
                 return { hash: await this.databaseHash(kdbxDb) };
+            }
+
+            case 'generate-password': {
+                // Uses the generator settings the user last picked in the
+                // generator modal (mode, length, character sets)
+                const password = PasswordGeneratorService.generateFromSettings();
+                return { password, entries: [{ password }] };
             }
 
             case 'get-totp': {

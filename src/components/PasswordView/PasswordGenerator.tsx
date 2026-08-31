@@ -3,6 +3,12 @@ import './PasswordGenerator.css';
 import * as kdbxweb from 'kdbxweb';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { PassphraseService, PassphraseOptions } from '../../services/PassphraseService';
+import {
+    PasswordGeneratorService,
+    PasswordOptions,
+    GeneratorMode,
+    GeneratorSettings,
+} from '../../services/PasswordGeneratorService';
 import { CloseActionIcon, CopyActionIcon, RefreshActionIcon } from '../../icons/actions/ActionIcons';
 
 interface PasswordGeneratorProps {
@@ -11,48 +17,16 @@ interface PasswordGeneratorProps {
     currentPassword?: string;
 }
 
-interface PasswordOptions {
-    length: number;
-    upperCase: boolean;
-    lowerCase: boolean;
-    digits: boolean;
-    special: boolean;
-    brackets: boolean;
-    space: boolean;
-    minus: boolean;
-    underline: boolean;
-    latin1: boolean;
-    customChars: string;
-}
-
-type GeneratorMode = 'characters' | 'words';
-
 export const PasswordGenerator = ({ onClose, onSave, currentPassword }: PasswordGeneratorProps) => {
+    // Settings persist so the next open (and the browser extension's
+    // generate-password) uses what the user last picked
+    const [savedSettings] = useState<GeneratorSettings>(() => PasswordGeneratorService.loadSettings());
     const [generatedPassword, setGeneratedPassword] = useState('');
-    const [mode, setMode] = useState<GeneratorMode>('characters');
-    const [passphraseOptions, setPassphraseOptions] = useState<PassphraseOptions>({
-        wordCount: 5,
-        separator: '-',
-        capitalize: false,
-        includeNumber: false,
-    });
+    const [mode, setMode] = useState<GeneratorMode>(savedSettings.mode);
+    const [passphraseOptions, setPassphraseOptions] = useState<PassphraseOptions>(savedSettings.passphrase);
     const [passphraseBits, setPassphraseBits] = useState<number | null>(null);
     const [options, setOptions] = useState<PasswordOptions>(() => {
-        const defaultOptions = {
-            length: 20,
-            upperCase: true,
-            lowerCase: true,
-            digits: true,
-            special: true,
-            brackets: false,
-            space: false,
-            minus: false,
-            underline: false,
-            latin1: false,
-            customChars: '',
-        };
-
-        if (!currentPassword) return defaultOptions;
+        if (!currentPassword) return savedSettings.password;
 
         // Analyze current password to determine used character sets
         const hasUpperCase = /[A-Z]/.test(currentPassword);
@@ -81,8 +55,9 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     });
 
     useEffect(() => {
-        // Generate initial password when component mounts
-        generatePassword();
+        // Generate with the remembered mode when the modal opens
+        if (mode === 'words') generatePassphrase();
+        else generatePassword();
     }, []); // Empty dependency array means this runs once on mount
 
     const [passwordStrength, setPasswordStrength] = useState<{
@@ -93,24 +68,17 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
         };
     } | null>(null);
 
-    const generateCharacterPool = () => {
-        let chars = '';
-        if (options.upperCase) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-        if (options.lowerCase) chars += 'abcdefghijklmnopqrstuvwxyz';
-        if (options.digits) chars += '0123456789';
-        if (options.special) chars += '!@#$%^&*()_+-=[]{}|;:,.<>?';
-        if (options.brackets) chars += '[]{}()<>';
-        if (options.space) chars += ' ';
-        if (options.minus) chars += '-';
-        if (options.underline) chars += '_';
-        if (options.latin1) chars += 'ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ';
-        if (options.customChars) chars += options.customChars;
-        return chars;
+    const persistSettings = (patch: Partial<GeneratorSettings>) => {
+        PasswordGeneratorService.saveSettings({
+            mode,
+            password: options,
+            passphrase: passphraseOptions,
+            ...patch,
+        });
     };
 
     const generatePassword = () => {
-        const chars = generateCharacterPool();
-        if (!chars) {
+        if (!PasswordGeneratorService.characterPool(options)) {
             (window as any).showToast?.({
                 message: 'Please select at least one character set',
                 type: 'error'
@@ -118,10 +86,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
             return;
         }
 
-        const password = Array.from(crypto.getRandomValues(new Uint8Array(options.length)))
-            .map(byte => chars[byte % chars.length])
-            .join('');
-
+        const password = PasswordGeneratorService.generate(options);
         setGeneratedPassword(password);
         setPassphraseBits(null);
 
@@ -146,13 +111,21 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     const switchMode = (next: GeneratorMode) => {
         if (next === mode) return;
         setMode(next);
+        persistSettings({ mode: next });
         if (next === 'words') generatePassphrase();
         else generatePassword();
+    };
+
+    const updateOptions = (patch: Partial<PasswordOptions>) => {
+        const next = { ...options, ...patch };
+        setOptions(next);
+        persistSettings({ password: next });
     };
 
     const updatePassphraseOptions = (patch: Partial<PassphraseOptions>) => {
         const next = { ...passphraseOptions, ...patch };
         setPassphraseOptions(next);
+        persistSettings({ passphrase: next });
         generatePassphrase(next);
     };
 
@@ -318,14 +291,14 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 min="1"
                                 max="128"
                                 value={options.length}
-                                onChange={(e) => setOptions({ ...options, length: parseInt(e.target.value) })}
+                                onChange={(e) => updateOptions({length: parseInt(e.target.value) })}
                             />
                             <input
                                 type="number"
                                 min="1"
                                 max="128"
                                 value={options.length}
-                                onChange={(e) => setOptions({ ...options, length: parseInt(e.target.value) })}
+                                onChange={(e) => updateOptions({length: parseInt(e.target.value) })}
                             />
                         </div>
                     </div>
@@ -337,7 +310,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.upperCase}
-                                    onChange={(e) => setOptions({ ...options, upperCase: e.target.checked })}
+                                    onChange={(e) => updateOptions({upperCase: e.target.checked })}
                                 />
                                 Upper-case (A-Z)
                             </label>
@@ -345,7 +318,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.lowerCase}
-                                    onChange={(e) => setOptions({ ...options, lowerCase: e.target.checked })}
+                                    onChange={(e) => updateOptions({lowerCase: e.target.checked })}
                                 />
                                 Lower-case (a-z)
                             </label>
@@ -353,7 +326,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.digits}
-                                    onChange={(e) => setOptions({ ...options, digits: e.target.checked })}
+                                    onChange={(e) => updateOptions({digits: e.target.checked })}
                                 />
                                 Digits (0-9)
                             </label>
@@ -361,7 +334,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.special}
-                                    onChange={(e) => setOptions({ ...options, special: e.target.checked })}
+                                    onChange={(e) => updateOptions({special: e.target.checked })}
                                 />
                                 Special (!@#$%^&*()_+-=[]{}|;:,.'&lt;&gt;'?)
                             </label>
@@ -369,7 +342,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.brackets}
-                                    onChange={(e) => setOptions({ ...options, brackets: e.target.checked })}
+                                    onChange={(e) => updateOptions({brackets: e.target.checked })}
                                 />
                                 Brackets ([]{}())
                             </label>
@@ -377,7 +350,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.space}
-                                    onChange={(e) => setOptions({ ...options, space: e.target.checked })}
+                                    onChange={(e) => updateOptions({space: e.target.checked })}
                                 />
                                 Space
                             </label>
@@ -385,7 +358,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.minus}
-                                    onChange={(e) => setOptions({ ...options, minus: e.target.checked })}
+                                    onChange={(e) => updateOptions({minus: e.target.checked })}
                                 />
                                 Minus (-)
                             </label>
@@ -393,7 +366,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.underline}
-                                    onChange={(e) => setOptions({ ...options, underline: e.target.checked })}
+                                    onChange={(e) => updateOptions({underline: e.target.checked })}
                                 />
                                 Underline (_)
                             </label>
@@ -401,7 +374,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 <input
                                     type="checkbox"
                                     checked={options.latin1}
-                                    onChange={(e) => setOptions({ ...options, latin1: e.target.checked })}
+                                    onChange={(e) => updateOptions({latin1: e.target.checked })}
                                 />
                                 Latin-1 Special Characters
                             </label>
@@ -413,7 +386,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                         <input
                             type="text"
                             value={options.customChars}
-                            onChange={(e) => setOptions({ ...options, customChars: e.target.value })}
+                            onChange={(e) => updateOptions({customChars: e.target.value })}
                             placeholder="Add your own characters"
                         />
                     </div>
