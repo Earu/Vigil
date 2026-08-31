@@ -8,8 +8,9 @@ import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { CsvImportService } from '../../services/CsvImportService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
+import { UpdateStatus } from '../../types/electron';
 import './Settings.css';
 
 interface SettingsProps {
@@ -29,8 +30,29 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [showApiKey, setShowApiKey] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [fetchFavicons, setFetchFavicons] = useState<boolean>(userSettingsService.getFetchFavicons());
+    const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+
+    useEffect(() => {
+        if (!window.electron) return;
+        window.electron.getUpdateStatus().then(setUpdateStatus).catch(() => {});
+        const handler = (status: UpdateStatus) => setUpdateStatus(status);
+        window.electron.on('update-status', handler);
+        return () => window.electron?.off('update-status', handler);
+    }, []);
 
     if (!isOpen) return null;
+
+    const updateStatusText = (() => {
+        switch (updateStatus?.state) {
+            case 'checking': return 'Checking for updates...';
+            case 'up-to-date': return 'Vigil is up to date.';
+            case 'downloading': return `Downloading v${updateStatus.version}...`;
+            case 'downloaded': return `v${updateStatus.version} is ready to install.`;
+            case 'error': return `Update check failed: ${updateStatus.message}`;
+            case 'disabled': return 'Automatic updates are not available in this build.';
+            default: return 'Updates are checked when the app starts.';
+        }
+    })();
 
     const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const newApiKey = e.target.value;
@@ -327,6 +349,34 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </div>
                         </div>
                     </div>
+
+                    {window.electron && (
+                        <div className="settings-section">
+                            <h3>Updates</h3>
+                            <div className="update-controls">
+                                <div className="update-status-row">
+                                    <span className="update-status-text">{updateStatusText}</span>
+                                    {updateStatus?.state === 'downloaded' ? (
+                                        <button
+                                            className="settings-primary-button"
+                                            onClick={() => window.electron?.installUpdate()}
+                                        >
+                                            Restart and install
+                                        </button>
+                                    ) : (
+                                        <button
+                                            className="clear-cache-button"
+                                            disabled={updateStatus?.state === 'checking' || updateStatus?.state === 'downloading' || updateStatus?.state === 'disabled'}
+                                            onClick={() => window.electron?.checkForUpdates()}
+                                        >
+                                            Check for updates
+                                        </button>
+                                    )}
+                                </div>
+                                <p className="auto-lock-help">Version {__APP_VERSION__}. Downloaded updates install automatically when the app closes.</p>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 

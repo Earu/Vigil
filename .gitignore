@@ -43,3 +43,5 @@ native/**/cmake_install.cmake
 
 # Argon2
 public
+# TypeScript incremental build state
+*.tsbuildinfo

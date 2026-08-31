@@ -127,7 +127,7 @@ export const BreachReport = ({
                 </div>
                 <div className="breach-report-content">
                     {(isChecking || isCheckingEmails) && (
-                        <div className="breach-summary">
+                        <div className="breach-summary neutral">
                             <div className="breach-count">
                                 <SpinnerIcon className="spinner" />
                             </div>
@@ -235,7 +235,7 @@ export const BreachReport = ({
                       (activeTab === 'weak' && !hasWeakPasswords) ||
                       (activeTab === 'emails' && !hasBreachedEmails) ||
                       (activeTab === 'expired' && !hasExpiredEntries)) && (
-                        <div className="breach-summary">
+                        <div className="breach-summary neutral">
                             <p className="breach-warning">
                                 No {activeTab === 'breached' ? 'compromised passwords' :
                                    activeTab === 'weak' ? 'weak passwords' :

@@ -67,6 +67,11 @@
     border-radius: var(--radius-md);
 }
 
+.breach-summary.neutral {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-secondary);
+}
+
 .breach-count {
     display: flex;
     flex-direction: column;

@@ -1,3 +1,12 @@
+export type UpdateStatus =
+	| { state: 'disabled' }
+	| { state: 'idle' }
+	| { state: 'checking' }
+	| { state: 'up-to-date' }
+	| { state: 'downloading'; version: string }
+	| { state: 'downloaded'; version: string }
+	| { state: 'error'; message: string };
+
 export interface IElectronAPI {
 	minimizeWindow: () => Promise<void>;
 	maximizeWindow: () => Promise<void>;
@@ -26,6 +35,9 @@ export interface IElectronAPI {
 	off: (channel: string, callback: (...args: any[]) => void) => void;
 	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;
 	showNotification: (options: { title: string, body: string }) => Promise<void>;
+	getUpdateStatus: () => Promise<UpdateStatus>;
+	checkForUpdates: () => Promise<UpdateStatus>;
+	installUpdate: () => Promise<void>;
 }
 
 declare global {

@@ -30,7 +30,10 @@ const api: IElectronAPI = {
 	on: (channel: string, callback: Function) => ipcRenderer.on(channel, (_, ...args) => callback(...args)),
 	off: (channel: string, callback: Function) => ipcRenderer.off(channel, (_, ...args) => callback(...args)),
 	checkEmailBreaches: (email: string, apiKey: string) => ipcRenderer.invoke('check-email-breaches', email, apiKey),
-	showNotification: (options) => ipcRenderer.invoke('show-notification', options)
+	showNotification: (options) => ipcRenderer.invoke('show-notification', options),
+	getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
+	checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+	installUpdate: () => ipcRenderer.invoke('install-update')
 }
 
 contextBridge.exposeInMainWorld('electron', api)

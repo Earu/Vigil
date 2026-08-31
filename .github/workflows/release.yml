@@ -33,21 +33,15 @@ jobs:
 
   build:
     needs: test
+    # Each runner builds its host architecture: cross-building is not
+    # supported because the native modules (keytar, argon2, passport-desktop)
+    # are copied for the host arch by electron/copy-native-modules.mjs
     strategy:
       matrix:
         include:
-          - os: windows-latest
-            arch: x64
-          - os: windows-latest
-            arch: arm64
-          - os: ubuntu-latest
-            arch: x64
-          - os: ubuntu-latest
-            arch: arm64
-          - os: macos-latest
-            arch: x64
-          - os: macos-latest
-            arch: arm64
+          - os: windows-latest # x64
+          - os: ubuntu-latest # x64
+          - os: macos-latest # arm64
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -75,25 +69,30 @@ jobs:
       env:
         NODE_ENV: production
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        ARCH: ${{ matrix.arch }}
         CSC_IDENTITY_AUTO_DISCOVERY: false
         # This is broken on macOS. Why.
         # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
         USE_HARD_LINKS: false
 
+    # The latest*.yml files and .blockmap are the metadata electron-updater
+    # reads from the GitHub release; they reference the installer filenames,
+    # so nothing may be renamed after this point
     - name: Upload Windows artifacts
       if: runner.os == 'Windows'
       uses: actions/upload-artifact@v4
       with:
-        name: windows-${{ matrix.arch }}-installer
-        path: dist/*.exe
+        name: windows-installer
+        path: |
+          dist/*.exe
+          dist/*.blockmap
+          dist/latest.yml
         if-no-files-found: error
 
     - name: Upload macOS artifacts
       if: runner.os == 'macOS'
       uses: actions/upload-artifact@v4
       with:
-        name: macos-${{ matrix.arch }}-installer
+        name: macos-installer
         path: dist/*.dmg
         if-no-files-found: error
 
@@ -101,8 +100,10 @@ jobs:
       if: runner.os == 'Linux'
       uses: actions/upload-artifact@v4
       with:
-        name: linux-${{ matrix.arch }}-installer
-        path: dist/*.AppImage
+        name: linux-installer
+        path: |
+          dist/*.AppImage
+          dist/latest-linux.yml
         if-no-files-found: error
 
   release:
@@ -116,27 +117,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
-      - name: Rename artifacts
-        env:
-          VERSION: ${{ github.event.inputs.version || github.ref_name }}
-        run: |
-          mkdir -p renamed-artifacts
-
-          for dir in artifacts/*; do
-            if [ -d "$dir" ]; then
-              platform_arch=$(basename "$dir" | sed 's/-installer$//')
-
-              for file in "$dir"/*; do
-                if [ -f "$file" ]; then
-                  ext="${file##*.}"
-                  cp "$file" "renamed-artifacts/vigil-${platform_arch}-${VERSION}.${ext}"
-                fi
-              done
-            fi
-          done
-
-          ls -la renamed-artifacts
+      - name: List artifacts
+        run: ls -la artifacts
 
       - name: Create Draft Release
         uses: softprops/action-gh-release@v2
@@ -145,6 +129,6 @@ jobs:
           name: Release ${{ github.event.inputs.version || github.ref_name }}
           draft: true
           prerelease: false
-          files: renamed-artifacts/*
+          files: artifacts/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

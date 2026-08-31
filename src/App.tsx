@@ -26,6 +26,20 @@ function App() {
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
 
 	useEffect(() => {
+		const handleUpdateStatus = (status: { state: string; version?: string }) => {
+			if (status.state === 'downloaded') {
+				(window as any).showToast?.({
+					message: `Update v${status.version} downloaded; it will be installed when the app closes`,
+					type: 'success',
+					duration: 6000
+				});
+			}
+		};
+		window.electron?.on('update-status', handleUpdateStatus);
+		return () => window.electron?.off('update-status', handleUpdateStatus);
+	}, []);
+
+	useEffect(() => {
 		const handleLockEvent = () => {
 			if (database) {
 				handleLock();
