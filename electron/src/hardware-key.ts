@@ -55,6 +55,11 @@ interface HidApi {
     open(path: string): Promise<HidAsyncDevice>;
 }
 
+// macOS: hidapi seizes devices by default, and seizing a keyboard-class
+// device (which the OTP interface is) needs root; non-exclusive open only
+// needs the Input Monitoring permission. Ignored on other platforms.
+const OPEN_OPTS = { nonExclusive: true };
+
 let hidApi: HidApi | null | undefined;
 
 function loadHid(): HidApi | null {
@@ -63,13 +68,13 @@ function loadHid(): HidApi | null {
         if (process.env.NODE_ENV === 'development') {
             // eslint-disable-next-line @typescript-eslint/no-var-requires
             const mod = require('node-hid');
-            hidApi = { devices: () => mod.devices(), open: (path: string) => mod.HIDAsync.open(path) };
+            hidApi = { devices: () => mod.devices(), open: (path: string) => mod.HIDAsync.open(path, OPEN_OPTS) };
         } else {
             // The raw N-API binding: same devices()/openAsyncHIDDevice() the
             // node-hid wrapper delegates to
             // eslint-disable-next-line @typescript-eslint/no-var-requires
             const binding = require(join(__dirname, 'node-hid.node'));
-            hidApi = { devices: () => binding.devices(), open: async (path: string) => binding.openAsyncHIDDevice(path) };
+            hidApi = { devices: () => binding.devices(), open: async (path: string) => binding.openAsyncHIDDevice(path, OPEN_OPTS) };
         }
     } catch (error) {
         console.error('Failed to load node-hid:', error);
