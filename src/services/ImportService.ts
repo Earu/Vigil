@@ -14,7 +14,7 @@ export interface ImportedEntry {
 }
 
 export interface ImportResult {
-    source: 'Bitwarden' | 'LastPass' | '1Password' | 'CSV';
+    source: 'Bitwarden' | 'LastPass' | '1Password' | 'KeePassXC' | 'CSV';
     entries: ImportedEntry[];
     skipped: number; // items of unsupported types (cards, identities, ...)
 }
@@ -82,6 +82,9 @@ export class ImportService {
         }
         if (has('url', 'username', 'password', 'extra', 'grouping')) {
             return this.parseLastPassCsv(headers, rows.slice(1));
+        }
+        if (has('group', 'title', 'username', 'password', 'url')) {
+            return this.parseKeePassXcCsv(headers, rows.slice(1));
         }
         if (has('title', 'username', 'password') && (headers.includes('otpauth') || headers.includes('archived'))) {
             return this.parseOnePasswordCsv(headers, rows.slice(1));
@@ -197,6 +200,32 @@ export class ImportService {
             });
         }
         return { source: 'LastPass', entries, skipped: 0 };
+    }
+
+    // ---- KeePassXC (and Vigil's own) CSV export ----
+
+    private static parseKeePassXcCsv(headers: string[], rows: string[][]): ImportResult {
+        const col = (name: string) => headers.indexOf(name);
+        const get = (row: string[], name: string) => {
+            const index = col(name);
+            return index === -1 ? '' : (row[index] ?? '');
+        };
+
+        const entries: ImportedEntry[] = [];
+        for (const row of rows) {
+            // group paths start with the database's root group name; drop it
+            const group = get(row, 'group').split('/').slice(1).filter(s => s.length > 0);
+            entries.push({
+                title: get(row, 'title') || 'Untitled',
+                username: get(row, 'username'),
+                password: get(row, 'password'),
+                url: get(row, 'url') || undefined,
+                notes: get(row, 'notes') || undefined,
+                totp: get(row, 'totp') || undefined,
+                group: group.length ? group : undefined,
+            });
+        }
+        return { source: 'KeePassXC', entries, skipped: 0 };
     }
 
     // ---- 1Password (CSV export) ----

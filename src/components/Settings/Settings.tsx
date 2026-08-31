@@ -1,5 +1,5 @@
 import { useTheme } from '../../contexts/ThemeContext';
-import { CloseActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, DownloadActionIcon } from '../../icons/actions/ActionIcons';
 import { DarkThemeIcon, LightThemeIcon, SystemThemeIcon } from '../../icons/SettingsIcon';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import { ImportAuthIcon } from '../../icons/auth/AuthIcons';
@@ -7,6 +7,7 @@ import { userSettingsService } from '../../services/UserSettingsService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { ImportService } from '../../services/ImportService';
+import { ExportService } from '../../services/ExportService';
 import { KeepassDatabaseService, KdfInfo } from '../../services/KeepassDatabaseService';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
@@ -87,6 +88,35 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         const newApiKey = e.target.value;
         setApiKey(newApiKey);
         userSettingsService.setHibpApiKey(newApiKey || undefined);
+    };
+
+    const handleCsvExport = async () => {
+        if (!kdbxDb || !window.electron) return;
+
+        const count = ExportService.entryCount(kdbxDb);
+        const confirmed = window.confirm(
+            `Export ${count} entries to a plaintext CSV file? Anyone who can read that file can read every password in it.`
+        );
+        if (!confirmed) return;
+
+        const csv = ExportService.toCsv(kdbxDb);
+        const result = await window.electron.saveAttachment(
+            ExportService.exportFileName(kdbxDb),
+            new TextEncoder().encode(csv)
+        );
+        if (result.success) {
+            (window as any).showToast?.({
+                message: `Exported ${count} entries to ${result.filePath}`,
+                type: 'success',
+                duration: 4000
+            });
+        } else if (result.error !== 'Save cancelled') {
+            (window as any).showToast?.({
+                message: result.error || 'Failed to export',
+                type: 'error',
+                duration: 5000
+            });
+        }
     };
 
     const handleCsvImport = async () => {
@@ -627,7 +657,23 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     <ImportAuthIcon className="import-icon" />
                                     Import passwords
                                 </button>
-                                <p className="database-help">Import from Bitwarden (.json or .csv), LastPass, 1Password, or a browser's CSV export; the format is detected automatically</p>
+                                <p className="database-help">Import from Bitwarden (.json or .csv), KeePassXC, LastPass, 1Password, or a browser's CSV export; the format is detected automatically</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {currentTab === 'general' && kdbxDb && window.electron && (
+                        <div className="settings-section">
+                            <h3>Export</h3>
+                            <div className="database-controls">
+                                <button
+                                    className="import-csv-button"
+                                    onClick={handleCsvExport}
+                                >
+                                    <DownloadActionIcon className="import-icon" />
+                                    Export to CSV
+                                </button>
+                                <p className="database-help">Writes a KeePassXC-compatible CSV file. The file is unencrypted: every password in it is readable as plain text</p>
                             </div>
                         </div>
                     )}
