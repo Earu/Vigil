@@ -1,0 +1,13 @@
+
+.passkey-indicator {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+}
+
+.passkey-list-icon {
+    width: 13px;
+    height: 13px;
+    color: var(--text-tertiary);
+}

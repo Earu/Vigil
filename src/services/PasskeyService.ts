@@ -246,18 +246,41 @@ export function effectiveDomain(origin: string): string | null {
     }
 }
 
+const normalizeOrigin = (origin: string): string | null => {
+    try {
+        return new URL(origin).origin.toLowerCase();
+    } catch {
+        return null;
+    }
+};
+
 // The RP ID must equal the origin's domain or a registrable suffix of it.
-// Unlike KeePassXC we skip the public-suffix-list check, so an rpId of
-// "co.uk" for "site.co.uk" would pass here; RPs never do this in practice
-export function validateRpId(rpId: string | undefined, domain: string): string | null {
+// Failing that, an rpId is still accepted when the caller's origin appears
+// in the RP's related-origins list (https://<rpId>/.well-known/webauthn,
+// fetched and validated by the browser extension). Unlike KeePassXC we skip
+// the public-suffix-list check, so an rpId of "co.uk" for "site.co.uk"
+// would pass here; RPs never do this in practice
+export function validateRpId(
+    rpId: string | undefined,
+    domain: string,
+    origin?: string,
+    relatedOrigins?: string[],
+): string | null {
     if (!rpId) return domain;
     const suffix = rpId.toLowerCase();
     if (suffix === domain || domain.endsWith('.' + suffix)) return suffix;
+    if (origin && Array.isArray(relatedOrigins) && relatedOrigins.length > 0) {
+        const caller = normalizeOrigin(origin);
+        if (caller && relatedOrigins.some(o => normalizeOrigin(String(o)) === caller)) {
+            return suffix;
+        }
+    }
     return null;
 }
 
-export function originAllowed(origin: string): boolean {
+export function originAllowed(origin: string, allowLocalhost: boolean): boolean {
     if (origin.startsWith('https://')) return true;
+    if (!allowLocalhost) return false;
     const host = effectiveDomain(origin);
     return host === 'localhost' || (host?.endsWith('.localhost') ?? false);
 }
@@ -286,6 +309,28 @@ function* allEntries(group: kdbxweb.KdbxGroup, recycleBinUuid?: string): Generat
 }
 
 export class PasskeyService {
+    static isPasskeyFieldKey(key: string): boolean {
+        return Object.values(PASSKEY_ATTRIBUTES).includes(key as any);
+    }
+
+    // Summary for UI, from the app's custom-field list; null when the entry
+    // holds no passkey
+    static passkeyFromFields(
+        fields: Array<{ key: string; value: string | kdbxweb.ProtectedValue }>,
+    ): { relyingParty: string; username: string } | null {
+        const get = (name: string): string => {
+            const field = fields.find(f => f.key === name);
+            if (!field) return '';
+            return field.value instanceof kdbxweb.ProtectedValue ? field.value.getText() : String(field.value);
+        };
+        const credentialId = get(PASSKEY_ATTRIBUTES.generatedUserId) || get(PASSKEY_ATTRIBUTES.credentialId);
+        if (!credentialId || !get(PASSKEY_ATTRIBUTES.privateKeyPem)) return null;
+        return {
+            relyingParty: get(PASSKEY_ATTRIBUTES.relyingParty),
+            username: get(PASSKEY_ATTRIBUTES.username),
+        };
+    }
+
     static passkeyEntries(kdbxDb: kdbxweb.Kdbx, rpId: string): PasskeyEntryInfo[] {
         const recycleBinUuid = kdbxDb.meta.recycleBinEnabled ? kdbxDb.meta.recycleBinUuid?.id : undefined;
         const result: PasskeyEntryInfo[] = [];
@@ -305,11 +350,27 @@ export class PasskeyService {
         return result;
     }
 
-    // First supported algorithm wins, ES256 if the list is absent (KeePassXC order)
-    static pickAlgorithm(pubKeyCredParams: Array<{ type: string; alg: number }> | undefined): number | null {
+    // Ed25519 in WebCrypto depends on the runtime; probe once
+    private static ed25519Support: boolean | null = null;
+    static async supportsEd25519(): Promise<boolean> {
+        if (this.ed25519Support === null) {
+            try {
+                await crypto.subtle.generateKey('Ed25519', false, ['sign']);
+                this.ed25519Support = true;
+            } catch {
+                this.ed25519Support = false;
+            }
+        }
+        return this.ed25519Support;
+    }
+
+    // First supported algorithm in the RP's preference order wins, ES256 if
+    // the list is absent (KeePassXC order)
+    static async pickAlgorithm(pubKeyCredParams: Array<{ type: string; alg: number }> | undefined): Promise<number | null> {
         if (!pubKeyCredParams || pubKeyCredParams.length === 0) return ES256;
         for (const param of pubKeyCredParams) {
             if (param.type !== 'public-key') continue;
+            if (param.alg === EDDSA && !(await this.supportsEd25519())) continue;
             if ([ES256, RS256, EDDSA].includes(param.alg)) return param.alg;
         }
         return null;
@@ -320,11 +381,12 @@ export class PasskeyService {
         options: any,
         origin: string,
         groupName: string | undefined,
+        opts: { allowLocalhost?: boolean; relatedOrigins?: string[] } = {},
     ): Promise<{ response: any; store?: () => void; rpId?: string; username?: string }> {
         const error = (errorCode: number) => ({ response: { errorCode } });
 
         if (!options || !options.challenge) return error(PASSKEY_ERRORS.EMPTY_PUBLIC_KEY);
-        if (!originAllowed(origin)) return error(PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED);
+        if (!originAllowed(origin, opts.allowLocalhost ?? false)) return error(PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED);
         if (String(options.challenge).length < 16) return error(PASSKEY_ERRORS.INVALID_CHALLENGE);
 
         const userId = options.user?.id ? b64urlDecode(String(options.user.id)) : new Uint8Array();
@@ -332,10 +394,10 @@ export class PasskeyService {
 
         const domain = effectiveDomain(origin);
         if (!domain) return error(PASSKEY_ERRORS.DOMAIN_IS_NOT_VALID);
-        const rpId = validateRpId(options.rp?.id, domain);
+        const rpId = validateRpId(options.rp?.id, domain, origin, opts.relatedOrigins);
         if (!rpId) return error(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
 
-        const alg = this.pickAlgorithm(options.pubKeyCredParams);
+        const alg = await this.pickAlgorithm(options.pubKeyCredParams);
         if (alg === null) return error(PASSKEY_ERRORS.NO_SUPPORTED_ALGORITHMS);
 
         // A credential the RP already knows must not be re-registered
@@ -352,12 +414,7 @@ export class PasskeyService {
         try {
             generated = await generateCredentialKey(alg);
         } catch {
-            if (alg === EDDSA) {
-                // Runtime without Ed25519; ES256 is in every RP's list in practice
-                generated = await generateCredentialKey(ES256);
-            } else {
-                return error(PASSKEY_ERRORS.UNKNOWN_ERROR);
-            }
+            return error(PASSKEY_ERRORS.UNKNOWN_ERROR);
         }
 
         const attestedAuthData = await buildAttestedAuthenticatorData(rpId, credentialId, generated.cosePublicKey);
@@ -415,14 +472,18 @@ export class PasskeyService {
     }
 
     // Entries eligible for an assertion; the consent dialog picks from these
-    static allowedEntries(kdbxDb: kdbxweb.Kdbx, options: any, origin: string):
-        { errorCode: number } | { rpId: string; entries: PasskeyEntryInfo[] } {
+    static allowedEntries(
+        kdbxDb: kdbxweb.Kdbx,
+        options: any,
+        origin: string,
+        opts: { allowLocalhost?: boolean; relatedOrigins?: string[] } = {},
+    ): { errorCode: number } | { rpId: string; entries: PasskeyEntryInfo[] } {
         if (!options || !options.challenge) return { errorCode: PASSKEY_ERRORS.EMPTY_PUBLIC_KEY };
-        if (!originAllowed(origin)) return { errorCode: PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED };
+        if (!originAllowed(origin, opts.allowLocalhost ?? false)) return { errorCode: PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED };
 
         const domain = effectiveDomain(origin);
         if (!domain) return { errorCode: PASSKEY_ERRORS.DOMAIN_IS_NOT_VALID };
-        const rpId = validateRpId(options.rpId, domain);
+        const rpId = validateRpId(options.rpId, domain, origin, opts.relatedOrigins);
         if (!rpId) return { errorCode: PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH };
 
         const allowedIds: string[] = (options.allowCredentials ?? [])

@@ -258,6 +258,75 @@ describe('assertion round trip', () => {
     });
 });
 
+describe('localhost gating', () => {
+    it('rejects localhost unless explicitly allowed', async () => {
+        const db = makeDb();
+        const localOptions = creationOptions({ rp: { id: 'localhost', name: 'x' } });
+        const denied = await PasskeyService.register(db, localOptions, 'http://localhost:8080', undefined);
+        expect(denied.response.errorCode).toBe(PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED);
+        const allowed = await PasskeyService.register(db, localOptions, 'http://localhost:8080', undefined, { allowLocalhost: true });
+        expect(allowed.response.errorCode).toBeUndefined();
+    });
+});
+
+describe('related origins', () => {
+    const crossOptions = creationOptions({ rp: { id: 'example.com', name: 'x' } });
+    const caller = 'https://app.other-brand.net';
+
+    it('accepts a mismatched rpId when the caller origin is related', async () => {
+        const db = makeDb();
+        const res = await PasskeyService.register(db, crossOptions, caller, undefined, {
+            relatedOrigins: ['https://example.de', 'https://app.other-brand.net'],
+        });
+        expect(res.response.errorCode).toBeUndefined();
+        expect(res.rpId).toBe('example.com');
+    });
+
+    it('still rejects when the caller origin is not in the list', async () => {
+        const db = makeDb();
+        const res = await PasskeyService.register(db, crossOptions, caller, undefined, {
+            relatedOrigins: ['https://example.de'],
+        });
+        expect(res.response.errorCode).toBe(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
+    });
+});
+
+describe('algorithm selection', () => {
+    it('honors the RP preference order', async () => {
+        expect(await PasskeyService.pickAlgorithm([
+            { type: 'public-key', alg: -257 },
+            { type: 'public-key', alg: -7 },
+        ])).toBe(-257);
+        expect(await PasskeyService.pickAlgorithm(undefined)).toBe(-7);
+        expect(await PasskeyService.pickAlgorithm([{ type: 'public-key', alg: -999 }])).toBeNull();
+    });
+
+    it('registers an RS256 credential when the RP only offers RSA', async () => {
+        const db = makeDb();
+        const res = await PasskeyService.register(db, creationOptions({
+            pubKeyCredParams: [{ type: 'public-key', alg: -257 }],
+        }), origin, undefined);
+        expect(res.response.errorCode).toBeUndefined();
+        expect(res.response.response.publicKeyAlgorithm).toBe(-257);
+    });
+});
+
+describe('ui helpers', () => {
+    it('summarizes a passkey from custom fields and hides its keys', async () => {
+        const db = makeDb();
+        (await PasskeyService.register(db, creationOptions(), origin, undefined)).store!();
+        const entry = db.getDefaultGroup().groups.find(g => g.name === PASSKEYS_GROUP_NAME)!.entries[0];
+        const fields = [...entry.fields]
+            .filter(([key]) => !['Title', 'UserName', 'Password', 'URL', 'Notes'].includes(key))
+            .map(([key, value]) => ({ key, value }));
+        const info = PasskeyService.passkeyFromFields(fields);
+        expect(info).toEqual({ relyingParty: rpId, username: 'alice' });
+        expect(PasskeyService.isPasskeyFieldKey(PASSKEY_ATTRIBUTES.privateKeyPem)).toBe(true);
+        expect(PasskeyService.isPasskeyFieldKey('otp')).toBe(false);
+        expect(PasskeyService.passkeyFromFields([{ key: 'other', value: 'x' }])).toBeNull();
+    });
+});
+
 describe('ecdsaRawToDer', () => {
     it('wraps r||s into a valid DER sequence with high-bit padding', () => {
         const raw = new Uint8Array(64);

@@ -469,3 +469,57 @@
 .expired-warning-header .breach-warning-icon {
     color: var(--color-error);
 }
+
+.passkey-panel {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    background-color: var(--bg-dark);
+}
+
+.passkey-panel-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+
+.passkey-panel-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.passkey-panel-rp {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.passkey-panel-user {
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.passkey-remove-button {
+    padding: 0.3rem 0.8rem;
+    background-color: var(--overlay-medium);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    color: var(--text-tertiary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.passkey-remove-button:hover {
+    background-color: var(--overlay-dark);
+    color: var(--text-secondary);
+}

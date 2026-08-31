@@ -7,7 +7,8 @@ import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
-import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon } from '../../icons/actions/ActionIcons';
+import { PasskeyService } from '../../services/PasskeyService';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
@@ -396,14 +397,30 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		[editedEntry.customFields]
 	);
 
-	// TOTP fields get dedicated UI; keep them out of the generic custom field
-	// list but preserve original indices for the handlers
+	const passkeyInfo = useMemo(
+		() => PasskeyService.passkeyFromFields(editedEntry.customFields),
+		[editedEntry.customFields]
+	);
+
+	// TOTP and passkey fields get dedicated UI; keep them out of the generic
+	// custom field list but preserve original indices for the handlers
 	const visibleCustomFields = useMemo(
 		() => editedEntry.customFields
 			.map((field, index) => ({ field, index }))
-			.filter(({ field }) => !TotpService.isTotpKey(field.key)),
-		[editedEntry.customFields]
+			.filter(({ field }) => !TotpService.isTotpKey(field.key)
+				&& !(passkeyInfo && PasskeyService.isPasskeyFieldKey(field.key))),
+		[editedEntry.customFields, passkeyInfo]
 	);
+
+	const handleRemovePasskey = () => {
+		if (!window.confirm('Remove the passkey from this entry? Also remove it from the website\'s account settings, it will stop working there.')) return;
+		const cleaned = {
+			...editedEntry,
+			customFields: editedEntry.customFields.filter(f => !PasskeyService.isPasskeyFieldKey(f.key)),
+		};
+		setEditedEntry(cleaned);
+		onSave(KeepassDatabaseService.prepareEntryForSave(cleaned));
+	};
 
 	useEffect(() => {
 		if (!totpConfig) {
@@ -813,6 +830,22 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									}}
 								/>
 							)}
+						</div>
+					</div>
+				)}
+
+				{!isEditing && passkeyInfo && (
+					<div className="field-group">
+						<label>Passkey</label>
+						<div className="passkey-panel">
+							<PasskeyActionIcon className="passkey-panel-icon" />
+							<div className="passkey-panel-info">
+								<span className="passkey-panel-rp">{passkeyInfo.relyingParty}</span>
+								{passkeyInfo.username && <span className="passkey-panel-user">{passkeyInfo.username}</span>}
+							</div>
+							<button className="passkey-remove-button" onClick={handleRemovePasskey}>
+								Remove
+							</button>
 						</div>
 					</div>
 				)}

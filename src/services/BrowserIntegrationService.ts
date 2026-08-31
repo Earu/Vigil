@@ -3,6 +3,7 @@ import { Database } from '../types/database';
 import { TotpService } from './TotpService';
 import { PasswordGeneratorService } from './PasswordGeneratorService';
 import { PasskeyService, PasskeyEntryInfo, PASSKEY_ERRORS } from './PasskeyService';
+import { userSettingsService } from './UserSettingsService';
 
 // Renderer side of the KeePassXC-Browser protocol: answers the requests the
 // main-process socket server forwards. Association keys are stored the way
@@ -190,7 +191,10 @@ export class BrowserIntegrationService {
                 if (!this.isAssociated(kdbxDb, payload.keys)) {
                     return { errorCode: ERROR_ASSOCIATION_FAILED };
                 }
-                const result = await PasskeyService.register(kdbxDb, payload.publicKey, payload.origin, payload.groupName);
+                const result = await PasskeyService.register(kdbxDb, payload.publicKey, payload.origin, payload.groupName, {
+                    allowLocalhost: userSettingsService.getAllowPasskeysLocalhost(),
+                    relatedOrigins: payload.relatedOrigins,
+                });
                 if (result.response.errorCode || !result.store) {
                     return { response: result.response };
                 }
@@ -212,7 +216,10 @@ export class BrowserIntegrationService {
                 if (!this.isAssociated(kdbxDb, payload.keys)) {
                     return { errorCode: ERROR_ASSOCIATION_FAILED };
                 }
-                const allowed = PasskeyService.allowedEntries(kdbxDb, payload.publicKey, payload.origin);
+                const allowed = PasskeyService.allowedEntries(kdbxDb, payload.publicKey, payload.origin, {
+                    allowLocalhost: userSettingsService.getAllowPasskeysLocalhost(),
+                    relatedOrigins: payload.relatedOrigins,
+                });
                 if ('errorCode' in allowed) {
                     return { response: { errorCode: allowed.errorCode } };
                 }
