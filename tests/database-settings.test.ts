@@ -88,6 +88,16 @@ describe('KDF settings', () => {
         expect(info.iterations).toBe(2);
     });
 
+    it('new databases get hardened argon2id defaults, round-trips through save', async () => {
+        // mirrors the create-new-database path in PasswordForm
+        const db = kdbxweb.Kdbx.create(cred(), 'Fresh');
+        Svc.setKdf(db, { type: 'argon2id', iterations: 3, memoryMiB: 64, parallelism: 4 });
+        expect(Svc.getKdfInfo(db)).toEqual({ type: 'argon2id', iterations: 3, memoryMiB: 64, parallelism: 4 });
+
+        const reloaded = await kdbxweb.Kdbx.load(await db.save(), cred());
+        expect(Svc.getKdfInfo(reloaded)).toEqual({ type: 'argon2id', iterations: 3, memoryMiB: 64, parallelism: 4 });
+    });
+
     it('handles kdbx3 key encryption rounds', async () => {
         const db = await makeDb(3);
         expect(Svc.getKdfInfo(db).type).toBe('aes-kdbx3');
