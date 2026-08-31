@@ -8,6 +8,13 @@ export interface TotpConfig {
     algorithm: 'SHA-1' | 'SHA-256' | 'SHA-512';
 }
 
+// One account from a Google Authenticator export QR
+export interface MigrationAccount {
+    name: string;
+    issuer: string;
+    config: TotpConfig;
+}
+
 // Field names used by the various TOTP storage conventions. All of them are
 // managed through the dedicated TOTP UI and hidden from the custom field list.
 const OTP_FIELD = 'otp';
@@ -57,6 +64,117 @@ export class TotpService {
             digits: Number.isFinite(digits) && digits >= 6 && digits <= 8 ? digits : 6,
             algorithm,
         };
+    }
+
+    // Google Authenticator "Transfer accounts" QR:
+    // otpauth-migration://offline?data=<base64 protobuf batch of accounts>.
+    // The protobuf schema is tiny and stable, so it is decoded by hand:
+    //   MigrationPayload { repeated OtpParameters otp_parameters = 1; ... }
+    //   OtpParameters { bytes secret = 1; string name = 2; string issuer = 3;
+    //                   Algorithm algorithm = 4; DigitCount digits = 5;
+    //                   OtpType type = 6; int64 counter = 7; }
+    static parseMigrationUri(uri: string): MigrationAccount[] | null {
+        const match = uri.trim().match(/^otpauth-migration:\/\/offline\?([^#]*)/i);
+        if (!match) return null;
+        const dataMatch = match[1].match(/(?:^|&)data=([^&]*)/);
+        if (!dataMatch) return null;
+
+        let payload: Uint8Array;
+        try {
+            // decodeURIComponent instead of URLSearchParams: the latter turns
+            // the base64 '+' into a space
+            payload = Uint8Array.from(atob(decodeURIComponent(dataMatch[1])), c => c.charCodeAt(0));
+        } catch {
+            return null;
+        }
+
+        try {
+            const accounts: MigrationAccount[] = [];
+            for (const field of this.protoFields(payload)) {
+                if (field.field !== 1 || !(field.value instanceof Uint8Array)) continue;
+                const account = this.parseOtpParameters(field.value);
+                if (account) accounts.push(account);
+            }
+            return accounts;
+        } catch {
+            return null;
+        }
+    }
+
+    private static parseOtpParameters(bytes: Uint8Array): MigrationAccount | null {
+        let secret: Uint8Array | null = null;
+        let name = '';
+        let issuer = '';
+        let algorithm = 0;
+        let digits = 0;
+        let type = 0;
+
+        const text = new TextDecoder();
+        for (const field of this.protoFields(bytes)) {
+            if (field.value instanceof Uint8Array) {
+                if (field.field === 1) secret = field.value;
+                else if (field.field === 2) name = text.decode(field.value);
+                else if (field.field === 3) issuer = text.decode(field.value);
+            } else {
+                if (field.field === 4) algorithm = field.value;
+                else if (field.field === 5) digits = field.value;
+                else if (field.field === 6) type = field.value;
+            }
+        }
+
+        // type 1 is HOTP (counter-based, out of scope like elsewhere);
+        // 0 (unspecified) is treated as TOTP
+        if (!secret || secret.length === 0 || type === 1) return null;
+
+        return {
+            name,
+            issuer,
+            config: {
+                secret: this.base32Encode(secret),
+                period: 30, // the schema has no period field
+                digits: digits === 2 ? 8 : 6,
+                algorithm: algorithm === 2 ? 'SHA-256' : algorithm === 3 ? 'SHA-512' : 'SHA-1',
+            },
+        };
+    }
+
+    // Minimal protobuf wire-format reader: varints and length-delimited
+    // fields, which is all the migration payload uses
+    private static protoFields(bytes: Uint8Array): { field: number; value: number | Uint8Array }[] {
+        const fields: { field: number; value: number | Uint8Array }[] = [];
+        let pos = 0;
+        const varint = (): number => {
+            let result = 0;
+            let shift = 0;
+            while (pos < bytes.length) {
+                const byte = bytes[pos++];
+                // multiply instead of shifting: shifts wrap at 32 bits
+                result += (byte & 0x7f) * 2 ** shift;
+                if ((byte & 0x80) === 0) return result;
+                shift += 7;
+            }
+            throw new Error('truncated varint');
+        };
+        while (pos < bytes.length) {
+            const tag = varint();
+            const fieldNo = Math.floor(tag / 8);
+            const wireType = tag & 7;
+            if (wireType === 0) {
+                fields.push({ field: fieldNo, value: varint() });
+            } else if (wireType === 2) {
+                const length = varint();
+                if (pos + length > bytes.length) throw new Error('truncated field');
+                fields.push({ field: fieldNo, value: bytes.subarray(pos, pos + length) });
+                pos += length;
+            } else if (wireType === 5) {
+                pos += 4;
+            } else if (wireType === 1) {
+                pos += 8;
+            } else {
+                throw new Error('unsupported wire type');
+            }
+        }
+        return fields;
     }
 
     // Accepts an otpauth:// URI or a bare base32 secret
@@ -129,6 +247,24 @@ export class TotpService {
         }
 
         return null;
+    }
+
+    private static base32Encode(bytes: Uint8Array): string {
+        let bits = 0;
+        let value = 0;
+        let out = '';
+        for (const byte of bytes) {
+            value = (value << 8) | byte;
+            bits += 8;
+            while (bits >= 5) {
+                out += BASE32_ALPHABET[(value >>> (bits - 5)) & 31];
+                bits -= 5;
+            }
+        }
+        if (bits > 0) {
+            out += BASE32_ALPHABET[(value << (5 - bits)) & 31];
+        }
+        return out;
     }
 
     private static base32Decode(secret: string): Uint8Array {
