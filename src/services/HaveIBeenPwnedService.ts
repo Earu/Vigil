@@ -5,6 +5,28 @@ import { HibpBreach } from './BreachCheckService';
 export class HaveIBeenPwnedService {
     private static readonly HIBP_API_URL = 'https://api.pwnedpasswords.com';
 
+    // Range responses shared between passwords with the same 5-char hash
+    // prefix (identical passwords across entries always share one). Bounded;
+    // reset when full so memory stays flat on huge vaults
+    private static rangeCache = new Map<string, Promise<string>>();
+    private static readonly RANGE_CACHE_LIMIT = 512;
+
+    private static fetchRange(prefix: string): Promise<string> {
+        const cached = this.rangeCache.get(prefix);
+        if (cached) return cached;
+        if (this.rangeCache.size >= this.RANGE_CACHE_LIMIT) this.rangeCache.clear();
+        const request = fetch(`${this.HIBP_API_URL}/range/${prefix}`).then((response) => {
+            if (!response.ok) {
+                throw new Error('Failed to check password breach status');
+            }
+            return response.text();
+        });
+        // A failed fetch must not poison the cache
+        request.catch(() => this.rangeCache.delete(prefix));
+        this.rangeCache.set(prefix, request);
+        return request;
+    }
+
     /**
      * Checks if a password has been exposed in known data breaches
      * Uses k-Anonymity model to safely check passwords
@@ -25,13 +47,7 @@ export class HaveIBeenPwnedService {
         const suffix = hash.substring(5).toUpperCase();
 
         try {
-            const response = await fetch(`${this.HIBP_API_URL}/range/${prefix}`);
-
-            if (!response.ok) {
-                throw new Error('Failed to check password breach status');
-            }
-
-            const hashes = await response.text();
+            const hashes = await this.fetchRange(prefix);
             const hashList = hashes.split('\n');
 
             for (const hashLine of hashList) {
@@ -50,10 +66,11 @@ export class HaveIBeenPwnedService {
     }
 
     /**
-     * Checks if an email address has been exposed in known data breaches
-     * Requires a HIBP API key
+     * Checks if an email address has been exposed in known data breaches.
+     * Requires a HIBP API key. Returns null on failure (rate limit, network)
+     * so callers can retry later instead of caching a false all-clear
      */
-    public static async checkEmailBreaches(email: string): Promise<HibpBreach[]> {
+    public static async checkEmailBreaches(email: string): Promise<HibpBreach[] | null> {
         const apiKey = userSettingsService.getHibpApiKey();
         if (!apiKey) {
             return [];
@@ -62,7 +79,7 @@ export class HaveIBeenPwnedService {
         try {
             return await window.electron?.checkEmailBreaches(email, apiKey) ?? [];
         } catch {
-            return [];
+            return null;
         }
     }
 
@@ -78,7 +95,10 @@ export class HaveIBeenPwnedService {
             suggestions: string[];
         };
     } {
-        const result = zxcvbn(password);
+        // zxcvbn cost grows superlinearly with length (130ms+ at 100 chars,
+        // all on the UI thread). The score saturates at 4 well below 32
+        // random characters, so longer input only burns CPU
+        const result = zxcvbn(password.slice(0, 32));
         return {
             score: result.score, // 0-4 (0 = weak, 4 = strong)
             feedback: {
