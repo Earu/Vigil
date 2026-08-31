@@ -42,7 +42,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [kdfInfo, setKdfInfo] = useState<KdfInfo | null>(null);
     const [historyMax, setHistoryMax] = useState(10);
     const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security'>('general');
-    const [browserIntegration, setBrowserIntegration] = useState<{ enabled: boolean; running: boolean } | null>(null);
+    const [browserIntegration, setBrowserIntegration] = useState<{ supported: boolean; enabled: boolean; running: boolean } | null>(null);
     const [browserAssociations, setBrowserAssociations] = useState<Array<{ name: string; key: string }>>([]);
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
@@ -76,7 +76,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     useEffect(() => {
         if (!isOpen || !window.electron) return;
         window.electron.getBrowserIntegrationStatus()
-            .then(status => setBrowserIntegration({ enabled: status.enabled, running: status.running }))
+            .then(status => setBrowserIntegration({ supported: status.supported, enabled: status.enabled, running: status.running }))
             .catch(() => {});
         const refreshAssociations = () =>
             setBrowserAssociations(kdbxDb ? BrowserIntegrationService.listAssociations(kdbxDb) : []);
@@ -107,9 +107,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     };
 
     const handleBrowserIntegrationToggle = async (enabled: boolean) => {
-        if (!window.electron) return;
+        if (!window.electron || !browserIntegration?.supported) return;
         const result = await window.electron.setBrowserIntegrationEnabled(enabled);
-        setBrowserIntegration({ enabled, running: result.running });
+        setBrowserIntegration({ supported: true, enabled, running: result.running });
         if (!result.success) {
             (window as any).showToast?.({
                 message: result.error || 'Failed to start the browser integration server',
@@ -703,13 +703,18 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                         type="checkbox"
                                         id="browser-integration-enabled"
                                         checked={!!browserIntegration?.enabled}
+                                        disabled={!browserIntegration?.supported}
                                         onChange={(e) => handleBrowserIntegrationToggle(e.target.checked)}
                                     />
                                 </div>
                                 <p className="database-help">
-                                    Lets the KeePassXC-Browser extension fill credentials from your vaults.
-                                    Enabling registers Vigil with the browsers on this machine
-                                    {browserIntegration?.running ? '; the connection server is running' : ''}
+                                    {browserIntegration && !browserIntegration.supported
+                                        ? 'Browser integration is not supported on Windows yet.'
+                                        : <>
+                                            Lets the KeePassXC-Browser extension fill credentials from your vaults.
+                                            Enabling registers Vigil with the browsers on this machine
+                                            {browserIntegration?.running ? '; the connection server is running' : ''}
+                                        </>}
                                 </p>
                                 {kdbxDb && browserAssociations.length > 0 && (
                                     <div className="browser-associations">

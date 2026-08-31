@@ -6,6 +6,14 @@ import path from 'path';
 import crypto from 'crypto';
 import nacl from 'tweetnacl';
 import { getVaultWindows } from './window';
+import {
+    HOST_NAME,
+    ManifestType,
+    chromiumManifest,
+    firefoxManifest,
+    manifestTargets,
+    selectTargets,
+} from './browser-manifests';
 
 // Server side of the KeePassXC-Browser protocol
 // (https://github.com/keepassxreboot/keepassxc-browser/blob/develop/keepassxc-protocol.md).
@@ -298,13 +306,6 @@ export function stopServer(): void {
 
 // ---- native messaging manifests ----
 
-const CHROME_ORIGINS = [
-    'chrome-extension://oboonakemofpalcgghocfoadofidjkkk/',
-    'chrome-extension://pdffhmdngciaglkoonimfcmckehcpafo/',
-];
-const FIREFOX_EXTENSIONS = ['keepassxc-browser@keepassxc.org'];
-const HOST_NAME = 'org.keepassxc.keepassxc_browser';
-
 function proxyScript(): string {
     return `#!/usr/bin/env node
 // Native messaging proxy for Vigil: browser stdio <-> Vigil unix socket
@@ -345,7 +346,11 @@ process.stdin.on('end', () => process.exit(0));
 
 function wrapperScript(proxyJsPath: string): string {
     // Run the proxy with the Electron binary in Node mode so no system Node
-    // install is required; APPIMAGE points at the packaged binary when set
+    // install is required; APPIMAGE points at the packaged binary when set.
+    // On macOS this depends on ELECTRON_RUN_AS_NODE staying functional: if
+    // build.mac ever disables the RunAsNode Electron fuse or signs with
+    // hardened-runtime entitlements that strip env vars, this proxy breaks
+    // and needs a different launcher
     const executable = process.env.APPIMAGE || process.execPath;
     return `#!/bin/sh
 export ELECTRON_RUN_AS_NODE=1
@@ -355,7 +360,6 @@ exec "${executable}" "${proxyJsPath}"
 
 export function installManifests(): { success: boolean; written: string[]; error?: string } {
     try {
-        const home = os.homedir();
         const baseDir = path.join(app.getPath('userData'), 'browser');
         fs.mkdirSync(baseDir, { recursive: true });
 
@@ -364,44 +368,17 @@ export function installManifests(): { success: boolean; written: string[]; error
         const wrapper = path.join(baseDir, 'vigil-proxy.sh');
         fs.writeFileSync(wrapper, wrapperScript(proxyJs), { mode: 0o755 });
 
-        const chromeManifest = JSON.stringify({
-            name: HOST_NAME,
-            description: 'Vigil KeePassXC-Browser integration',
-            path: wrapper,
-            type: 'stdio',
-            allowed_origins: CHROME_ORIGINS,
-        }, null, 4);
-        const firefoxManifest = JSON.stringify({
-            name: HOST_NAME,
-            description: 'Vigil KeePassXC-Browser integration',
-            path: wrapper,
-            type: 'stdio',
-            allowed_extensions: FIREFOX_EXTENSIONS,
-        }, null, 4);
+        const manifests: Record<ManifestType, string> = {
+            chromium: chromiumManifest(wrapper),
+            firefox: firefoxManifest(wrapper),
+        };
 
-        // Firefox may read either the classic ~/.mozilla or, on XDG-patched
-        // builds (CachyOS, openSUSE), ~/.config/mozilla; write both when any
-        // sign of Firefox exists
-        const firefoxPresent = fs.existsSync('/usr/bin/firefox')
-            || fs.existsSync(path.join(home, '.mozilla'))
-            || fs.existsSync(path.join(home, '.config/mozilla'));
-        const targets: Array<[string, string, boolean?]> = [
-            [path.join(home, '.mozilla/native-messaging-hosts'), firefoxManifest, firefoxPresent],
-            [path.join(home, '.config/mozilla/native-messaging-hosts'), firefoxManifest, firefoxPresent],
-            [path.join(home, '.var/app/org.mozilla.firefox/.mozilla/native-messaging-hosts'), firefoxManifest],
-            [path.join(home, '.config/google-chrome/NativeMessagingHosts'), chromeManifest],
-            [path.join(home, '.config/chromium/NativeMessagingHosts'), chromeManifest],
-            [path.join(home, '.config/BraveSoftware/Brave-Browser/NativeMessagingHosts'), chromeManifest],
-            [path.join(home, '.config/vivaldi/NativeMessagingHosts'), chromeManifest],
-        ];
-
+        const targets = manifestTargets(process.platform, os.homedir());
         const written: string[] = [];
-        for (const [dir, manifest, force] of targets) {
-            // Only write into browsers that exist on this machine
-            if (!force && !fs.existsSync(path.dirname(dir))) continue;
-            fs.mkdirSync(dir, { recursive: true });
-            const file = path.join(dir, `${HOST_NAME}.json`);
-            fs.writeFileSync(file, manifest);
+        for (const target of selectTargets(targets, fs.existsSync)) {
+            fs.mkdirSync(target.dir, { recursive: true });
+            const file = path.join(target.dir, `${HOST_NAME}.json`);
+            fs.writeFileSync(file, manifests[target.type]);
             written.push(file);
         }
         return { success: true, written };
@@ -413,6 +390,11 @@ export function installManifests(): { success: boolean; written: string[]; error
 // ---- app wiring ----
 
 export function setupBrowserIntegration(): void {
+    // Windows needs a named pipe server and registry-based manifests; until
+    // that exists, report the feature as unsupported instead of half-working
+    const supported = process.platform !== 'win32';
+    const unsupportedError = 'Browser integration is not supported on Windows yet';
+
     ipcMain.on('browser-integration-response', (_event, { id, result }: { id: number; result: any }) => {
         const resolve = pendingRendererRequests.get(id);
         if (resolve) {
@@ -422,12 +404,16 @@ export function setupBrowserIntegration(): void {
     });
 
     ipcMain.handle('browser-integration-status', () => ({
+        supported,
         enabled: isEnabled(),
         running: server !== null,
         socketPath: getSocketPath(),
     }));
 
     ipcMain.handle('browser-integration-set-enabled', (_event, enabled: boolean) => {
+        if (!supported) {
+            return { success: false, running: false, written: [], error: unsupportedError };
+        }
         persistEnabled(enabled);
         if (enabled) {
             const result = startServer();
@@ -440,9 +426,14 @@ export function setupBrowserIntegration(): void {
         return { success: true, running: false, written: [] };
     });
 
-    ipcMain.handle('browser-integration-install-manifests', () => installManifests());
+    ipcMain.handle('browser-integration-install-manifests', () => {
+        if (!supported) {
+            return { success: false, written: [], error: unsupportedError };
+        }
+        return installManifests();
+    });
 
-    if (isEnabled()) {
+    if (supported && isEnabled()) {
         startServer();
         // Re-write the manifests on every start: the proxy wrapper bakes in
         // the current binary path, which changes between dev and packaged runs
