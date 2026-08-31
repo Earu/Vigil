@@ -281,7 +281,7 @@ export const PasswordForm = ({
                 setIsBiometricsEnabled(false);
                 setShowPasswordInput(true);
                 (window as any).showToast?.({
-                    message: 'Switched to password authentication',
+                    message: biometricResult.error || 'Switched to password authentication',
                     type: 'info'
                 });
                 throw new Error('Failed to get biometric password');

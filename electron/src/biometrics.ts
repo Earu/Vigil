@@ -5,6 +5,14 @@ import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
 import keytar from './get-keytar';
+import {
+    isV2Blob,
+    makeChallenge,
+    deriveKeyFromSignature,
+    sealPassword,
+    challengeFromBlob,
+    openPassword
+} from './biometrics-crypto';
 
 let Passport: any;
 if (process.platform === 'win32') {
@@ -69,6 +77,10 @@ export async function isBiometricsAvailable(): Promise<boolean> {
     return biometricsAvailableCache || false;
 }
 
+// macOS only: gates access with a Touch ID prompt. This is a UI gate, not a
+// cryptographic one; binding the key to the Secure Enclave needs native code
+// and is tracked as a follow-up. Windows does not use this: there the Hello
+// prompt itself produces the key (see getWindowsHelloKey)
 export async function authenticateWithBiometrics(data: { dbPath: string, dbName: string }): Promise<boolean> {
     if (process.platform === 'darwin') {
         try {
@@ -78,54 +90,33 @@ export async function authenticateWithBiometrics(data: { dbPath: string, dbName:
             console.error('TouchID authentication failed:', error);
             return false;
         }
-    } else if (process.platform === 'win32') {
-        try {
-            const passport = new Passport(data.dbPath);
-            if (!passport.accountExists) {
-                await passport.createAccount();
-                return true;
-            }
-
-            const result = await Passport.requestVerification(`Unlock ${data.dbName} with Windows Hello`);
-            return result === 0;
-        } catch (error) {
-            console.error('Windows Hello authentication failed:', error);
-            return false;
-        }
     }
     return false;
 }
 
+// Windows: derive the sealing key from a Windows Hello signature over the
+// stored challenge. Signing requires a live Hello verification and the
+// RSA PKCS#1 v1.5 signature is deterministic, so the same challenge always
+// re-derives the same key, but only after the user passes Hello. Replaces
+// the old hardware-id derivation (which also depended on wmic, removed in
+// Windows 11 24H2)
+async function getWindowsHelloKey(dbPath: string, challenge: Buffer): Promise<Buffer> {
+    const passport = new Passport(dbPath);
+    if (!passport.accountExists) {
+        await passport.createAccount();
+    }
+    const signature: Buffer = await passport.sign(challenge);
+    return deriveKeyFromSignature(signature);
+}
+
+// macOS only (legacy scheme; see authenticateWithBiometrics)
 async function getHardwareId(): Promise<string> {
-    if (process.platform === 'win32') {
-        try {
-            const mbSerial = execSync('wmic baseboard get serialnumber').toString().split('\n')[1].trim();
-            const cpuId = execSync('wmic cpu get processorid').toString().split('\n')[1].trim();
-            return `${mbSerial}-${cpuId}`;
-        } catch (error) {
-            console.error('Failed to get hardware ID:', error);
-            return `${process.env.USERNAME}-${process.env.COMPUTERNAME}`;
-        }
-    } else if (process.platform === 'darwin') {
-        try {
-            const hardwareUUID = execSync('system_profiler SPHardwareDataType | grep "Hardware UUID"').toString().split(':')[1].trim();
-            return hardwareUUID;
-        } catch (error) {
-            console.error('Failed to get hardware ID:', error);
-            return `${process.env.USER}-${execSync('hostname').toString().trim()}`;
-        }
-    } else {
-        try {
-            const mbSerial = execSync('sudo dmidecode -s baseboard-serial-number').toString().trim();
-            return mbSerial;
-        } catch (error) {
-            console.error('Failed to get hardware ID:', error);
-            try {
-                return fs.readFileSync('/etc/machine-id', 'utf8').trim();
-            } catch {
-                return `${process.env.USER}-${execSync('hostname').toString().trim()}`;
-            }
-        }
+    try {
+        const hardwareUUID = execSync('system_profiler SPHardwareDataType | grep "Hardware UUID"').toString().split(':')[1].trim();
+        return hardwareUUID;
+    } catch (error) {
+        console.error('Failed to get hardware ID:', error);
+        return `${process.env.USER}-${execSync('hostname').toString().trim()}`;
     }
 }
 
@@ -178,11 +169,21 @@ export async function enableBiometrics(dbPath: string, password: string): Promis
             return { success: false, error: 'Biometric authentication is not available on this device' };
         }
 
+        const key = await generateUniqueKey(dbPath);
+
+        if (process.platform === 'win32') {
+            // The sign call is the Hello verification; a cancelled prompt
+            // throws and nothing is stored
+            const challenge = makeChallenge();
+            const helloKey = await getWindowsHelloKey(dbPath, challenge);
+            await keytar?.setPassword(SERVICE_NAME, key, sealPassword(password, challenge, helloKey));
+            return { success: true };
+        }
+
         if (!await authenticateWithBiometrics({ dbPath, dbName: dbPath.split('/').pop() as string })) {
             return { success: false, error: 'Biometric authentication failed' };
         }
 
-        const key = await generateUniqueKey(dbPath);
         const encryptedPassword = await encryptPassword(password);
         await keytar?.setPassword(SERVICE_NAME, key, encryptedPassword);
         return { success: true };
@@ -198,17 +199,43 @@ export async function getBiometricPassword(dbPath: string): Promise<{ success: b
             return { success: false, error: 'Biometric authentication is not available on this device' };
         }
 
+        const key = await generateUniqueKey(dbPath);
+        const stored = await keytar?.getPassword(SERVICE_NAME, key);
+        if (!stored) {
+            return { success: false, error: 'No password found for this database' };
+        }
+
+        if (process.platform === 'win32') {
+            if (!isV2Blob(stored)) {
+                // Sealed under the old hardware-id scheme, whose key material
+                // this version no longer derives. Drop it so the UI falls back
+                // to password; the user re-enables in settings
+                await keytar?.deletePassword(SERVICE_NAME, key);
+                return { success: false, error: 'Biometric unlock was upgraded, please enable it again in settings' };
+            }
+            let helloKey: Buffer;
+            try {
+                helloKey = await getWindowsHelloKey(dbPath, challengeFromBlob(stored));
+            } catch (error) {
+                // Cancelled or failed Hello prompt; the stored blob stays
+                console.error('Windows Hello authentication failed:', error);
+                return { success: false, error: 'Biometric authentication failed' };
+            }
+            try {
+                return { success: true, password: openPassword(stored, helloKey) };
+            } catch {
+                // Decryption failure means the Hello key changed (e.g. Hello
+                // was reset); the blob is unrecoverable
+                await keytar?.deletePassword(SERVICE_NAME, key);
+                return { success: false, error: 'Biometric data is stale, please enable biometric unlock again' };
+            }
+        }
+
         if (!await authenticateWithBiometrics({ dbPath, dbName: dbPath.split('/').pop() as string })) {
             return { success: false, error: 'Biometric authentication failed' };
         }
 
-        const key = await generateUniqueKey(dbPath);
-        const encryptedPassword = await keytar?.getPassword(SERVICE_NAME, key);
-        if (!encryptedPassword) {
-            return { success: false, error: 'No password found for this database' };
-        }
-
-        const password = await decryptPassword(encryptedPassword);
+        const password = await decryptPassword(stored);
         return { success: true, password };
     } catch (error) {
         console.error('Failed to get password with biometrics:', error);
@@ -220,6 +247,13 @@ export async function disableBiometrics(dbPath: string): Promise<{ success: bool
     try {
         const key = await generateUniqueKey(dbPath);
         await keytar?.deletePassword(SERVICE_NAME, key);
+        if (process.platform === 'win32') {
+            // Best effort: also drop the Hello signing key so nothing lingers
+            try {
+                const passport = new Passport(dbPath);
+                if (passport.accountExists) await passport.deleteAccount();
+            } catch { /* account already gone */ }
+        }
         return { success: true };
     } catch (error) {
         console.error('Failed to disable biometrics:', error);
