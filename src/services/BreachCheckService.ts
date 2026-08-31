@@ -82,9 +82,10 @@ export interface EmailBreachCheckResult {
 }
 
 export class BreachCheckService {
-    // Rate limiting: max 1 request per 1.5 seconds for passwords
-    private static readonly REQUEST_DELAY = 1500;
-    private static lastRequestTime = 0;
+    // HIBP's k-anonymity range endpoint is explicitly not rate limited, so
+    // password checks run with a small concurrency pool and no delay. The
+    // email API IS rate limited; its delay below stays
+    private static readonly PASSWORD_CONCURRENCY = 4;
     private static countedEntries: Set<string> = new Set();
     private static progress = { checked: 0, total: 0 };
 
@@ -120,6 +121,8 @@ export class BreachCheckService {
 
     private static resetCancellation(): void {
         this.isCancelled = false;
+        // Fresh sweep, fresh per-email dedup
+        this.emailFetchCache.clear();
     }
 
     private static updateProgressToast(): void {
@@ -183,18 +186,24 @@ export class BreachCheckService {
     }
 
     private static async checkPassword(password: string | kdbxweb.ProtectedValue): Promise<PasswordStatus> {
-        // Ensure we don't exceed rate limits
-        const now = Date.now();
-        const timeSinceLastRequest = now - this.lastRequestTime;
-        if (timeSinceLastRequest < this.REQUEST_DELAY) {
-            await new Promise(resolve => setTimeout(resolve, this.REQUEST_DELAY - timeSinceLastRequest));
-        }
-
         const passwordString = typeof password === 'string' ? password : password.getText();
+        return await HaveIBeenPwnedService.checkPassword(passwordString);
+    }
 
-        const result = await HaveIBeenPwnedService.checkPassword(passwordString);
-        this.lastRequestTime = Date.now();
-        return result;
+    // Run tasks with a bounded number in flight; stops picking up new work
+    // once cancelled
+    private static async runPool<T>(items: T[], worker: (item: T) => Promise<void>): Promise<void> {
+        let next = 0;
+        const lane = async () => {
+            while (next < items.length && !this.isCancelled) {
+                const item = items[next++];
+                await worker(item);
+            }
+        };
+        await Promise.all(Array.from(
+            { length: Math.min(this.PASSWORD_CONCURRENCY, items.length) },
+            () => lane()
+        ));
     }
 
     private static countTotalEntries(group: Group): number {
@@ -265,11 +274,8 @@ export class BreachCheckService {
         }
 
         try {
-            // Check entries one at a time to respect rate limits
-            for (const entry of group.entries) {
-                if (this.isCancelled) {
-                    return false;
-                }
+            // Check entries with a small pool; the range API tolerates it
+            await this.runPool(group.entries, async (entry) => {
                 try {
                     const isBreached = await this.checkEntry(databasePath, entry);
                     hasBreached = hasBreached || isBreached;
@@ -277,6 +283,9 @@ export class BreachCheckService {
                     // Continue checking other entries even if one fails
                     console.error('Error checking entry:', error);
                 }
+            });
+            if (this.isCancelled) {
+                return false;
             }
 
             // Check subgroups one at a time
@@ -440,6 +449,28 @@ export class BreachCheckService {
         return emailRegex.test(email);
     }
 
+    // Raw (unfiltered) breach lists per email address, shared across entries
+    // within a sweep: many entries share one email, and each API call costs
+    // 6 seconds of rate-limit budget
+    private static emailFetchCache = new Map<string, Promise<HibpBreach[] | null>>();
+
+    private static fetchEmailBreaches(email: string): Promise<HibpBreach[] | null> {
+        const cached = this.emailFetchCache.get(email);
+        if (cached) return cached;
+        const request = (async () => {
+            // The breachedaccount API is rate limited per key tier; space
+            // out actual fetches (dedup hits skip this entirely)
+            const sinceLast = Date.now() - this.lastEmailRequestTime;
+            if (sinceLast < this.EMAIL_REQUEST_DELAY) {
+                await new Promise(resolve => setTimeout(resolve, this.EMAIL_REQUEST_DELAY - sinceLast));
+            }
+            this.lastEmailRequestTime = Date.now();
+            return await HaveIBeenPwnedService.checkEmailBreaches(email);
+        })();
+        this.emailFetchCache.set(email, request);
+        return request;
+    }
+
     private static async checkEmailEntry(databasePath: string, entry: Entry): Promise<HibpBreach[]> {
         if (!this.isValidEmail(entry.username)) {
             return [];
@@ -453,26 +484,17 @@ export class BreachCheckService {
             return cachedStatus;
         }
 
-        // Ensure we don't exceed rate limits
-        const now = Date.now();
-        const timeSinceLastRequest = now - this.lastEmailRequestTime;
-        if (timeSinceLastRequest < this.EMAIL_REQUEST_DELAY) {
-            await new Promise(resolve => setTimeout(resolve, this.EMAIL_REQUEST_DELAY - timeSinceLastRequest));
+        const raw = await this.fetchEmailBreaches(entry.username);
+        this.incrementEmailProgress(entry.id);
+        if (raw === null) {
+            // Failed lookup: report nothing and leave it uncached so the
+            // next sweep retries instead of trusting a false all-clear
+            return [];
         }
 
-        try {
-            let breaches = await HaveIBeenPwnedService.checkEmailBreaches(entry.username);
-            breaches = breaches.filter(breach => new Date(breach.BreachDate) > entry.modified); // only keep relevant breaches
-
-            EmailBreachStatusStore.setEntryEmailStatus(databasePath, entry.id, entry.username, breaches);
-            this.lastEmailRequestTime = Date.now();
-            this.incrementEmailProgress(entry.id);
-            return breaches;
-        } catch (error) {
-            // Don't cache errors - we want to retry later
-            this.incrementEmailProgress(entry.id);
-            throw error;
-        }
+        const breaches = raw.filter(breach => new Date(breach.BreachDate) > entry.modified); // only keep relevant breaches
+        EmailBreachStatusStore.setEntryEmailStatus(databasePath, entry.id, entry.username, breaches);
+        return breaches;
     }
 
     public static async checkGroupEmails(databasePath: string, group: Group): Promise<boolean> {
