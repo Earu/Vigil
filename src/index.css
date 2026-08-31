@@ -53,11 +53,6 @@
 	--color-warning: #f5a623;
 	--color-success: #10b981;
 
-	/* MacOS window controls */
-	--macos-close: #ff5f57;
-	--macos-minimize: #ffbd2e;
-	--macos-maximize: #28c940;
-
 	/* Overlay colors */
 	--overlay-light: rgba(255, 255, 255, 0.04);
 	--overlay-medium: rgba(255, 255, 255, 0.07);
