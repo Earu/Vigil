@@ -681,12 +681,13 @@ export class KeepassDatabaseService {
         for (const entry of group.entries) {
             let kdbxEntry = entry.id ? existingEntries.get(entry.id) : undefined;
             if (kdbxEntry) {
-                // Snapshot the previous revision, but only when the entry really
-                // changed: every save rewrites every entry, and unconditional
-                // pushes would bloat the file with identical revisions
-                if (this.entryChanged(kdbxEntry, entry)) {
-                    kdbxEntry.pushHistory();
+                // Untouched entries keep their kdbx object as-is: no field
+                // rewrites, no attachment re-hashing, no history snapshot
+                if (!this.entryChanged(kdbxEntry, entry)) {
+                    updatedEntries.push(kdbxEntry);
+                    continue;
                 }
+                kdbxEntry.pushHistory();
             } else {
                 kdbxEntry = kdbxDb.createEntry(kdbxGroup);
                 if (entry.id) {
