@@ -48,6 +48,9 @@ describe('concurrent-change protection', () => {
         await Svc.saveDatabase(updated, kdbxDb);
 
         expect(env.toasts.some(t => /merged/i.test(t))).toBe(true);
+        // The version that was on disk is about to be gone, so the copy taken
+        // before the write must not be skipped for being too recent
+        expect(env.lastBackup?.replacingExternalChanges).toBe(true);
         const onDisk = await loadSaved(env);
         expect(allTitles(onDisk)).toContain('RemoteEntry');
         const shared = onDisk.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'Shared')!;
@@ -86,6 +89,8 @@ describe('concurrent-change protection', () => {
         expect(env.toasts.some(t => /merged/i.test(t))).toBe(false);
         expect(env.toasts).toContain('Database saved successfully');
         expect(env.confirm.calls).toBe(0);
+        // Nothing was replaced, so the ordinary spacing applies
+        expect(env.lastBackup?.replacingExternalChanges).toBe(false);
     });
 
     it('keeps ignoring it save after save', async () => {
@@ -145,6 +150,9 @@ describe('concurrent-change protection', () => {
         const shared = database.root.entries.find(e => e.title === 'Shared')!;
         const [updated] = Svc.saveEntry(database, { ...shared, notes: 'overwrite ok' }, database.root, false);
         await Svc.saveDatabase(updated, kdbxDb);
+        // Discarding an unmergeable version outright is the most destructive
+        // save there is; it has to be preceded by a copy
+        expect(env.lastBackup?.replacingExternalChanges).toBe(true);
         const onDisk = await loadSaved(env);
         expect(allTitles(onDisk)).toContain('Shared');
     });

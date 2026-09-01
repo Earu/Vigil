@@ -113,6 +113,30 @@ describe('vault backups', () => {
         expect(backups.map(f => fs.readFileSync(f, 'utf8'))).toEqual(['version 3', 'version 4', 'version 5']);
     });
 
+    it('copies even inside the gap when it is replacing someone else version', async () => {
+        const vault = newVault('the other machine version');
+        await backupBeforeWrite(vault, ON);
+        expect(await listBackups(vault)).toHaveLength(1);
+
+        // A save that merges, or that overwrites after a failed merge, is
+        // about to destroy the only record of what was on disk. Spacing must
+        // not swallow that one
+        fs.writeFileSync(vault, 'changed by the other machine');
+        await backupBeforeWrite(vault, { ...ON, replacingExternalChanges: true });
+
+        const backups = await listBackups(vault);
+        expect(backups).toHaveLength(2);
+        expect(fs.readFileSync(backups[1], 'utf8')).toBe('changed by the other machine');
+    });
+
+    it('still respects the off switch when replacing external changes', async () => {
+        const vault = newVault();
+
+        await backupBeforeWrite(vault, { enabled: false, keep: 3, replacingExternalChanges: true });
+
+        expect(await listBackups(vault)).toHaveLength(0);
+    });
+
     it('never keeps fewer than one, whatever it is asked for', async () => {
         const vault = newVault();
 

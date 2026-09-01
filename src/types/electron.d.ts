@@ -18,6 +18,9 @@ export interface HardwareKeyInfo {
 export interface BackupOptions {
 	enabled: boolean;
 	keep: number;
+	/** Set when this save replaces a version of the file Vigil did not write,
+	 *  so the copy is taken regardless of how recent the last one is. */
+	replacingExternalChanges?: boolean;
 }
 
 export interface BackupInfo {

@@ -21,6 +21,14 @@ export interface BackupOptions {
     keep: number;
 }
 
+export interface BackupRequest extends BackupOptions {
+    // This save is about to destroy a version of the file it did not write:
+    // an external change that was merged in, or one the user chose to
+    // overwrite after the merge failed. The copy taken here is the only
+    // record of that version, so it is taken whatever the interval says
+    replacingExternalChanges?: boolean;
+}
+
 export const DEFAULT_BACKUP_OPTIONS: BackupOptions = { enabled: true, keep: 5 };
 
 // Backups live under userData rather than beside the vault. A kdbx file
@@ -85,7 +93,7 @@ async function prune(vaultPath: string, keep: number): Promise<void> {
 
 // Never throws: a vault that cannot be backed up still has to be saveable,
 // so every caller treats failure here as "carry on and write"
-export async function backupBeforeWrite(vaultPath: string, options: BackupOptions): Promise<void> {
+export async function backupBeforeWrite(vaultPath: string, options: BackupRequest): Promise<void> {
     if (!options.enabled) return;
 
     let source: fs.Stats;
@@ -99,7 +107,10 @@ export async function backupBeforeWrite(vaultPath: string, options: BackupOption
 
     const existing = await listBackups(vaultPath);
     const newest = existing[existing.length - 1];
-    if (newest) {
+    // Spacing is for the ordinary case. A save that replaces someone else's
+    // version is the exact thing these copies exist to undo, and skipping it
+    // would leave that version recorded nowhere
+    if (newest && !options.replacingExternalChanges) {
         try {
             const { mtimeMs } = await fs.promises.stat(newest);
             if (Date.now() - mtimeMs < MIN_INTERVAL_MS) return;

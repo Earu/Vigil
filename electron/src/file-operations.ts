@@ -1,7 +1,7 @@
 import { app, dialog, BrowserWindow } from 'electron';
 import fs from 'fs';
 import path from 'path';
-import { backupBeforeWrite, BackupOptions, DEFAULT_BACKUP_OPTIONS } from './backups';
+import { backupBeforeWrite, BackupRequest, DEFAULT_BACKUP_OPTIONS } from './backups';
 
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
 
@@ -89,7 +89,7 @@ export async function statFile(filePath: string): Promise<{ success: boolean, mt
 
 // A vault that cannot be backed up still has to be saveable, so a failure
 // here is logged and the write goes ahead
-async function tryBackup(filePath: string, backup: BackupOptions): Promise<void> {
+async function tryBackup(filePath: string, backup: BackupRequest): Promise<void> {
     try {
         await backupBeforeWrite(filePath, backup);
     } catch (error) {
@@ -97,7 +97,7 @@ async function tryBackup(filePath: string, backup: BackupOptions): Promise<void>
     }
 }
 
-export async function saveFile(data: Uint8Array, backup: BackupOptions = DEFAULT_BACKUP_OPTIONS): Promise<{ success: boolean, error?: string, filePath?: string }> {
+export async function saveFile(data: Uint8Array, backup: BackupRequest = DEFAULT_BACKUP_OPTIONS): Promise<{ success: boolean, error?: string, filePath?: string }> {
     const { filePath, canceled } = await dialog.showSaveDialog({
         filters: [
             { name: 'KeePass Database', extensions: ['kdbx'] }
@@ -140,7 +140,7 @@ export async function saveAttachment(name: string, data: Uint8Array): Promise<{ 
     }
 }
 
-export async function saveToFile(filePath: string, data: Uint8Array, backup: BackupOptions = DEFAULT_BACKUP_OPTIONS): Promise<{ success: boolean, error?: string }> {
+export async function saveToFile(filePath: string, data: Uint8Array, backup: BackupRequest = DEFAULT_BACKUP_OPTIONS): Promise<{ success: boolean, error?: string }> {
     try {
         await tryBackup(filePath, backup);
         await atomicWrite(filePath, Buffer.from(data));

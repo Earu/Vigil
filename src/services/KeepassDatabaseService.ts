@@ -905,6 +905,10 @@ export class KeepassDatabaseService {
 
             // The file changed on disk since we read or wrote it (another
             // machine, a sync client): merge instead of clobbering
+            // Whether this save is about to replace a version of the file
+            // Vigil did not write, which decides whether the backup below can
+            // be skipped for being too recent
+            let replacingExternalChanges = false;
             const pathBeforeSave = this.getPath();
             if (pathBeforeSave && window.electron && this.lastKnownMtimeMs !== undefined) {
                 const stat = await window.electron.statFile(pathBeforeSave);
@@ -917,6 +921,9 @@ export class KeepassDatabaseService {
                     this.lastKnownMtimeMs = stat.mtimeMs;
                 }
                 if (external.changed) {
+                    // True whether the merge succeeds or the user overwrites:
+                    // either way the version on disk is about to be gone
+                    replacingExternalChanges = true;
                     const merged = await this.mergeExternalChanges(kdbxDb, external.data);
                     if (!merged) {
                         const overwrite = window.confirm(
@@ -938,7 +945,7 @@ export class KeepassDatabaseService {
 
             let result: SaveResult | undefined;
             // Copies kept before the file is overwritten; see electron/src/backups.ts
-            const backup = userSettingsService.getBackupOptions();
+            const backup = { ...userSettingsService.getBackupOptions(), replacingExternalChanges };
             const currentPath = this.getPath();
             if (currentPath) {
                 // If we have a path, save directly to it

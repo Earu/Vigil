@@ -11,6 +11,8 @@ export interface MockEnv {
     disk: MockDisk;
     toasts: string[];
     confirm: { answer: boolean; calls: number };
+    // Backup request the last save handed to the main process
+    lastBackup: any;
 }
 
 export function installMockWindow(): MockEnv {
@@ -18,11 +20,13 @@ export function installMockWindow(): MockEnv {
         disk: { bytes: null, mtime: 100 },
         toasts: [],
         confirm: { answer: true, calls: 0 },
+        lastBackup: undefined,
     };
 
     (globalThis as any).window = {
         electron: {
-            saveToFile: async (_path: string, data: Uint8Array) => {
+            saveToFile: async (_path: string, data: Uint8Array, backup?: unknown) => {
+                env.lastBackup = backup;
                 env.disk.bytes = Buffer.from(data);
                 env.disk.mtime++;
                 return { success: true };

@@ -25,7 +25,7 @@ import {
 import { checkEmailBreaches } from './hibp';
 import { isSupported as isContentProtectionSupported, isContentProtectionEnabled, setContentProtectionEnabled } from './content-protection';
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
-import { BackupOptions, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
+import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
 import path from 'path';
 
 export function setupIpcHandlers(): void {
@@ -66,11 +66,11 @@ export function setupIpcHandlers(): void {
     });
 
     // File operation handlers
-    ipcMain.handle('save-file', async (_, data: Uint8Array, backup?: BackupOptions) => {
+    ipcMain.handle('save-file', async (_, data: Uint8Array, backup?: BackupRequest) => {
         return await saveFile(data, backup ?? DEFAULT_BACKUP_OPTIONS);
     });
 
-    ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array, backup?: BackupOptions) => {
+    ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array, backup?: BackupRequest) => {
         return await saveToFile(filePath, data, backup ?? DEFAULT_BACKUP_OPTIONS);
     });
 
