@@ -5,6 +5,10 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+  # A manual run is the only one that signs and notarizes. Doing it on every
+  # push and pull request would add several minutes and an Apple notary round
+  # trip to each, for an artifact nobody installs
+  workflow_dispatch:
 
 jobs:
   test:
@@ -69,7 +73,7 @@ jobs:
     # is unsigned; absent while a certificate IS configured, electron-builder
     # fails loudly rather than producing an app whose helpers get killed.
     - name: Restore macOS provisioning profile
-      if: runner.os == 'macOS'
+      if: runner.os == 'macOS' && github.event_name == 'workflow_dispatch'
       env:
         MAC_PROVISION_PROFILE: ${{ secrets.MAC_PROVISION_PROFILE }}
       run: |
@@ -85,18 +89,18 @@ jobs:
       env:
         NODE_ENV: production
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # macOS signing. Enabled only when the Developer ID secrets are
-        # present, so forks and PRs still produce an (unsigned) build instead
-        # of failing. Without a signature the app runs, but the biometry-gated
-        # keychain rejects it and biometric unlock falls back to the
-        # prompt-only path (see electron/native/touchid/README.md)
-        CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK != '' }}
-        CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-        CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        # macOS signing, on manual runs only, and only when the secrets exist
+        # so forks still build. Everything else produces an unsigned app: it
+        # runs, but the biometry-gated keychain rejects it and biometric
+        # unlock falls back to the prompt-only path. Verifying that path is
+        # what a manual dispatch is for (see electron/native/touchid/README.md)
+        CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_LINK != '' }}
+        CSC_LINK: ${{ github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_LINK || '' }}
+        CSC_KEY_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
         # Notarization; electron-builder skips it when these are unset
-        APPLE_ID: ${{ secrets.APPLE_ID }}
-        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        APPLE_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_ID || '' }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+        APPLE_TEAM_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_TEAM_ID || '' }}
         # This is broken on macOS. Why.
         # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
         USE_HARD_LINKS: false
