@@ -30,6 +30,23 @@ export async function loadLastDatabasePath(): Promise<string | null> {
     }
 }
 
+// Owner read/write, for a vault this app is creating for the first time
+const NEW_VAULT_MODE = 0o600;
+
+// The mode the temp file must carry so the rename does not change who can
+// read the vault. An existing database keeps exactly the permissions it had;
+// a new one starts private. Windows is excluded: chmod there only toggles the
+// read-only flag, and the real access control is an ACL the rename leaves to
+// the parent directory, as it does for every other application
+async function targetMode(filePath: string): Promise<number | null> {
+    if (process.platform === 'win32') return null;
+    try {
+        return (await fs.promises.stat(filePath)).mode & 0o777;
+    } catch {
+        return NEW_VAULT_MODE;
+    }
+}
+
 // Write to a temp file in the same directory, fsync, then rename over the
 // target. A crash mid-write leaves the original database intact
 async function atomicWrite(filePath: string, data: Buffer): Promise<void> {
@@ -37,10 +54,17 @@ async function atomicWrite(filePath: string, data: Buffer): Promise<void> {
         path.dirname(filePath),
         `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`
     );
+    const mode = await targetMode(filePath);
 
     try {
-        const handle = await fs.promises.open(tmpPath, 'w');
+        // The temp file is the one that survives the rename, so it is the one
+        // whose permissions matter. Created at the umask default it would be
+        // 0644 on a typical setup, quietly making a 0600 vault world readable
+        // on the next save. The open mode is still masked by the umask, so the
+        // exact mode is set with a second call that is not
+        const handle = await fs.promises.open(tmpPath, 'w', mode ?? 0o666);
         try {
+            if (mode !== null) await handle.chmod(mode);
             await handle.writeFile(data);
             await handle.sync();
         } finally {
