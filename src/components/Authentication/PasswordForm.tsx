@@ -460,6 +460,12 @@ export const PasswordForm = ({
         try {
             const credentials = await buildCredentials(password);
             const db = kdbxweb.Kdbx.create(credentials, databaseName.trim());
+            // kdbxweb creates 4.0, which has nowhere to put tags, per-entry
+            // quality-check flags or previousParentGroup (what restoring out of
+            // the recycle bin reads to find the original group). KeePassXC has
+            // written 4.1 since 2.7; readers older than KeePass 2.48 / KeePassXC
+            // 2.7 ignore the extra elements rather than refusing the file
+            db.header.versionMinor = 1;
             // kdbxweb defaults to Argon2d with 1 MiB / 2 iterations, far too weak
             KeepassDatabaseService.setKdf(db, { type: 'argon2id', iterations: 3, memoryMiB: 64, parallelism: 4 });
 

@@ -19,9 +19,11 @@ interface PasswordViewProps {
 	securityReportRequestId?: number;
 	// Owned by App so locking can see the edit form's state; see entryDirty there
 	entryDirty: React.MutableRefObject<boolean>;
+	// Clicking a tag rewrites the search box, which App owns
+	onSearch?: (query: string) => void;
 }
 
-export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId, entryDirty }: PasswordViewProps) => {
+export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId, entryDirty, onSearch }: PasswordViewProps) => {
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -48,6 +50,10 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	);
 	const reusedPasswords = useMemo(
 		() => BreachCheckService.findReusedPasswords(database.root),
+		[database]
+	);
+	const allTags = useMemo(
+		() => KeepassDatabaseService.collectTags(database.root),
 		[database]
 	);
 	const reusedEntryCount = useMemo(
@@ -173,6 +179,15 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		setSelectedEntry(savedEntry);
 		setIsCreatingNew(false);
 		onDatabaseChange?.(updatedDatabase);
+	};
+
+	// A tag is only useful as a filter if it reaches the whole vault, so this
+	// widens the selection to the root rather than searching inside whatever
+	// group the entry happened to live in
+	const handleTagClick = (tag: string) => {
+		if (!confirmDiscardEdits()) return;
+		setSelectedGroup(database.root);
+		onSearch?.(`tag:"${tag}"`);
 	};
 
 	const handleNewEntry = () => {
@@ -335,6 +350,8 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 						onSave={handleSaveEntry}
 						isNew={isCreatingNew}
 						onDirtyChange={handleDirtyChange}
+						allTags={allTags}
+						onTagClick={handleTagClick}
 					/>
 				)}
 			</div>

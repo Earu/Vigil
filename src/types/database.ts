@@ -22,6 +22,7 @@ export interface EntryVersion {
 	expires: boolean;
 	expiryTime?: Date;
 	customFields: CustomField[];
+	tags: string[];
 }
 
 export interface Entry {
@@ -42,6 +43,9 @@ export interface Entry {
 	expires: boolean;
 	expiryTime?: Date;
 	customFields: CustomField[];
+	// kdbx stores these as one delimited string, so a tag can hold no ';', ','
+	// or ':'. Everything writing here goes through normalizeTags
+	tags: string[];
 }
 
 export interface Group {

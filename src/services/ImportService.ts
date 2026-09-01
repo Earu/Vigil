@@ -10,6 +10,7 @@ export interface ImportedEntry {
     notes?: string;
     totp?: string; // otpauth URI or bare base32 secret
     group?: string[]; // folder path, outermost first
+    tags?: string[];
     customFields?: Array<{ key: string; value: string; protected: boolean }>;
 }
 
@@ -20,6 +21,15 @@ export interface ImportResult {
 }
 
 export class ImportService {
+    // Exports that carry tags put them in one cell, delimited by whatever the
+    // tool preferred. normalizeTags does the rest (kdbx delimiters, blanks,
+    // duplicates)
+    private static splitTags(value: string): string[] | undefined {
+        if (!value) return undefined;
+        const tags = KeepassDatabaseService.normalizeTags(value.split(/[;,|]/));
+        return tags.length > 0 ? tags : undefined;
+    }
+
     // RFC 4180 tokenizer: quoted fields may contain commas, escaped quotes
     // and newlines (LastPass notes regularly span lines)
     static parseCsv(text: string): string[][] {
@@ -246,6 +256,7 @@ export class ImportService {
                 url: get(row, 'url') || undefined,
                 notes: get(row, 'notes') || undefined,
                 totp: get(row, 'otpauth') || undefined,
+                tags: this.splitTags(get(row, 'tags')),
             });
         }
         return { source: '1Password', entries, skipped: 0 };
@@ -260,6 +271,7 @@ export class ImportService {
         const passwordIndex = find('password', 'passwordvalue', 'password field');
         const titleIndex = find('name', 'title');
         const notesIndex = find('notes', 'note', 'comment');
+        const tagsIndex = find('tags', 'tag', 'labels');
 
         if (passwordIndex === -1 || (urlIndex === -1 && usernameIndex === -1)) {
             throw new Error('Could not find url/username/password columns in the CSV file');
@@ -276,6 +288,7 @@ export class ImportService {
                 password,
                 url: url || undefined,
                 notes: notesIndex === -1 ? undefined : (row[notesIndex] || undefined),
+                tags: tagsIndex === -1 ? undefined : this.splitTags(row[tagsIndex] ?? ''),
             });
         }
         if (entries.length === 0) {
@@ -325,6 +338,7 @@ export class ImportService {
             entry.fields.set('Password', kdbxweb.ProtectedValue.fromString(imported.password));
             if (imported.url) entry.fields.set('URL', imported.url);
             if (imported.notes) entry.fields.set('Notes', imported.notes);
+            if (imported.tags?.length) entry.tags = KeepassDatabaseService.normalizeTags(imported.tags);
 
             if (imported.totp) {
                 // Normalize bare secrets into otpauth URIs (KeePassXC-compatible)
