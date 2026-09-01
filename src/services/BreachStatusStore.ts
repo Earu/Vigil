@@ -26,11 +26,18 @@ interface DatabaseBreachStatus {
 export class BreachStatusStore {
     private static readonly STORE_KEY = 'breach_status_store';
     private static readonly CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    // A breach sweep writes one status per entry. Persisting and notifying on
+    // each one is quadratic: the whole store is re-serialized every time, and
+    // every subscriber re-walks the entry tree. These drive background
+    // indicators, so coalescing a quarter second of them costs nothing
+    private static readonly COALESCE_MS = 250;
 
     // localStorage is only read once; all lookups hit this in-memory copy
     private static store: DatabaseBreachStatus | null = null;
     private static version = 0;
     private static listeners = new Set<() => void>();
+    private static coalesceTimer: ReturnType<typeof setTimeout> | null = null;
+    private static pending = false;
 
     // Stable references for useSyncExternalStore
     public static subscribe = (listener: () => void): (() => void) => {
@@ -48,10 +55,40 @@ export class BreachStatusStore {
         return this.store!;
     }
 
-    private static saveStore(): void {
-        localStorage.setItem(this.STORE_KEY, JSON.stringify(this.getStore()));
+    // Write and notify in one step. The version bump rides with the
+    // notification so a subscriber never sees a new snapshot without being
+    // told about it
+    private static persist(): void {
+        this.cancelPending();
+        try {
+            localStorage.setItem(this.STORE_KEY, JSON.stringify(this.getStore()));
+        } catch { /* storage full or unavailable; the cache is rebuildable */ }
         this.version++;
         this.listeners.forEach(listener => listener());
+    }
+
+    private static cancelPending(): void {
+        if (this.coalesceTimer) {
+            clearTimeout(this.coalesceTimer);
+            this.coalesceTimer = null;
+        }
+        this.pending = false;
+    }
+
+    private static markChanged(): void {
+        this.pending = true;
+        if (this.coalesceTimer) return;
+        this.coalesceTimer = setTimeout(() => {
+            this.coalesceTimer = null;
+            this.persist();
+        }, this.COALESCE_MS);
+    }
+
+    // Force a coalesced write out now: a sweep finished, the vault locked, or
+    // the window is going away. Losing one costs repeat HIBP lookups rather
+    // than correctness, but there is no reason to pay that
+    public static flush(): void {
+        if (this.pending) this.persist();
     }
 
     public static setEntryStatus(databasePath: string, entryId: string, status: { isPwned: boolean; count: number; strength: PasswordStrength | null; breachedEmail?: boolean }): void {
@@ -65,7 +102,7 @@ export class BreachStatusStore {
             timestamp: Date.now()
         };
 
-        this.saveStore();
+        this.markChanged();
     }
 
     public static getEntryStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength | null; breachedEmail?: boolean } | null {
@@ -85,15 +122,21 @@ export class BreachStatusStore {
         return { isPwned, count, strength, breachedEmail };
     }
 
+    // The clears below are user or lifecycle driven rather than part of a
+    // sweep, so they write through immediately: "clear cache" has to survive
+    // the app being closed a moment later
     public static clearDatabase(databasePath: string): void {
         const store = this.getStore();
         delete store[databasePath];
-        this.saveStore();
+        this.persist();
     }
 
     public static clearAll(): void {
+        this.cancelPending();
         this.store = {};
-        localStorage.removeItem(this.STORE_KEY);
+        try {
+            localStorage.removeItem(this.STORE_KEY);
+        } catch { /* storage unavailable */ }
         this.version++;
         this.listeners.forEach(listener => listener());
     }
@@ -105,7 +148,20 @@ export class BreachStatusStore {
             if (Object.keys(store[databasePath]).length === 0) {
                 delete store[databasePath];
             }
-            this.saveStore();
+            this.persist();
         }
     }
+}
+
+// A window can be closed or hidden mid-sweep; do not let a coalesced write
+// die with it. pagehide is not guaranteed when the renderer is torn down
+// abruptly, so visibilitychange carries the weight: minimising, switching
+// workspace and closing all fire it, and acting on it costs one write
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('pagehide', () => BreachStatusStore.flush());
+}
+if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') BreachStatusStore.flush();
+    });
 }

@@ -1,15 +1,16 @@
-import React, { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Database, Group, Entry } from '../../types/database';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
-import { BreachCheckService } from '../../services/BreachCheckService';
-import { BreachStatusStore } from '../../services/BreachStatusStore';
-import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
+import { GroupSummary } from '../../services/BreachCheckService';
 import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
 import { ChevronActionIcon, AddActionIcon, EditActionIcon, CloseActionIcon } from '../../icons/actions/ActionIcons';
 
 interface SidebarProps {
 	database: Database;
 	selectedGroup: Group;
+	// Breach indicators and entry counts for every group, computed once per
+	// change by PasswordView (see BreachCheckService.buildGroupSummaries)
+	groupSummaries: Map<string, GroupSummary>;
 	onGroupSelect: (group: Group) => void;
 	onNewGroup: (parentGroup: Group) => void;
 	onRemoveGroup: (group: Group) => void;
@@ -23,6 +24,7 @@ interface GroupItemProps {
 	group: Group;
 	level: number;
 	selectedGroup: Group;
+	groupSummaries: Map<string, GroupSummary>;
 	onGroupSelect: (group: Group) => void;
 	onNewGroup: (parentGroup: Group) => void;
 	onRemoveGroup: (group: Group) => void;
@@ -32,7 +34,9 @@ interface GroupItemProps {
 	database: Database;
 }
 
-const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry, database }: GroupItemProps) => {
+const EMPTY_SUMMARY: GroupSummary = { breached: false, weak: false, breachedEmail: false, entryCount: 0 };
+
+const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry, database }: GroupItemProps) => {
 	const [isExpanded, setIsExpanded] = useState(true);
 	const [isEditing, setIsEditing] = useState(false);
 	const [editedName, setEditedName] = useState(group.name);
@@ -41,16 +45,9 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	const inputRef = useRef<HTMLInputElement>(null);
 	const hasSubgroups = group.groups.length > 0;
 
-	// Derive breach indicators from the cached statuses. The network checks
-	// run once at unlock (startBreachCheck); the store versions make these
-	// recompute as results come in.
-	const breachStoreVersion = useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
-	const emailStoreVersion = useSyncExternalStore(EmailBreachStatusStore.subscribe, EmailBreachStatusStore.getVersion);
-	const { hasBreachedEntries, hasWeakPasswords, hasBreachedEmails } = useMemo(() => ({
-		hasBreachedEntries: BreachCheckService.hasBreachedPasswords(group),
-		hasWeakPasswords: BreachCheckService.hasWeakPasswords(group),
-		hasBreachedEmails: BreachCheckService.hasBreachedEmails(group),
-	}), [group, breachStoreVersion, emailStoreVersion]);
+	// A group created in the UI has no id until the save assigns one, so a
+	// missing summary is normal for one render
+	const summary = groupSummaries.get(group.id) ?? EMPTY_SUMMARY;
 
 	useEffect(() => {
 		if (isEditing && inputRef.current) {
@@ -189,12 +186,12 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 							}}
 						>
 							{group.name}
-							{hasBreachedEntries && (
+							{summary.breached && (
 								<span className="group-breach-indicator" title="Contains breached passwords">
 									<BreachWarningIcon className="breach-icon" />
 								</span>
 							)}
-							{!hasBreachedEntries && (hasWeakPasswords || hasBreachedEmails) && (
+							{!summary.breached && (summary.weak || summary.breachedEmail) && (
 								<span className="group-weak-password-indicator" title="Contains weak passwords or breached email addresses">
 									<SecurityShieldIcon className="weak-password-icon" />
 								</span>
@@ -202,7 +199,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 						</span>
 					)}
 					<span className="entry-count">
-						{KeepassDatabaseService.countEntriesInGroup(group)}
+						{summary.entryCount}
 					</span>
 					<div className="group-actions" onClick={(e) => e.stopPropagation()}>
 						<button
@@ -241,6 +238,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 							group={subgroup}
 							level={level + 1}
 							selectedGroup={selectedGroup}
+							groupSummaries={groupSummaries}
 							onGroupSelect={onGroupSelect}
 							onNewGroup={onNewGroup}
 							onRemoveGroup={onRemoveGroup}
@@ -256,7 +254,7 @@ const GroupItem = ({ group, level, selectedGroup, onGroupSelect, onNewGroup, onR
 	);
 };
 
-export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry, onDatabaseChange }: SidebarProps) => {
+export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry, onDatabaseChange }: SidebarProps) => {
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
 	const [editedTitle, setEditedTitle] = useState(database.name);
 	const titleInputRef = useRef<HTMLInputElement>(null);
@@ -326,6 +324,7 @@ export const Sidebar = ({ database, selectedGroup, onGroupSelect, onNewGroup, on
 					group={database.root}
 					level={0}
 					selectedGroup={selectedGroup}
+					groupSummaries={groupSummaries}
 					onGroupSelect={onGroupSelect}
 					onNewGroup={onNewGroup}
 					onRemoveGroup={onRemoveGroup}

@@ -1,6 +1,6 @@
 import { Database, Entry, Group } from '../../types/database';
 import { useState } from 'react';
-import { BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
+import { BreachedEntry, BreachedEmailEntry, ReusedPasswordGroup } from '../../services/BreachCheckService';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { CloseActionIcon } from '../../icons/actions/ActionIcons';
 import './BreachReport.css';
@@ -11,12 +11,16 @@ interface BreachReportProps {
     breachedEntries: Array<BreachedEntry>;
     weakEntries: Array<BreachedEntry>;
     breachedEmailEntries: Array<BreachedEmailEntry>;
+    // Clusters of entries sharing one password, widest reuse first
+    reusedPasswords: Array<ReusedPasswordGroup>;
+    // Entries involved in any cluster, which is what the tab counts
+    reusedEntryCount: number;
     expiredEntries: Array<{ entry: Entry; group: Group }>;
     isChecking: boolean;
     isCheckingEmails: boolean;
 }
 
-type TabType = 'breached' | 'weak' | 'emails' | 'expired';
+type TabType = 'breached' | 'reused' | 'weak' | 'emails' | 'expired';
 
 const getStrengthColor = (score: number) => {
     switch (score) {
@@ -44,6 +48,8 @@ export const BreachReport = ({
     breachedEntries,
     weakEntries,
     breachedEmailEntries,
+    reusedPasswords,
+    reusedEntryCount,
     expiredEntries,
     onClose,
     isChecking,
@@ -53,7 +59,12 @@ export const BreachReport = ({
     const hasWeakPasswords = weakEntries.length > 0;
     const hasBreachedPasswords = breachedEntries.length > 0;
     const hasBreachedEmails = breachedEmailEntries.length > 0;
+    const hasReusedPasswords = reusedPasswords.length > 0;
     const hasExpiredEntries = expiredEntries.length > 0;
+    // Reuse and expiry are read straight off the model, so those tabs have
+    // nothing to wait for; only the HIBP-backed ones show the spinner
+    const waiting = (isChecking || isCheckingEmails) &&
+        (activeTab === 'breached' || activeTab === 'weak' || activeTab === 'emails');
 
     const renderBreachedEntry = ({ entry, group, count }: BreachedEntry) => (
         <div key={entry.id} className="breached-entry">
@@ -107,6 +118,12 @@ export const BreachReport = ({
                         Compromised ({breachedEntries.length})
                     </button>
                     <button
+                        className={`tab-button ${activeTab === 'reused' ? 'active' : ''}`}
+                        onClick={() => setActiveTab('reused')}
+                    >
+                        Reused ({reusedEntryCount})
+                    </button>
+                    <button
                         className={`tab-button ${activeTab === 'weak' ? 'active' : ''}`}
                         onClick={() => setActiveTab('weak')}
                     >
@@ -126,7 +143,7 @@ export const BreachReport = ({
                     </button>
                 </div>
                 <div className="breach-report-content">
-                    {(isChecking || isCheckingEmails) && (
+                    {waiting && (
                         <div className="breach-summary neutral">
                             <div className="breach-count">
                                 <SpinnerIcon className="spinner" />
@@ -137,7 +154,7 @@ export const BreachReport = ({
                         </div>
                     )}
 
-                    {!isChecking && !isCheckingEmails && activeTab === 'breached' && hasBreachedPasswords && (
+                    {!waiting && activeTab === 'breached' && hasBreachedPasswords && (
                         <>
                             <div className="breach-summary">
                                 <div className="breach-count">
@@ -154,7 +171,7 @@ export const BreachReport = ({
                         </>
                     )}
 
-                    {!isChecking && !isCheckingEmails && activeTab === 'weak' && hasWeakPasswords && (
+                    {!waiting && activeTab === 'weak' && hasWeakPasswords && (
                         <>
                             <div className="weak-passwords-summary">
                                 <div className="weak-count">
@@ -171,7 +188,7 @@ export const BreachReport = ({
                         </>
                     )}
 
-                    {!isChecking && !isCheckingEmails && activeTab === 'emails' && hasBreachedEmails && (
+                    {!waiting && activeTab === 'emails' && hasBreachedEmails && (
                         <>
                             <div className="weak-passwords-summary">
                                 <div className="weak-count">
@@ -201,7 +218,41 @@ export const BreachReport = ({
                         </>
                     )}
 
-                    {!isChecking && !isCheckingEmails && activeTab === 'expired' && hasExpiredEntries && (
+                    {!waiting && activeTab === 'reused' && hasReusedPasswords && (
+                        <>
+                            <div className="weak-passwords-summary">
+                                <div className="weak-count">
+                                    <span className="count">{reusedEntryCount}</span>
+                                    <span className="label">Reused {reusedEntryCount === 1 ? 'Password' : 'Passwords'}</span>
+                                </div>
+                                <p className="weak-warning">
+                                    These entries share a password with at least one other entry. One breach then exposes every account in the group, so give each of them its own password.
+                                </p>
+                            </div>
+                            <div className="reused-clusters">
+                                {reusedPasswords.map(cluster => (
+                                    <div key={cluster.entries[0].entry.id} className="reused-cluster">
+                                        <div className="reused-cluster-header">
+                                            Shared by {cluster.count} entries
+                                        </div>
+                                        <div className="breached-entries">
+                                            {cluster.entries.map(({ entry, group }) => (
+                                                <div key={entry.id} className="breached-entry">
+                                                    <div className="report-entry-info">
+                                                        <h3>{entry.title}</h3>
+                                                        <p className="username">{entry.username}</p>
+                                                        <p className="group-path">Group: {group.name}</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
+                    {!waiting && activeTab === 'expired' && hasExpiredEntries && (
                         <>
                             <div className="weak-passwords-summary">
                                 <div className="weak-count">
@@ -231,13 +282,15 @@ export const BreachReport = ({
                         </>
                     )}
 
-                    {!isChecking && !isCheckingEmails && ((activeTab === 'breached' && !hasBreachedPasswords) ||
+                    {!waiting && ((activeTab === 'breached' && !hasBreachedPasswords) ||
+                      (activeTab === 'reused' && !hasReusedPasswords) ||
                       (activeTab === 'weak' && !hasWeakPasswords) ||
                       (activeTab === 'emails' && !hasBreachedEmails) ||
                       (activeTab === 'expired' && !hasExpiredEntries)) && (
                         <div className="breach-summary neutral">
                             <p className="breach-warning">
                                 No {activeTab === 'breached' ? 'compromised passwords' :
+                                   activeTab === 'reused' ? 'reused passwords' :
                                    activeTab === 'weak' ? 'weak passwords' :
                                    activeTab === 'emails' ? 'exposed emails' :
                                    'expired entries'} found.
