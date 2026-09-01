@@ -92,7 +92,16 @@ jobs:
     # GitHub doing that. Public repo, public logs.
     - name: Build Electron app (macOS)
       if: runner.os == 'macOS'
+      # shell: bash is what supplies pipefail. The default shell is `bash -e`
+      # without it, so a failing build piped into sed would report success and
+      # only surface as a missing artifact later
+      shell: bash
       run: |
+        # An empty CSC_LINK is not the same as an unset one: electron-builder
+        # reads it as a path to the certificate, resolves it to the project
+        # directory and dies with "not a file". Unsigned runs land here because
+        # a GitHub expression that evaluates to nothing still defines the var.
+        if [ -z "$CSC_LINK" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
         if [ -n "$SIGNING_IDENTITY_NAME" ]; then
           npm run electron:build -- --publish never 2>&1 | sed "s/$SIGNING_IDENTITY_NAME/***/g"
         else
