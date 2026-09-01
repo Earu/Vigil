@@ -424,10 +424,14 @@ process.stdin.on('end', () => process.exit(0));
 function wrapperScript(proxyJsPath: string): string {
     // Run the proxy with the Electron binary in Node mode so no system Node
     // install is required; APPIMAGE points at the packaged binary when set.
-    // On macOS this depends on ELECTRON_RUN_AS_NODE staying functional: if
-    // build.mac ever disables the RunAsNode Electron fuse or signs with
-    // hardened-runtime entitlements that strip env vars, this proxy breaks
-    // and needs a different launcher
+    // This is why build.electronFuses pins runAsNode on: with it off the
+    // binary ignores ELECTRON_RUN_AS_NODE and every wrapper written here
+    // launches a second copy of the GUI instead of the proxy. The cost of
+    // keeping it on is that the signed binary will run any script handed to
+    // it, which on macOS means running inside Vigil's entitlements. Closing
+    // that means teaching main.ts a proxy mode reached by a CLI flag, so the
+    // wrapper needs no env var at all. Same trap for hardened-runtime
+    // entitlements that strip env vars.
     const executable = process.env.APPIMAGE || process.execPath;
     return `#!/bin/sh
 export ELECTRON_RUN_AS_NODE=1
