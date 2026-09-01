@@ -85,7 +85,42 @@ jobs:
           echo "no MAC_PROVISION_PROFILE secret, macOS build will be unsigned"
         fi
 
+    # macOS is built through a filter because electron-builder logs the signing
+    # identity, and a Developer ID certificate issued to an individual carries
+    # a legal name. Referencing SIGNING_IDENTITY_NAME in env is what makes the
+    # runner redact it (an unreferenced secret is never sent to the runner, so
+    # it cannot be matched); the sed is a second layer that does not depend on
+    # GitHub doing that. Public repo, public logs.
+    - name: Build Electron app (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        if [ -n "$SIGNING_IDENTITY_NAME" ]; then
+          npm run electron:build -- --publish never 2>&1 | sed "s/$SIGNING_IDENTITY_NAME/***/g"
+        else
+          npm run electron:build -- --publish never
+        fi
+      env:
+        SIGNING_IDENTITY_NAME: ${{ secrets.SIGNING_IDENTITY_NAME }}
+        NODE_ENV: production
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # macOS signing. Enabled only when the Developer ID secrets are
+        # present, so forks and PRs still produce an (unsigned) build instead
+        # of failing. Without a signature the app runs, but the biometry-gated
+        # keychain rejects it and biometric unlock falls back to the
+        # prompt-only path (see electron/native/touchid/README.md)
+        CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK != '' }}
+        CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+        CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        # Notarization; electron-builder skips it when these are unset
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        # This is broken on macOS. Why.
+        # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
+        USE_HARD_LINKS: false
+
     - name: Build Electron app
+      if: runner.os != 'macOS'
       run: npm run electron:build -- --publish never
       env:
         NODE_ENV: production
