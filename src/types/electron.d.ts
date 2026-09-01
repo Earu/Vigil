@@ -53,7 +53,7 @@ export interface IElectronAPI {
 	getContentProtection: () => Promise<{ supported: boolean; enabled: boolean }>;
 	setContentProtection: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean; error?: string }>;
 	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => Promise<ArrayBuffer>;
-	openExternal: (url: string) => Promise<void>;
+	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 	getPlatform: () => Promise<string>;
 	on: (channel: string, callback: (...args: any[]) => void) => () => void;
 	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;

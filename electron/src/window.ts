@@ -97,7 +97,12 @@ export function createWindow(startupFile?: string) {
     // capturable while the renderer boots
     applyContentProtection(win);
 
-    // Set security-related headers including CSP
+    // Set security-related headers including CSP.
+    // Fonts are self-hosted (src/fonts), so no remote font or style host is
+    // allowed. Production names the file: scheme because a packaged build
+    // loads from a file:// document, where 'self' does not reliably match
+    // in Chromium. The remaining google.com / gstatic.com grant is only
+    // for entry favicons, which are off unless the user opts in
     win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
         callback({
             responseHeaders: {
@@ -106,18 +111,18 @@ export function createWindow(startupFile?: string) {
                     process.env.NODE_ENV === 'development'
                         ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
                           "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
-                          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                          "style-src 'self' 'unsafe-inline'; " +
                           "img-src 'self' data: blob: https://www.google.com https://*.gstatic.com; " +
-                          "font-src 'self' https://fonts.gstatic.com; " +
+                          "font-src 'self'; " +
                           "connect-src 'self' ws://localhost:5173 http://localhost:5173 https://api.pwnedpasswords.com https://haveibeenpwned.com; " +
                           "base-uri 'self'; " +
                           "form-action 'none'; " +
                           "frame-ancestors 'none';"
                         : "default-src 'self';" +
                           "script-src 'self';" +
-                          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;" +
+                          "style-src 'self' 'unsafe-inline';" +
                           "img-src 'self' data: blob: https://www.google.com https://*.gstatic.com;" +
-                          "font-src 'self' https://fonts.gstatic.com;" +
+                          "font-src 'self' file:;" +
                           "connect-src 'self' https://api.pwnedpasswords.com https://haveibeenpwned.com;" +
                           "base-uri 'self';" +
                           "form-action 'none';" +

@@ -810,7 +810,17 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									'URL'
 								)}
 								<button
-									onClick={() => window.electron?.openExternal(editedEntry.url!)}
+									onClick={async () => {
+										// Non-web schemes are refused in the main process; say so
+										// rather than leaving the button looking broken
+										const result = await window.electron?.openExternal(editedEntry.url!);
+										if (result && !result.success) {
+											(window as any).showToast?.({
+												message: result.error ?? 'Failed to open the link',
+												type: 'error'
+											});
+										}
+									}}
 									className="open-button"
 									title="Open URL"
 								>
