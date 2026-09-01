@@ -69,6 +69,16 @@
 		"asarUnpack": [
 			"**/*.node"
 		],
+		"electronFuses": {
+			"runAsNode": true,
+			"enableCookieEncryption": true,
+			"enableNodeOptionsEnvironmentVariable": false,
+			"enableNodeCliInspectArguments": false,
+			"enableEmbeddedAsarIntegrityValidation": true,
+			"onlyLoadAppFromAsar": true,
+			"loadBrowserProcessSpecificV8Snapshot": false,
+			"grantFileProtocolExtraPrivileges": true
+		},
 		"extraMetadata": {
 			"main": "dist-electron/main.js"
 		},

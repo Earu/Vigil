@@ -191,6 +191,13 @@ export function createWindow(startupFile?: string) {
         win.loadURL('http://localhost:5173');
         win.webContents.openDevTools();
     } else {
+        // A packaged build renders from a file:// document, which only gets
+        // localStorage because build.electronFuses pins
+        // grantFileProtocolExtraPrivileges on. Turning that fuse off (the
+        // hardened setting) silently takes storage away from file:// pages,
+        // and with it the user settings, the generator preferences and the
+        // encrypted breach cache. Serving the renderer from a custom protocol
+        // instead is what makes that fuse safe to flip
         const indexPath = path.join(app.getAppPath(), 'dist', 'index.html');
         console.log('Loading production file from:', indexPath);
         win.loadFile(indexPath);
