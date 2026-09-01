@@ -727,8 +727,15 @@ export class KeepassDatabaseService {
     private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, index: KdbxIndex, isRoot = false): Promise<void> {
         // The UI labels the root group "All Entries"; never write that label
         // over the real group name stored in the file
-        if (!isRoot) {
+        if (!isRoot && kdbxGroup.name !== group.name) {
             kdbxGroup.name = group.name;
+            // A merge settles a name conflict by comparing lastModTime, and
+            // nothing else here moves a group's clock. Without this a rename
+            // keeps the timestamp it had before, so an older rename from
+            // another replica outranks it and silently wins. Only on an
+            // actual change: bumping every save would make this replica win
+            // every conflict instead
+            kdbxGroup.times.lastModTime = new Date();
         }
 
         // Process all entries in one pass
