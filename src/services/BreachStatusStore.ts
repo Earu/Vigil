@@ -1,3 +1,5 @@
+import { BreachCacheCrypto } from './BreachCacheCrypto';
+
 export interface PasswordStrength {
     score: number;
     feedback: {
@@ -24,7 +26,8 @@ interface DatabaseBreachStatus {
 }
 
 export class BreachStatusStore {
-    private static readonly STORE_KEY = 'breach_status_store';
+    // Sealed under a key only an open vault can derive; see BreachCacheCrypto
+    private static readonly STORE_NAME = 'breach';
     private static readonly CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
     // A breach sweep writes one status per entry. Persisting and notifying on
     // each one is quadratic: the whole store is re-serialized every time, and
@@ -32,8 +35,10 @@ export class BreachStatusStore {
     // indicators, so coalescing a quarter second of them costs nothing
     private static readonly COALESCE_MS = 250;
 
-    // localStorage is only read once; all lookups hit this in-memory copy
+    // Decrypted once per vault; all lookups hit this in-memory copy
     private static store: DatabaseBreachStatus | null = null;
+    // Which unlock the in-memory copy belongs to
+    private static storeEpoch = -1;
     private static version = 0;
     private static listeners = new Set<() => void>();
     private static coalesceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -47,12 +52,14 @@ export class BreachStatusStore {
 
     public static getVersion = (): number => BreachStatusStore.version;
 
+    // A vault opening or closing invalidates the copy: it belongs to whatever
+    // was unlocked at the time, and nothing else can decrypt it anyway
     private static getStore(): DatabaseBreachStatus {
-        if (this.store === null) {
-            const stored = localStorage.getItem(this.STORE_KEY);
-            this.store = stored ? JSON.parse(stored) : {};
+        if (this.store === null || this.storeEpoch !== BreachCacheCrypto.epoch) {
+            this.store = BreachCacheCrypto.read<DatabaseBreachStatus>(this.STORE_NAME) ?? {};
+            this.storeEpoch = BreachCacheCrypto.epoch;
         }
-        return this.store!;
+        return this.store;
     }
 
     // Write and notify in one step. The version bump rides with the
@@ -60,9 +67,7 @@ export class BreachStatusStore {
     // told about it
     private static persist(): void {
         this.cancelPending();
-        try {
-            localStorage.setItem(this.STORE_KEY, JSON.stringify(this.getStore()));
-        } catch { /* storage full or unavailable; the cache is rebuildable */ }
+        BreachCacheCrypto.write(this.STORE_NAME, this.getStore());
         this.version++;
         this.listeners.forEach(listener => listener());
     }
@@ -134,9 +139,8 @@ export class BreachStatusStore {
     public static clearAll(): void {
         this.cancelPending();
         this.store = {};
-        try {
-            localStorage.removeItem(this.STORE_KEY);
-        } catch { /* storage unavailable */ }
+        this.storeEpoch = BreachCacheCrypto.epoch;
+        BreachCacheCrypto.removeAllFor(this.STORE_NAME);
         this.version++;
         this.listeners.forEach(listener => listener());
     }

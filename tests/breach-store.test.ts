@@ -1,16 +1,35 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import * as kdbxweb from 'kdbxweb';
+import { cred } from './helpers';
 
 // Counts what actually reaches storage, which is the point of the coalescing:
 // a sweep over a large vault used to re-serialize the whole store per entry
-const backing = new Map<string, string>();
 const writes = { set: 0, remove: 0 };
-(globalThis as any).localStorage = {
-    getItem: (k: string) => backing.get(k) ?? null,
-    setItem: (k: string, v: string) => { writes.set++; backing.set(k, v); },
-    removeItem: (k: string) => { writes.remove++; backing.delete(k); },
-};
+// Methods live on the prototype, so Object.keys returns only the stored
+// entries, the way a real Storage does and the way the cache enumerates
+class FakeStorage {
+    getItem(key: string): string | null {
+        return Object.prototype.hasOwnProperty.call(this, key) ? (this as any)[key] : null;
+    }
+    setItem(key: string, value: string): void {
+        writes.set++;
+        (this as any)[key] = String(value);
+    }
+    removeItem(key: string): void {
+        writes.remove++;
+        delete (this as any)[key];
+    }
+}
 
+const backing = new FakeStorage();
+(globalThis as any).localStorage = backing;
+
+const { BreachCacheCrypto } = await import('../src/services/BreachCacheCrypto');
 const { BreachStatusStore } = await import('../src/services/BreachStatusStore');
+
+// The store is sealed under a key derived from the open vault, so the
+// coalescing under test only happens with one unlocked
+BreachCacheCrypto.unlock(kdbxweb.Kdbx.create(cred(), 'Coalescing'));
 
 const status = { isPwned: false, count: 0, strength: { score: 4, feedback: { warning: '', suggestions: [] } } };
 
@@ -32,7 +51,7 @@ describe('breach status store write coalescing', () => {
 
         vi.advanceTimersByTime(250);
         expect(writes.set).toBe(1);
-        expect(JSON.parse(backing.get('breach_status_store')!)['/db.kdbx']).toHaveProperty('entry-49');
+        expect(BreachCacheCrypto.read<any>('breach')['/db.kdbx']).toHaveProperty('entry-49');
     });
 
     it('notifies subscribers once for the same burst', () => {
@@ -91,6 +110,13 @@ describe('breach status store write coalescing', () => {
     });
 
     it('drops a pending write when the cache is cleared wholesale', () => {
+        // Something already persisted, so the clear has a blob to remove,
+        // plus a second write still sitting in the coalescing window
+        BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-0', status);
+        vi.advanceTimersByTime(250);
+        writes.set = 0;
+        writes.remove = 0;
+
         BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-1', status);
         BreachStatusStore.clearAll();
         expect(writes.remove).toBe(1);

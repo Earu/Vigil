@@ -11,7 +11,10 @@ import { KeepassDatabaseService } from './services/KeepassDatabaseService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
 import { BreachCheckService } from './services/BreachCheckService';
+import { BreachStatusStore } from './services/BreachStatusStore';
+import { EmailBreachStatusStore } from './services/EmailBreachStatusStore';
 import { ClipboardService } from './services/ClipboardService';
+import { BreachCacheCrypto } from './services/BreachCacheCrypto';
 import { userSettingsService } from './services/UserSettingsService';
 import { BrowserIntegrationService } from './services/BrowserIntegrationService';
 import { BrowserPairingDialog } from './components/BrowserPairingDialog';
@@ -176,12 +179,20 @@ function App() {
 	}, [database, kdbxDb]);
 
 	const handleDatabaseOpen = async (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
+		// Ahead of the await below, not after it. The caller starts the breach
+		// sweep without waiting on this function, and the sweep reads caches
+		// that are sealed under a key derived from this vault. Deriving it one
+		// IPC round trip later would leave every unlock reading a cold cache
+		// and re-checking the whole vault against HaveIBeenPwned
+		BreachCacheCrypto.unlock(kdbxDb);
+
 		// One window per vault: if another window already has this file open,
 		// hand over to it instead of racing it for writes
 		const path = KeepassDatabaseService.getPath();
 		if (path && window.electron) {
 			const result = await window.electron.reportVaultOpened(path).catch(() => ({ duplicate: false }));
 			if (result.duplicate) {
+				BreachCacheCrypto.lock();
 				KeepassDatabaseService.setPath(undefined);
 				(window as any).showToast?.({
 					message: 'This vault is already open in another window',
@@ -206,6 +217,11 @@ function App() {
 		setShowInitialBreachReport(false);
 		KeepassDatabaseService.setPath(undefined);
 		BreachCheckService.cancelChecks();
+		// Flush whatever the sweep produced, then drop the key so nothing can
+		// read the cache back while the vault is closed
+		BreachStatusStore.flush();
+		EmailBreachStatusStore.flush();
+		BreachCacheCrypto.lock();
 		window.electron?.reportVaultClosed().catch(() => {});
 	};
 

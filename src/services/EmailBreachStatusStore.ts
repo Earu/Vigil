@@ -1,4 +1,5 @@
 import { HibpBreach } from './BreachCheckService';
+import { BreachCacheCrypto } from './BreachCacheCrypto';
 
 interface EmailBreachStatus {
     breaches: HibpBreach[];
@@ -21,7 +22,8 @@ interface DatabaseEmailBreachStatus {
 }
 
 export class EmailBreachStatusStore {
-    private static readonly STORE_KEY = 'email_breach_status_store';
+    // Sealed under a key only an open vault can derive; see BreachCacheCrypto
+    private static readonly STORE_NAME = 'email-breach';
     private static readonly CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
     // Same coalescing as BreachStatusStore. It matters far less here (the HIBP
     // account API is rate limited to one lookup every few seconds, so writes
@@ -29,8 +31,10 @@ export class EmailBreachStatusStore {
     // write behaviour between them is only a trap for later
     private static readonly COALESCE_MS = 250;
 
-    // localStorage is only read once; all lookups hit this in-memory copy
+    // Decrypted once per vault; all lookups hit this in-memory copy
     private static store: DatabaseEmailBreachStatus | null = null;
+    // Which unlock the in-memory copy belongs to
+    private static storeEpoch = -1;
     private static version = 0;
     private static listeners = new Set<() => void>();
     private static coalesceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -44,19 +48,19 @@ export class EmailBreachStatusStore {
 
     public static getVersion = (): number => EmailBreachStatusStore.version;
 
+    // A vault opening or closing invalidates the copy: it belongs to whatever
+    // was unlocked at the time, and nothing else can decrypt it anyway
     private static getStore(): DatabaseEmailBreachStatus {
-        if (this.store === null) {
-            const stored = localStorage.getItem(this.STORE_KEY);
-            this.store = stored ? JSON.parse(stored) : {};
+        if (this.store === null || this.storeEpoch !== BreachCacheCrypto.epoch) {
+            this.store = BreachCacheCrypto.read<DatabaseEmailBreachStatus>(this.STORE_NAME) ?? {};
+            this.storeEpoch = BreachCacheCrypto.epoch;
         }
-        return this.store!;
+        return this.store;
     }
 
     private static persist(): void {
         this.cancelPending();
-        try {
-            localStorage.setItem(this.STORE_KEY, JSON.stringify(this.getStore()));
-        } catch { /* storage full or unavailable; the cache is rebuildable */ }
+        BreachCacheCrypto.write(this.STORE_NAME, this.getStore());
         this.version++;
         this.listeners.forEach(listener => listener());
     }
@@ -141,9 +145,8 @@ export class EmailBreachStatusStore {
     public static clearAll(): void {
         this.cancelPending();
         this.store = {};
-        try {
-            localStorage.removeItem(this.STORE_KEY);
-        } catch { /* storage unavailable */ }
+        this.storeEpoch = BreachCacheCrypto.epoch;
+        BreachCacheCrypto.removeAllFor(this.STORE_NAME);
         this.version++;
         this.listeners.forEach(listener => listener());
     }
