@@ -270,7 +270,8 @@
 }
 
 .auto-lock-controls,
-.content-protection-controls {
+.content-protection-controls,
+.backup-controls {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
@@ -667,6 +668,31 @@ select.db-input {
 
 /* .clear-cache-button is full-width by default; keep it compact in the row */
 .browser-association-row button {
+    width: auto;
+    flex-shrink: 0;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.8rem;
+}
+
+/* Vault backups. The separator above comes from
+   .settings-section > div:not(:last-child); adding one here draws a second */
+.backup-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.backup-status span {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* .clear-cache-button is full-width by default; keep it compact in the row */
+.backup-status button {
     width: auto;
     flex-shrink: 0;
     padding: 0.3rem 0.8rem;

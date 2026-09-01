@@ -21,7 +21,15 @@ interface UserSettings {
     // WebAuthn treats localhost as a secure context, but serving passkeys to
     // arbitrary local processes is opt-in (matches KeePassXC's setting)
     allowPasskeysLocalhost?: boolean;
+    // Copies of the vault kept before it is overwritten. On by default: the
+    // save path merges external changes, and a merge that resolves badly
+    // would otherwise take the only copy with it
+    backupsEnabled?: boolean;
+    backupKeep?: number;
 }
+
+export const MIN_BACKUP_KEEP = 1;
+export const MAX_BACKUP_KEEP = 20;
 
 const SETTINGS_KEY = 'vigil_user_settings';
 
@@ -79,6 +87,23 @@ class UserSettingsService {
 
     setFetchFavicons(enabled: boolean): void {
         this.current.fetchFavicons = enabled;
+        this.saveSettings();
+    }
+
+    getBackupOptions(): { enabled: boolean; keep: number } {
+        return {
+            enabled: this.current.backupsEnabled ?? true,
+            keep: this.current.backupKeep ?? 5,
+        };
+    }
+
+    setBackupsEnabled(enabled: boolean): void {
+        this.current.backupsEnabled = enabled;
+        this.saveSettings();
+    }
+
+    setBackupKeep(keep: number): void {
+        this.current.backupKeep = Math.min(MAX_BACKUP_KEEP, Math.max(MIN_BACKUP_KEEP, Math.round(keep)));
         this.saveSettings();
     }
 

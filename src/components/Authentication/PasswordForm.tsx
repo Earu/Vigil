@@ -470,7 +470,13 @@ export const PasswordForm = ({
             }
 
             const arrayBuffer = await db.save();
-            const result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
+            // Creating a database over a file that already exists is the most
+            // destructive thing the app does, so it goes through the same
+            // backup the ordinary save path uses
+            const result = await window.electron?.saveFile(
+                new Uint8Array(arrayBuffer),
+                userSettingsService.getBackupOptions()
+            );
 
             if (!result?.success) {
                 throw new Error(result?.error || 'Failed to save database');

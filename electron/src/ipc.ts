@@ -25,6 +25,7 @@ import {
 import { checkEmailBreaches } from './hibp';
 import { isSupported as isContentProtectionSupported, isContentProtectionEnabled, setContentProtectionEnabled } from './content-protection';
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
+import { BackupOptions, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
 import path from 'path';
 
 export function setupIpcHandlers(): void {
@@ -65,12 +66,21 @@ export function setupIpcHandlers(): void {
     });
 
     // File operation handlers
-    ipcMain.handle('save-file', async (_, data: Uint8Array) => {
-        return await saveFile(data);
+    ipcMain.handle('save-file', async (_, data: Uint8Array, backup?: BackupOptions) => {
+        return await saveFile(data, backup ?? DEFAULT_BACKUP_OPTIONS);
     });
 
-    ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array) => {
-        return await saveToFile(filePath, data);
+    ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array, backup?: BackupOptions) => {
+        return await saveToFile(filePath, data, backup ?? DEFAULT_BACKUP_OPTIONS);
+    });
+
+    // Backups taken before each overwrite; see electron/src/backups.ts
+    ipcMain.handle('get-backup-info', async (_, filePath: string) => {
+        return await getBackupInfo(filePath);
+    });
+
+    ipcMain.handle('reveal-backups', async (_, filePath: string) => {
+        return await revealBackups(filePath);
     });
 
     ipcMain.handle('save-attachment', async (_, name: string, data: Uint8Array) => {
