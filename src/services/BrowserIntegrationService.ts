@@ -311,7 +311,10 @@ export class BrowserIntegrationService {
             }
 
             case 'get-totp': {
-                const entry = [...this.allEntries(kdbxDb.getDefaultGroup())]
+                // Skips the recycle bin, as get-logins does: a deleted entry
+                // must not keep handing out one-time codes
+                const recycleBinUuid = kdbxDb.meta.recycleBinEnabled ? kdbxDb.meta.recycleBinUuid?.id : undefined;
+                const entry = [...this.allEntries(kdbxDb.getDefaultGroup(), recycleBinUuid)]
                     .find(e => this.uuidHex(e.uuid) === payload.uuid);
                 if (!entry) return { errorCode: ERROR_NO_LOGINS_FOUND };
                 const login = await this.entryToLogin(entry);

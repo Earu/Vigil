@@ -1,15 +1,5 @@
-import { clipboard, shell } from 'electron';
+import { shell } from 'electron';
 import path from 'path';
-
-export async function clearClipboard(): Promise<{ success: boolean, error?: string }> {
-    try {
-        clipboard.writeText('');
-        return { success: true };
-    } catch (error) {
-        console.error('Failed to clear clipboard:', error);
-        return { success: false, error: 'Failed to clear clipboard' };
-    }
-}
 
 // shell.openExternal hands whatever it is given to the OS handler for that
 // scheme, and entry URLs are untrusted: they arrive from imported vaults and

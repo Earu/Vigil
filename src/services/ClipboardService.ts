@@ -4,6 +4,13 @@
 // panel is closed the moment the user goes to paste. One module level timer
 // owns the pending clear, so closing a view never cuts the countdown short
 // and two views can never leave two clears racing each other.
+//
+// The write and the clear happen in the main process (electron/src/clipboard),
+// which is what lets a copy carry the macOS markers that keep it out of
+// clipboard history and off the user's other devices, and what lets a quit
+// mid-countdown still take the secret back. Remembering which value is ours
+// lives there too, next to the clipboard it is about. What is left here is the
+// countdown the UI draws.
 
 export const CLIPBOARD_CLEAR_SECONDS = 20;
 
@@ -23,9 +30,6 @@ class ClipboardServiceImpl {
     private snapshot: ClipboardCountdown = IDLE;
     private listeners = new Set<() => void>();
     private timer: ReturnType<typeof setInterval> | null = null;
-    // What we put there, so a value the user copied from somewhere else in
-    // the meantime is left alone
-    private copiedText = '';
 
     subscribe = (listener: () => void): (() => void) => {
         this.listeners.add(listener);
@@ -49,7 +53,13 @@ class ClipboardServiceImpl {
 
     async copy(text: string, label: string, source: string): Promise<boolean> {
         try {
-            await navigator.clipboard.writeText(text);
+            if (window.electron) {
+                const result = await window.electron.copySecret(text);
+                if (!result?.success) throw new Error(result?.error ?? 'Copy failed');
+            } else {
+                // No main process to ask (tests, a plain browser context)
+                await navigator.clipboard.writeText(text);
+            }
         } catch (err) {
             console.error('Failed to copy to clipboard:', err);
             (window as any).showToast?.({
@@ -59,7 +69,6 @@ class ClipboardServiceImpl {
             return false;
         }
 
-        this.copiedText = text;
         // A second copy restarts the countdown rather than inheriting what
         // was left of the previous one
         this.stopTimer();
@@ -72,7 +81,7 @@ class ClipboardServiceImpl {
             }
             this.stopTimer();
             this.emit(IDLE);
-            void this.clearIfUnchanged();
+            void window.electron?.clearClipboard().catch(console.error);
         }, 1000);
 
         (window as any).showToast?.({
@@ -82,25 +91,12 @@ class ClipboardServiceImpl {
         return true;
     }
 
-    // Clear the clipboard only when it still holds what we put there; the
-    // user may have copied something else since. If the read fails, clear
-    // anyway rather than risk leaving a password around.
-    private async clearIfUnchanged(): Promise<void> {
-        if (!this.copiedText) return;
-        const copied = this.copiedText;
-        this.copiedText = '';
-        try {
-            if (await navigator.clipboard.readText() !== copied) return;
-        } catch { /* fall through to clear */ }
-        await window.electron?.clearClipboard().catch(console.error);
-    }
-
     // The vault locked, so anything it put in the clipboard goes now rather
     // than at the end of its countdown
     clearNow(): void {
         this.stopTimer();
         this.emit(IDLE);
-        void this.clearIfUnchanged();
+        void window.electron?.clearClipboard().catch(console.error);
     }
 }
 

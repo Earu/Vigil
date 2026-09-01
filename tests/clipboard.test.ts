@@ -8,6 +8,8 @@ let cleared = 0;
 let readThrows = false;
 const toasts: Array<{ message: string; type: string }> = [];
 let writeThrows = false;
+// What the stand-in main process believes it put there
+let ours: string | null = null;
 
 const clipboard = {
     writeText: async (text: string) => {
@@ -21,9 +23,22 @@ const clipboard = {
 };
 
 vi.stubGlobal('navigator', { clipboard });
+// Stands in for electron/src/clipboard, which owns the write, the record of
+// which value is the vault's and the clear; see clipboard-main.test.ts
 vi.stubGlobal('window', {
     electron: {
+        copySecret: async (text: string) => {
+            if (writeThrows) return { success: false, error: 'denied' };
+            board = text;
+            ours = text;
+            return { success: true };
+        },
         clearClipboard: async () => {
+            if (ours !== null && board !== ours && !readThrows) {
+                ours = null;
+                return { success: true };
+            }
+            ours = null;
             cleared++;
             board = '';
             return { success: true };
@@ -46,6 +61,7 @@ beforeEach(() => {
     cleared = 0;
     readThrows = false;
     writeThrows = false;
+    ours = null;
     toasts.length = 0;
 });
 
@@ -68,23 +84,6 @@ describe('clipboard countdown', () => {
         expect(cleared).toBe(1);
         expect(board).toBe('');
         expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: 0, label: '', source: '' });
-    });
-
-    it('leaves a value the user copied from somewhere else alone', async () => {
-        await ClipboardService.copy('hunter2', 'Password', 'entry:a:Password');
-        board = 'a shopping list';
-
-        await runOut();
-        expect(cleared).toBe(0);
-        expect(board).toBe('a shopping list');
-    });
-
-    it('clears anyway when the clipboard cannot be read back', async () => {
-        await ClipboardService.copy('hunter2', 'Password', 'entry:a:Password');
-        readThrows = true;
-
-        await runOut();
-        expect(cleared).toBe(1);
     });
 
     it('restarts the countdown on a second copy instead of inheriting the old one', async () => {

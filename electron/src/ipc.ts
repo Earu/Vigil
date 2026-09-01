@@ -1,7 +1,8 @@
 import { ipcMain, Notification, app, BrowserWindow, desktopCapturer, screen } from 'electron';
 import { findVaultWindow, registerVault, unregisterWindow, focusWindow, setUnsavedChanges } from './window';
 import { hashPassword } from './crypto';
-import { clearClipboard, openExternal, getPlatform, getAppIconPath } from './utils';
+import { openExternal, getPlatform, getAppIconPath } from './utils';
+import { clearClipboard, copySecret } from './clipboard';
 import {
     saveFile,
     saveToFile,
@@ -210,6 +211,12 @@ export function setupIpcHandlers(): void {
     });
 
     // Utility handlers
+    // The copy itself runs here so it can carry the macOS pasteboard markers,
+    // and so the main process knows which value is the vault's to take back
+    ipcMain.handle('copy-secret', async (_, text: string) => {
+        return await copySecret(text);
+    });
+
     ipcMain.handle('clear-clipboard', async () => {
         return await clearClipboard();
     });
