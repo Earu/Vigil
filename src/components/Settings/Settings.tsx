@@ -45,6 +45,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security'>('general');
     const [browserIntegration, setBrowserIntegration] = useState<{ supported: boolean; enabled: boolean; running: boolean } | null>(null);
     const [browserAssociations, setBrowserAssociations] = useState<Array<{ name: string; key: string }>>([]);
+    const [contentProtection, setContentProtection] = useState<{ supported: boolean; enabled: boolean } | null>(null);
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
     // the database
@@ -79,6 +80,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         window.electron.getBrowserIntegrationStatus()
             .then(status => setBrowserIntegration({ supported: status.supported, enabled: status.enabled, running: status.running }))
             .catch(() => {});
+        window.electron.getContentProtection().then(setContentProtection).catch(() => {});
         const refreshAssociations = () =>
             setBrowserAssociations(kdbxDb ? BrowserIntegrationService.listAssociations(kdbxDb) : []);
         refreshAssociations();
@@ -105,6 +107,19 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         const newApiKey = e.target.value;
         setApiKey(newApiKey);
         userSettingsService.setHibpApiKey(newApiKey || undefined);
+    };
+
+    const handleContentProtectionToggle = async (enabled: boolean) => {
+        if (!window.electron || !contentProtection?.supported) return;
+        const result = await window.electron.setContentProtection(enabled);
+        setContentProtection({ supported: true, enabled: result.enabled });
+        if (!result.success) {
+            (window as any).showToast?.({
+                message: result.error || 'Failed to change screen capture protection',
+                type: 'error',
+                duration: 5000
+            });
+        }
     };
 
     const handleBrowserIntegrationToggle = async (enabled: boolean) => {
@@ -634,6 +649,25 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </div>
                             <p className="auto-lock-help">When enabled, the database will automatically lock after the specified period of time</p>
                         </div>
+                        {contentProtection?.supported && (
+                            <div className="content-protection-controls">
+                                <div className="auto-lock-toggle">
+                                    <label htmlFor="content-protection-enabled">Hide window from screen capture</label>
+                                    <input
+                                        type="checkbox"
+                                        id="content-protection-enabled"
+                                        checked={contentProtection.enabled}
+                                        onChange={(e) => handleContentProtectionToggle(e.target.checked)}
+                                    />
+                                </div>
+                                <p className="auto-lock-help">
+                                    Keeps the window out of screenshots and screen shares, so an open vault
+                                    is not caught on a call or a recording. Turn it off if you need to
+                                    screenshot or screen share Vigil itself.
+                                    {navigator.userAgent.includes('Mac') && ' On macOS this does not stop every recorder: apps built on ScreenCaptureKit can still capture the window.'}
+                                </p>
+                            </div>
+                        )}
                         <div className="favicon-controls">
                             <div className="auto-lock-toggle">
                                 <label htmlFor="fetch-favicons">Fetch website icons from Google</label>
