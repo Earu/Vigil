@@ -1,5 +1,5 @@
 import { ipcMain, Notification, app, BrowserWindow, desktopCapturer, screen } from 'electron';
-import { findVaultWindow, registerVault, unregisterWindow, focusWindow } from './window';
+import { findVaultWindow, registerVault, unregisterWindow, focusWindow, setUnsavedChanges } from './window';
 import { hashPassword } from './crypto';
 import { clearClipboard, openExternal, getPlatform, getAppIconPath } from './utils';
 import {
@@ -117,6 +117,13 @@ export function setupIpcHandlers(): void {
 
     ipcMain.handle('close-window', (event) => {
         BrowserWindow.fromWebContents(event.sender)?.close();
+    });
+
+    // Reported by the renderer whenever an entry's edit form gains or loses
+    // unsaved changes, so the window's close handler can ask before they go
+    ipcMain.handle('set-unsaved-changes', (event, dirty: boolean) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (win) setUnsavedChanges(win, dirty);
     });
 
     // One window per vault: renderers report what they have open. If the

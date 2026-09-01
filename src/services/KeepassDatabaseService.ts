@@ -84,6 +84,41 @@ export class KeepassDatabaseService {
         return this.currentPath;
     }
 
+    // Title, UserName, URL and Notes are plain strings in the UI model, but the
+    // file may hold any of them as a ProtectedValue: KeePass has a database
+    // wide memory-protection setting for each. ProtectedValue.toString()
+    // returns base64 of the obfuscated bytes rather than the text, so reading
+    // one that way shows ciphertext in the UI and writes it back as the value
+    // on the next save. getText() is the accessor; undefined stays undefined
+    // so a field the entry does not have is not created as an empty one
+    private static standardField(entry: kdbxweb.KdbxEntry, name: string): string | undefined {
+        const value = entry.fields.get(name);
+        if (value === undefined) return undefined;
+        return value instanceof kdbxweb.ProtectedValue ? value.getText() : String(value);
+    }
+
+    // Which of those four the file protects, so the save can put them back the
+    // way they came in. Password is excluded: it is always written protected
+    private static protectedStandardFields(entry: kdbxweb.KdbxEntry): string[] {
+        return this.STANDARD_FIELDS.filter(name =>
+            name !== 'Password' && entry.fields.get(name) instanceof kdbxweb.ProtectedValue
+        );
+    }
+
+    // What a brand new entry should protect, from the database's own memory
+    // protection settings. kdbxweb's createEntry seeds its fields from these,
+    // and the save below overwrites every one of them, so without this a new
+    // entry in a vault that protects Notes would come out unprotected
+    private static defaultProtectedFields(kdbxDb: kdbxweb.Kdbx): Set<string> {
+        const protection = kdbxDb.meta.memoryProtection ?? {};
+        const names = new Set<string>();
+        if (protection.title) names.add('Title');
+        if (protection.userName) names.add('UserName');
+        if (protection.url) names.add('URL');
+        if (protection.notes) names.add('Notes');
+        return names;
+    }
+
     static convertKdbxToDatabase(kdbxDb: kdbxweb.Kdbx): Database {
         const convertAttachments = (entry: kdbxweb.KdbxEntry): Attachment[] =>
             [...entry.binaries].map(([name, binary]) => ({
@@ -102,11 +137,12 @@ export class KeepassDatabaseService {
                 }));
 
         const convertVersion = (entry: kdbxweb.KdbxEntry): EntryVersion => ({
-            title: entry.fields.get('Title')?.toString() || '',
-            username: entry.fields.get('UserName')?.toString() || '',
+            title: KeepassDatabaseService.standardField(entry, 'Title') || '',
+            username: KeepassDatabaseService.standardField(entry, 'UserName') || '',
             password: entry.fields.get('Password') || '',
-            url: entry.fields.get('URL')?.toString(),
-            notes: entry.fields.get('Notes')?.toString(),
+            url: KeepassDatabaseService.standardField(entry, 'URL'),
+            notes: KeepassDatabaseService.standardField(entry, 'Notes'),
+            protectedFields: KeepassDatabaseService.protectedStandardFields(entry),
             modified: entry.times.lastModTime as Date,
             attachments: convertAttachments(entry),
             expires: !!entry.times.expires,
@@ -779,11 +815,21 @@ export class KeepassDatabaseService {
     }
 
     private static entryChanged(kdbxEntry: kdbxweb.KdbxEntry, entry: Entry): boolean {
-        const field = (name: string) => kdbxEntry.fields.get(name)?.toString() ?? '';
+        // Through standardField, so a protected field is compared as its text
+        // rather than as the base64 of its obfuscated bytes; comparing the
+        // latter against the model would call every such entry changed on
+        // every save and push a history revision for nothing
+        const field = (name: string) => this.standardField(kdbxEntry, name) ?? '';
         if (field('Title') !== entry.title) return true;
         if (field('UserName') !== entry.username) return true;
         if (field('URL') !== (entry.url ?? '')) return true;
         if (field('Notes') !== (entry.notes ?? '')) return true;
+
+        // Turning protection on or off is an edit even when the text is equal
+        const wasProtected = this.protectedStandardFields(kdbxEntry);
+        const nowProtected = (entry.protectedFields ?? []).filter(name => name !== 'Password');
+        if (wasProtected.length !== nowProtected.length) return true;
+        if (wasProtected.some(name => !nowProtected.includes(name))) return true;
 
         const existingPassword = kdbxEntry.fields.get('Password');
         const oldPassword = existingPassword ? this.getPasswordString(existingPassword as string | kdbxweb.ProtectedValue) : '';
@@ -887,16 +933,26 @@ export class KeepassDatabaseService {
                 }
             }
 
-            // Update entry fields
-            kdbxEntry.fields.set('Title', entry.title);
-            kdbxEntry.fields.set('UserName', entry.username);
+            // Update entry fields. A standard field the file protected goes
+            // back protected: the model carries the text, protectedFields
+            // carries the flag it arrived with
+            // An entry read out of the file says what it protects. One created
+            // in the UI says nothing, and takes the database's defaults
+            const protectedNames = entry.protectedFields
+                ? new Set(entry.protectedFields)
+                : KeepassDatabaseService.defaultProtectedFields(kdbxDb);
+            const standard = (name: string, text: string): string | kdbxweb.ProtectedValue =>
+                protectedNames.has(name) ? kdbxweb.ProtectedValue.fromString(text) : text;
+
+            kdbxEntry.fields.set('Title', standard('Title', entry.title));
+            kdbxEntry.fields.set('UserName', standard('UserName', entry.username));
             kdbxEntry.fields.set('Password', typeof entry.password === 'string'
                 ? kdbxweb.ProtectedValue.fromString(entry.password)
                 : entry.password
             );
-            if (entry.url) kdbxEntry.fields.set('URL', entry.url);
+            if (entry.url) kdbxEntry.fields.set('URL', standard('URL', entry.url));
             else kdbxEntry.fields.delete('URL');
-            if (entry.notes) kdbxEntry.fields.set('Notes', entry.notes);
+            if (entry.notes) kdbxEntry.fields.set('Notes', standard('Notes', entry.notes));
             else kdbxEntry.fields.delete('Notes');
 
             // Sync custom fields: drop the ones removed in the UI, write the rest
@@ -995,7 +1051,24 @@ export class KeepassDatabaseService {
         }
     }
 
-    static async saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
+    // Saves run one at a time. A save is a long sequence of awaits that mutates
+    // kdbxDb throughout (updateGroup replaces whole entry and group lists,
+    // cleanup prunes the binary pool) and moves the conflict-detection
+    // baseline, so a second one starting in the middle of the first would be
+    // reading half-applied state. They overlap easily: the UI saves on every
+    // edit, and browser integration calls this from an IPC handler whenever
+    // the extension writes a login or registers a passkey
+    private static saveChain: Promise<unknown> = Promise.resolve();
+
+    static saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
+        // The chain must outlive a rejected save, so what is stored is the
+        // swallowed copy; the caller still gets the real result
+        const run = this.saveChain.then(() => this.performSave(database, kdbxDb));
+        this.saveChain = run.catch(() => {});
+        return run;
+    }
+
+    private static async performSave(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
         try {
             if (!kdbxDb) {
                 throw new Error('Database not loaded');

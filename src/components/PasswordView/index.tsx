@@ -148,12 +148,20 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	// because it must be readable synchronously inside click handlers. It lives
 	// in App rather than here because locking has to consult it too
 	const detailsDirty = entryDirty;
-	const handleDirtyChange = (dirty: boolean) => { detailsDirty.current = dirty; };
+	// The main process needs it too: closing the window (title bar button, the
+	// macOS traffic light, Cmd+W, Alt+F4) never reaches this renderer state,
+	// so it is mirrored over IPC and the close handler consults it there
+	const setDirty = (dirty: boolean) => {
+		if (detailsDirty.current === dirty) return;
+		detailsDirty.current = dirty;
+		window.electron?.setUnsavedChanges(dirty).catch(() => {});
+	};
+	const handleDirtyChange = (dirty: boolean) => setDirty(dirty);
 
 	const confirmDiscardEdits = (): boolean => {
 		if (!detailsDirty.current) return true;
 		if (!window.confirm('Discard unsaved changes to this entry?')) return false;
-		detailsDirty.current = false;
+		setDirty(false);
 		return true;
 	};
 

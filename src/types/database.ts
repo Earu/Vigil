@@ -17,6 +17,13 @@ export interface EntryVersion {
 	password: string | kdbxweb.ProtectedValue;
 	url?: string;
 	notes?: string;
+	// Which of Title/UserName/URL/Notes the file holds as a ProtectedValue.
+	// KeePass's database-wide memory protection settings can mark any of them,
+	// and the flag has to survive a round trip: the four fields above are
+	// plain strings so the whole UI can read them, so this is where the
+	// protection they came in with is remembered. Password is not listed
+	// because it is always written back protected
+	protectedFields?: string[];
 	modified: Date;
 	attachments: Attachment[];
 	expires: boolean;
@@ -36,6 +43,8 @@ export interface Entry {
 	password: string | kdbxweb.ProtectedValue;
 	url?: string;
 	notes?: string;
+	// See EntryVersion.protectedFields
+	protectedFields?: string[];
 	created: Date;
 	modified: Date;
 	attachments: Attachment[];

@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { handleFileOpen } from './file-operations';
@@ -56,6 +56,21 @@ export function findIdleWindow(): BrowserWindow | undefined {
     return BrowserWindow.getAllWindows().find(win =>
         !win.isDestroyed() && ![...vaultWindows.values()].includes(win)
     );
+}
+
+// Windows whose renderer reports an entry edit form holding unsaved changes.
+// Locking already asks before discarding those (see handleLock), but closing
+// went straight past it and took the edits with it, whether the close came
+// from the title bar button, the macOS traffic light, Cmd+W or Alt+F4
+const unsavedChanges = new WeakSet<BrowserWindow>();
+
+export function setUnsavedChanges(win: BrowserWindow, dirty: boolean): void {
+    if (dirty) unsavedChanges.add(win);
+    else unsavedChanges.delete(win);
+}
+
+export function hasUnsavedChanges(win: BrowserWindow): boolean {
+    return unsavedChanges.has(win);
 }
 
 export function focusWindow(win: BrowserWindow): void {
@@ -163,6 +178,28 @@ export function createWindow(startupFile?: string) {
             handleFileOpen((global as any).startupFilePath, win);
             (global as any).startupFilePath = undefined;
         }
+    });
+
+    // The dialog is async and 'close' is not, so the first close is cancelled
+    // and a fresh one issued once the user has answered
+    let closeConfirmed = false;
+    win.on('close', (event) => {
+        if (closeConfirmed || !unsavedChanges.has(win)) return;
+        event.preventDefault();
+        dialog.showMessageBox(win, {
+            type: 'warning',
+            buttons: ['Discard and close', 'Cancel'],
+            defaultId: 1,
+            cancelId: 1,
+            title: 'Unsaved changes',
+            message: 'This entry has unsaved changes.',
+            detail: 'Closing the window now discards them.'
+        }).then(({ response }) => {
+            if (response !== 0 || win.isDestroyed()) return;
+            closeConfirmed = true;
+            unsavedChanges.delete(win);
+            win.close();
+        }).catch(() => { /* the window went away while the dialog was up */ });
     });
 
     win.on('closed', () => {
