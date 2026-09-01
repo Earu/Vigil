@@ -22,6 +22,7 @@ const api: IElectronAPI = {
 	getLastDatabasePath: () => ipcRenderer.invoke('get-last-database-path'),
 	saveLastDatabasePath: (path) => ipcRenderer.invoke('save-last-database-path', path),
 	isBiometricsAvailable: () => ipcRenderer.invoke('is-biometrics-available'),
+	getBiometricsInfo: () => ipcRenderer.invoke('get-biometrics-info'),
 	enableBiometrics: (dbPath, password) => ipcRenderer.invoke('enable-biometrics', dbPath, password),
 	getBiometricPassword: (dbPath) => ipcRenderer.invoke('get-biometric-password', dbPath),
 	hasBiometricsEnabled: (dbPath) => ipcRenderer.invoke('has-biometrics-enabled', dbPath),

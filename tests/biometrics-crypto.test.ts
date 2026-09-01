@@ -2,11 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { randomBytes } from 'crypto';
 import {
     isV2Blob,
+    isV3Blob,
     makeChallenge,
     deriveKeyFromSignature,
     sealPassword,
     challengeFromBlob,
     openPassword,
+    sealWithKeychainKey,
+    openWithKeychainKey,
 } from '../electron/src/biometrics-crypto';
 
 describe('biometrics sealing (v2)', () => {
@@ -59,5 +62,47 @@ describe('biometrics sealing (v2)', () => {
         expect(() => challengeFromBlob('v2:' + randomBytes(10).toString('base64'))).toThrow();
         const key = deriveKeyFromSignature(randomBytes(256));
         expect(() => openPassword('v2:' + randomBytes(10).toString('base64'), key)).toThrow();
+    });
+});
+
+describe('biometrics sealing (v3, Touch ID keychain)', () => {
+    it('round-trips a password under the keychain key', () => {
+        const keychainKey = randomBytes(32);
+        const blob = sealWithKeychainKey('correct horse battery staple', keychainKey);
+
+        expect(isV3Blob(blob)).toBe(true);
+        expect(isV2Blob(blob)).toBe(false);
+        expect(openWithKeychainKey(blob, keychainKey)).toBe('correct horse battery staple');
+    });
+
+    it('rejects a wrong key (the keychain item was replaced)', () => {
+        const blob = sealWithKeychainKey('pw', randomBytes(32));
+        expect(() => openWithKeychainKey(blob, randomBytes(32))).toThrow();
+    });
+
+    it('rejects a tampered blob rather than returning garbage', () => {
+        const keychainKey = randomBytes(32);
+        const blob = sealWithKeychainKey('pw', keychainKey);
+        const raw = Buffer.from(blob.slice(3), 'base64');
+        raw[raw.length - 1] ^= 0xff;
+        expect(() => openWithKeychainKey('v3:' + raw.toString('base64'), keychainKey)).toThrow();
+    });
+
+    it('rejects a truncated blob', () => {
+        expect(() => openWithKeychainKey('v3:' + randomBytes(8).toString('base64'), randomBytes(32)))
+            .toThrow('Malformed biometric blob');
+    });
+
+    it('uses a fresh IV per seal, so the same password never repeats a blob', () => {
+        const keychainKey = randomBytes(32);
+        expect(sealWithKeychainKey('pw', keychainKey)).not.toBe(sealWithKeychainKey('pw', keychainKey));
+    });
+
+    // The two schemes are told apart by prefix alone, and a v2 blob must
+    // never be handed to the v3 opener
+    it('keeps the two blob formats distinguishable', () => {
+        const v2 = sealPassword('pw', makeChallenge(), deriveKeyFromSignature(randomBytes(256)));
+        expect(isV3Blob(v2)).toBe(false);
+        expect(isV2Blob(sealWithKeychainKey('pw', randomBytes(32)))).toBe(false);
     });
 });

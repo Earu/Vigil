@@ -712,3 +712,29 @@
 :root.light-theme .add-key-file {
     background-color: rgba(255, 255, 255, 0.3);
 }
+
+/* Turning biometric unlock off. Quiet on purpose: it is destructive and rarely
+   wanted, but it is the only way back to password-only, so it has to be
+   findable rather than hidden behind the Password tab */
+.biometric-disable-button {
+    display: block;
+    width: 100%;
+    margin-top: 0.5rem;
+    padding: 0.4rem;
+    background: none;
+    border: none;
+    color: var(--color-text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.biometric-disable-button:hover {
+    color: var(--color-danger);
+}
+
+.biometric-disable-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}

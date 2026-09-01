@@ -48,7 +48,7 @@
 	},
 	"main": "dist-electron/main.js",
 	"build": {
-		"appId": "com.vigil.app",
+		"appId": "earu.vigil.app",
 		"productName": "Vigil",
 		"directories": {
 			"output": "dist",
@@ -60,6 +60,9 @@
 			"package.json"
 		],
 		"asar": true,
+		"asarUnpack": [
+			"**/*.node"
+		],
 		"extraMetadata": {
 			"main": "dist-electron/main.js"
 		},
@@ -69,9 +72,17 @@
 			"repo": "Vigil"
 		},
 		"mac": {
-			"target": "dmg",
+			"target": [
+				"dmg",
+				"zip"
+			],
 			"icon": "build/icons/icon.icns",
-			"artifactName": "vigil-macos-${arch}-v${version}.${ext}"
+			"artifactName": "vigil-macos-${arch}-v${version}.${ext}",
+			"hardenedRuntime": true,
+			"entitlements": "build/entitlements.mac.plist",
+			"entitlementsInherit": "build/entitlements.mac.inherit.plist",
+			"provisioningProfile": "build/vigil.provisionprofile",
+			"notarize": true
 		},
 		"linux": {
 			"target": "AppImage",

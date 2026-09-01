@@ -277,8 +277,13 @@ export const PasswordForm = ({
         try {
             const biometricResult = await window.electron.getBiometricPassword(databasePath);
             if (!biometricResult.success || !biometricResult.password) {
-                await window.electron.disableBiometrics(databasePath);
-                setIsBiometricsEnabled(false);
+                // A dismissed prompt or an unrecognised finger leaves the
+                // stored credential intact, so only tear the setup down when
+                // the credential itself can no longer be opened
+                if (!biometricResult.retry) {
+                    await window.electron.disableBiometrics(databasePath);
+                    setIsBiometricsEnabled(false);
+                }
                 setShowPasswordInput(true);
                 (window as any).showToast?.({
                     message: biometricResult.error || 'Switched to password authentication',
@@ -392,16 +397,11 @@ export const PasswordForm = ({
             let credentials: kdbxweb.Credentials;
 
             if (databasePath && window.electron) {
-                if (isBiometricsEnabled) {
-                    const biometricResult = await window.electron.getBiometricPassword(databasePath);
-                    if (biometricResult.success && biometricResult.password) {
-                        credentials = await buildCredentials(biometricResult.password);
-                    } else {
-                        credentials = await buildCredentials(password);
-                    }
-                } else {
-                    credentials = await buildCredentials(password);
-                }
+                // Always the typed password. Biometric unlock is a separate,
+                // explicitly invoked path (handleBiometricUnlock); consulting
+                // the keychain here meant entering a password still raised a
+                // biometric prompt
+                credentials = await buildCredentials(password);
 
                 const result = await window.electron.readFile(databasePath);
                 if (!result.success || !result.data) {
@@ -601,20 +601,7 @@ export const PasswordForm = ({
                     <div className="auth-toggle">
                         <button
                             className={`auth-option ${!isBiometricsEnabled || showPasswordInput ? 'active' : ''}`}
-                            onClick={async () => {
-                                if (isBiometricsEnabled) {
-                                    const result = await window.electron?.disableBiometrics(databasePath!);
-                                    if (result?.success) {
-                                        setIsBiometricsEnabled(false);
-                                        setShowPasswordInput(true);
-                                        (window as any).showToast?.({
-                                            message: 'Switched to password authentication',
-                                            type: 'success'
-                                        });
-                                    }
-                                }
-                                setShowPasswordInput(true);
-                            }}
+                            onClick={() => setShowPasswordInput(true)}
                         >
                             <LockAuthIcon className="auth-icon" />
                             Password
@@ -644,6 +631,16 @@ export const PasswordForm = ({
                         >
                             <BiometricAuthIcon className="biometric-icon" />
                             {navigator.userAgent.includes('Mac') ? 'Unlock with Touch ID' : (navigator.userAgent.includes('Windows') ? 'Unlock with Windows Hello' : 'Unlock with Biometrics')}
+                        </button>
+                    )}
+
+                    {isBiometricsEnabled && (
+                        <button
+                            className="biometric-disable-button"
+                            onClick={handleBiometricsToggle}
+                            disabled={isLoading}
+                        >
+                            Forget {navigator.userAgent.includes('Mac') ? 'Touch ID' : (navigator.userAgent.includes('Windows') ? 'Windows Hello' : 'biometrics')} for this database
                         </button>
                     )}
                 </>
