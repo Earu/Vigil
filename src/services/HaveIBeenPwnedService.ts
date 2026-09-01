@@ -11,11 +11,20 @@ export class HaveIBeenPwnedService {
     private static rangeCache = new Map<string, Promise<string>>();
     private static readonly RANGE_CACHE_LIMIT = 512;
 
+    // An unpadded range response has a size that is a deterministic function
+    // of the prefix, so its length identifies the bucket to anyone watching
+    // the connection even though TLS hides the path. A whole-vault sweep
+    // leaks one bucket per distinct password that way, with the same byte
+    // sizes every time. Padding fills the response with fake entries so the
+    // length carries much less. The fakes come back with a count of 0 and
+    // must be discarded (see isPasswordPwned)
     private static fetchRange(prefix: string): Promise<string> {
         const cached = this.rangeCache.get(prefix);
         if (cached) return cached;
         if (this.rangeCache.size >= this.RANGE_CACHE_LIMIT) this.rangeCache.clear();
-        const request = fetch(`${this.HIBP_API_URL}/range/${prefix}`).then((response) => {
+        const request = fetch(`${this.HIBP_API_URL}/range/${prefix}`, {
+            headers: { 'Add-Padding': 'true' },
+        }).then((response) => {
             if (!response.ok) {
                 throw new Error('Failed to check password breach status');
             }
@@ -52,8 +61,13 @@ export class HaveIBeenPwnedService {
 
             for (const hashLine of hashList) {
                 const [hashSuffix, countStr] = hashLine.split(':');
-                if (hashSuffix.trim() === suffix) {
-                    const count = parseInt(countStr);
+                if (hashSuffix.trim() !== suffix) continue;
+                // A real record has been seen at least once. A count of 0
+                // marks one of the fake entries the padding added, which the
+                // API requires clients to drop; reporting it would show the
+                // password as breached "0 times"
+                const count = parseInt(countStr, 10);
+                if (count > 0) {
                     return { isPwned: true, count };
                 }
             }
