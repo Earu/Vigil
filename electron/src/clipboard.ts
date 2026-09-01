@@ -15,8 +15,9 @@ const rawFormat = (format: string): string =>
 // macOS (nspasteboard.org): concealed keeps the entry out of a clipboard
 // manager's history, transient out of anything that persists or syncs the
 // pasteboard, which is what stops a password reaching the user's other devices
-// over Universal Clipboard. Only their presence carries meaning, so they are
-// written empty rather than with a second copy of the secret
+// over Universal Clipboard. Only their presence carries meaning, so they carry
+// a single space rather than a second copy of the secret. Not an empty string:
+// see PRESENCE below
 const MAC_CONCEALED = 'org.nspasteboard.ConcealedType';
 const MAC_TRANSIENT = 'org.nspasteboard.TransientType';
 
@@ -33,6 +34,15 @@ const WIN_CLIPBOARD_HISTORY = 'CanIncludeInClipboardHistory';
 const WIN_CLOUD_CLIPBOARD = 'CanUploadToCloudClipboard';
 const dwordZero = (): Blob => new Blob([new Uint8Array(4)]);
 
+// A marker whose meaning is that it is there at all still needs something in
+// it. An entry written with an empty string is dropped on the way to the
+// platform clipboard and never registers a format, so a marker written that
+// way protects nothing: on Windows this silently cost the two markers below
+// that were written empty, while the two carrying a DWORD landed. Verified by
+// enumerating the real clipboard with EnumClipboardFormats from another
+// process. Anything non-empty will do, and the payload itself is never read
+const PRESENCE = ' ';
+
 // Linux. The name is KDE's because Klipper got there first, but this is the
 // cross-desktop convention rather than a KDE one: CopyQ honours it, and
 // wl-clipboard reads it and passes the fact on to Wayland history tools such
@@ -47,13 +57,13 @@ function markersFor(platform: string): Record<string, string | Blob> | null {
     switch (platform) {
         case 'darwin':
             return {
-                [rawFormat(MAC_CONCEALED)]: '',
-                [rawFormat(MAC_TRANSIENT)]: '',
+                [rawFormat(MAC_CONCEALED)]: PRESENCE,
+                [rawFormat(MAC_TRANSIENT)]: PRESENCE,
             };
         case 'win32':
             return {
-                [rawFormat(WIN_VIEWER_IGNORE)]: '',
-                [rawFormat(WIN_EXCLUDE_MONITORS)]: '',
+                [rawFormat(WIN_VIEWER_IGNORE)]: PRESENCE,
+                [rawFormat(WIN_EXCLUDE_MONITORS)]: PRESENCE,
                 [rawFormat(WIN_CLIPBOARD_HISTORY)]: dwordZero(),
                 [rawFormat(WIN_CLOUD_CLIPBOARD)]: dwordZero(),
             };
