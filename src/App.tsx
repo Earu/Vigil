@@ -281,6 +281,7 @@ function App() {
 				showInitialBreachReport={showInitialBreachReport}
 				securityReportRequestId={securityReportRequestId}
 				entryDirty={entryDirty}
+				onSearch={setSearchQuery}
 			/>
 		</>
 	) : (

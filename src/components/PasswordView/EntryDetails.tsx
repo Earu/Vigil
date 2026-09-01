@@ -21,6 +21,10 @@ interface EntryDetailsProps {
 	onSave: (entry: Entry) => void;
 	isNew?: boolean;
 	onDirtyChange?: (dirty: boolean) => void;
+	// Every tag already in the vault, for the suggestion list
+	allTags?: string[];
+	// Clicking a tag searches for it across the vault
+	onTagClick?: (tag: string) => void;
 }
 
 const fieldText = (value: string | kdbxweb.ProtectedValue | undefined): string =>
@@ -38,6 +42,11 @@ const entryModified = (edited: Entry, original: Entry): boolean => {
 
 	if (edited.attachments.length !== original.attachments.length) return true;
 	if (edited.attachments.some((a, i) => a.name !== original.attachments[i].name || a.data !== original.attachments[i].data)) return true;
+
+	const editedTags = KeepassDatabaseService.normalizeTags(edited.tags ?? []);
+	const originalTags = KeepassDatabaseService.normalizeTags(original.tags ?? []);
+	if (editedTags.length !== originalTags.length) return true;
+	if (editedTags.some((tag, i) => tag !== originalTags[i])) return true;
 
 	if (edited.customFields.length !== original.customFields.length) return true;
 	return edited.customFields.some((f, i) => {
@@ -101,7 +110,7 @@ const PasswordStrengthIndicator = ({ score, warning, suggestions }: PasswordStre
 	);
 };
 
-export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange }: EntryDetailsProps) => {
+export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
 	// The countdown lives in the service so it survives this panel closing
@@ -118,6 +127,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	const [expandedVersion, setExpandedVersion] = useState<number | null>(null);
 	const [showVersionPassword, setShowVersionPassword] = useState(false);
 	const [revealedCustomFields, setRevealedCustomFields] = useState<Set<number>>(new Set());
+	// Uncommitted text in the tag box; a chip only exists once it is committed
+	const [tagDraft, setTagDraft] = useState('');
 	const [totpCode, setTotpCode] = useState<string>('');
 	const [totpSecondsLeft, setTotpSecondsLeft] = useState<number>(0);
 	const [totpInput, setTotpInput] = useState('');
@@ -293,6 +304,40 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				? (editedEntry.expiryTime ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000))
 				: editedEntry.expiryTime,
 		});
+	};
+
+	// Committed on Enter, comma or blur. normalizeTags drops the delimiters kdbx
+	// would otherwise split the tag on, plus duplicates and blanks
+	const handleAddTag = (raw: string) => {
+		const addition = KeepassDatabaseService.normalizeTags(raw.split(','));
+		if (addition.length === 0) {
+			setTagDraft('');
+			return;
+		}
+		setEditedEntry(prev => ({
+			...prev,
+			tags: KeepassDatabaseService.normalizeTags([...(prev.tags ?? []), ...addition]),
+		}));
+		setTagDraft('');
+	};
+
+	const handleRemoveTag = (tag: string) => {
+		setEditedEntry(prev => ({
+			...prev,
+			tags: (prev.tags ?? []).filter(t => t !== tag),
+		}));
+	};
+
+	const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+		if (e.key === 'Enter' || e.key === ',') {
+			e.preventDefault();
+			handleAddTag(tagDraft);
+			return;
+		}
+		// Backspace on an empty box removes the last chip, as tag inputs do
+		if (e.key === 'Backspace' && !tagDraft && (editedEntry.tags ?? []).length > 0) {
+			handleRemoveTag(editedEntry.tags[editedEntry.tags.length - 1]);
+		}
 	};
 
 	const handleAddCustomField = () => {
@@ -492,6 +537,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			expires: version.expires,
 			expiryTime: version.expiryTime,
 			customFields: version.customFields,
+			tags: version.tags ?? [],
 		};
 		// Saved like a normal edit, so the pre-restore state becomes a new revision
 		onSave(KeepassDatabaseService.prepareEntryForSave(restored));
@@ -837,6 +883,63 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					/>
 				</div>
 
+				{(isEditing || (editedEntry.tags ?? []).length > 0) && (
+					<div className="field-group">
+						<label>Tags</label>
+						<div className={`tag-list ${isEditing ? 'editing' : ''}`}>
+							{(editedEntry.tags ?? []).map(tag => (
+								isEditing ? (
+									<span className="tag-chip" key={tag}>
+										{tag}
+										<button
+											className="tag-chip-remove"
+											onClick={() => handleRemoveTag(tag)}
+											title={`Remove ${tag}`}
+											type="button"
+										>
+											<CloseActionIcon />
+										</button>
+									</span>
+								) : (
+									<button
+										className="tag-chip clickable"
+										key={tag}
+										onClick={() => onTagClick?.(tag)}
+										title={`Show everything tagged ${tag}`}
+										type="button"
+									>
+										{tag}
+									</button>
+								)
+							))}
+							{isEditing && (
+								<>
+									<input
+										type="text"
+										className="tag-input"
+										value={tagDraft}
+										list="vigil-tag-suggestions"
+										placeholder={(editedEntry.tags ?? []).length ? 'Add tag' : 'Add tag, Enter to confirm'}
+										onChange={(e) => {
+											// A comma is a separator rather than a character, so
+											// pasting "a, b, c" commits all three at once
+											if (e.target.value.includes(',')) handleAddTag(e.target.value);
+											else setTagDraft(e.target.value);
+										}}
+										onKeyDown={handleTagKeyDown}
+										onBlur={() => handleAddTag(tagDraft)}
+									/>
+									<datalist id="vigil-tag-suggestions">
+										{allTags
+											.filter(tag => !(editedEntry.tags ?? []).some(t => t.toLowerCase() === tag.toLowerCase()))
+											.map(tag => <option value={tag} key={tag} />)}
+									</datalist>
+								</>
+							)}
+						</div>
+					</div>
+				)}
+
 				{!isEditing && visibleCustomFields.map(({ field, index }) => (
 					<div className="field-group" key={index}>
 						<label>{field.key}</label>
@@ -1048,6 +1151,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 												<div className="history-field">
 													<span className="history-field-label">Notes</span>
 													<span className="history-field-value">{version.notes}</span>
+												</div>
+											)}
+											{(version.tags ?? []).length > 0 && (
+												<div className="history-field">
+													<span className="history-field-label">Tags</span>
+													<span className="history-field-value">{version.tags.join(', ')}</span>
 												</div>
 											)}
 											{version.attachments.length > 0 && (

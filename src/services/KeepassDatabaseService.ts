@@ -20,6 +20,13 @@ interface KdbxIndex {
     groups: Map<string, kdbxweb.KdbxGroup>;
 }
 
+export type SearchField = 'any' | 'title' | 'username' | 'url' | 'notes' | 'tag';
+
+export interface SearchTerm {
+    field: SearchField;
+    value: string;
+}
+
 export interface KdfInfo {
     type: 'argon2d' | 'argon2id' | 'aes' | 'aes-kdbx3';
     iterations: number;
@@ -105,6 +112,7 @@ export class KeepassDatabaseService {
             expires: !!entry.times.expires,
             expiryTime: entry.times.expiryTime as Date | undefined,
             customFields: convertCustomFields(entry),
+            tags: [...entry.tags],
         });
 
         const recycleBinId = kdbxDb.meta.recycleBinUuid?.toString();
@@ -150,7 +158,42 @@ export class KeepassDatabaseService {
             history: [],
             expires: false,
             customFields: [],
+            tags: [],
         };
+    }
+
+    // kdbx keeps tags as one string split on /\s*[;,:]\s*/, so a tag carrying
+    // any of those delimiters would come back as two after a reload. Trimmed,
+    // stripped, emptied and de-duplicated case-insensitively, first spelling wins
+    static normalizeTags(tags: string[]): string[] {
+        const seen = new Set<string>();
+        const result: string[] = [];
+        for (const raw of tags) {
+            const tag = raw.replace(/[;,:]/g, '').trim();
+            if (!tag) continue;
+            const key = tag.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push(tag);
+        }
+        return result;
+    }
+
+    // Every tag in use, for the suggestion list on the entry form
+    static collectTags(root: Group): string[] {
+        const seen = new Map<string, string>();
+        const walk = (group: Group) => {
+            if (group.isRecycleBin) return;
+            for (const entry of group.entries) {
+                for (const tag of entry.tags ?? []) {
+                    const key = tag.toLowerCase();
+                    if (!seen.has(key)) seen.set(key, tag);
+                }
+            }
+            group.groups.forEach(walk);
+        };
+        walk(root);
+        return [...seen.values()].sort((a, b) => a.localeCompare(b));
     }
 
     static getFieldString(value: string | kdbxweb.ProtectedValue): string {
@@ -221,22 +264,81 @@ export class KeepassDatabaseService {
         return entries;
     }
 
-    static filterEntries(entries: Entry[], searchQuery: string): Entry[] {
-        if (!searchQuery) return entries;
+    // Prefixes that scope a search term to one field. A tag can hold no colon
+    // (see normalizeTags), so "tag:x" is never ambiguous, and an unknown prefix
+    // falls through to a plain term, which is what keeps a pasted "https://host"
+    // searching for the URL rather than for nothing
+    private static readonly SEARCH_FIELDS: Record<string, SearchField> = {
+        title: 'title',
+        user: 'username',
+        username: 'username',
+        url: 'url',
+        notes: 'notes',
+        note: 'notes',
+        tag: 'tag',
+    };
 
-        const searchTerms = searchQuery.toLowerCase().split(' ').filter(Boolean);
-        if (searchTerms.length === 0) return entries;
+    // Whitespace separated, with double quotes holding a phrase together so
+    // tags and titles with spaces are reachable: tag:"home lab", "acme corp"
+    private static tokenizeQuery(query: string): string[] {
+        const tokens: string[] = [];
+        let current = '';
+        let quoted = false;
+        for (const char of query) {
+            if (char === '"') {
+                quoted = !quoted;
+                continue;
+            }
+            if (!quoted && /\s/.test(char)) {
+                if (current) tokens.push(current);
+                current = '';
+                continue;
+            }
+            current += char;
+        }
+        if (current) tokens.push(current);
+        return tokens;
+    }
 
-        return entries.filter(entry => {
-            const searchableText = [
-                entry.title,
-                entry.username,
-                entry.url,
-                entry.notes
-            ].filter(Boolean).join(' ').toLowerCase();
-
-            return searchTerms.every(term => searchableText.includes(term));
+    static parseSearchQuery(query: string): SearchTerm[] {
+        return this.tokenizeQuery(query).map(token => {
+            const colon = token.indexOf(':');
+            if (colon > 0) {
+                const field = this.SEARCH_FIELDS[token.slice(0, colon).toLowerCase()];
+                const value = token.slice(colon + 1).trim().toLowerCase();
+                if (field && value) return { field, value };
+            }
+            return { field: 'any' as const, value: token.toLowerCase() };
         });
+    }
+
+    private static matchesTerm(entry: Entry, term: SearchTerm): boolean {
+        const has = (value: string | undefined) => !!value && value.toLowerCase().includes(term.value);
+        const taggedWith = () => (entry.tags ?? []).some(tag => tag.toLowerCase().includes(term.value));
+
+        switch (term.field) {
+            case 'title': return has(entry.title);
+            case 'username': return has(entry.username);
+            case 'url': return has(entry.url);
+            case 'notes': return has(entry.notes);
+            case 'tag': return taggedWith();
+            default:
+                if (has(entry.title) || has(entry.username) || has(entry.url) || has(entry.notes)) return true;
+                if (taggedWith()) return true;
+                // Field names always, values only when they are not protected:
+                // a bare word should not quietly match somebody's stored secret
+                return (entry.customFields ?? []).some(field =>
+                    has(field.key) || (!field.protected && has(this.getFieldString(field.value))));
+        }
+    }
+
+    static filterEntries(entries: Entry[], searchQuery: string): Entry[] {
+        if (!searchQuery.trim()) return entries;
+
+        const terms = this.parseSearchQuery(searchQuery);
+        if (terms.length === 0) return entries;
+
+        return entries.filter(entry => terms.every(term => this.matchesTerm(entry, term)));
     }
 
     static sortEntriesByTitle(entries: Entry[]): Entry[] {
@@ -692,6 +794,10 @@ export class KeepassDatabaseService {
 
         if (this.customFieldsChanged(kdbxEntry, entry.customFields ?? [])) return true;
 
+        const tags = this.normalizeTags(entry.tags ?? []);
+        if (kdbxEntry.tags.length !== tags.length) return true;
+        if (kdbxEntry.tags.some((tag, i) => tag !== tags[i])) return true;
+
         return this.attachmentsChanged(kdbxEntry, entry.attachments ?? []);
     }
 
@@ -806,6 +912,7 @@ export class KeepassDatabaseService {
                     : this.getFieldString(field.value)
                 );
             }
+            kdbxEntry.tags = this.normalizeTags(entry.tags ?? []);
             kdbxEntry.times.creationTime = entry.created;
             kdbxEntry.times.lastModTime = entry.modified;
             kdbxEntry.times.expires = !!entry.expires;

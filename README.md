@@ -21,6 +21,8 @@ A modern, secure password manager with a beautiful user interface, built using E
 | Export | KeePassXC-compatible CSV export |
 | Password generator | Character and passphrase modes with entropy estimate |
 | Custom fields | Arbitrary entry fields with per-field protection |
+| Tags | Tag any entry, click a tag to filter the whole vault |
+| Search | Field-scoped terms (`title:`, `user:`, `url:`, `notes:`, `tag:`), quoted phrases, matches tags and custom fields |
 | Key files | Unlock with a key file alongside the master password |
 | Hardware keys | YubiKey challenge-response as an extra unlock factor, KeePassXC-compatible |
 | Entry expiry | Expiry dates with visual indicators for expired entries |
