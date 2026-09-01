@@ -157,8 +157,8 @@
 
 .report-close-button {
     padding: 0.5rem;
-    background-color: var(--overlay-medium);
-    border: 1px solid var(--border-secondary);
+    background: none;
+    border: none;
     color: var(--text-tertiary);
     cursor: pointer;
     border-radius: var(--radius-md);
@@ -169,8 +169,7 @@
 }
 
 .report-close-button:hover {
-    background-color: var(--overlay-dark);
-    border-color: var(--border-hover);
+    background-color: var(--overlay-medium);
     color: var(--text-secondary);
 }
 
