@@ -36,15 +36,57 @@ const ctxFor = (kdbxDb: kdbxweb.Kdbx, pairingName: string | null = null) => ({
     requestSetLoginConsent: vi.fn(async () => true),
 });
 
+// Follows KeePassXC's BrowserService::handleURL, so a database moved between
+// the two applications gets the same credentials offered on the same pages
 describe('url matching', () => {
-    it('matches hosts and subdomains, ignores www', () => {
+    it('matches the same host, ignoring path and www', () => {
         expect(Svc.urlMatches('https://github.com/login', 'https://github.com')).toBe(true);
         expect(Svc.urlMatches('https://www.github.com', 'https://github.com')).toBe(true);
-        expect(Svc.urlMatches('https://app.example.com', 'https://example.com')).toBe(true);
-        expect(Svc.urlMatches('https://example.com', 'https://app.example.com')).toBe(true);
-        expect(Svc.urlMatches('https://github.com', 'https://gitlab.com')).toBe(false);
-        expect(Svc.urlMatches('https://notgithub.com', 'https://github.com')).toBe(false);
+        expect(Svc.urlMatches('https://github.com', 'https://www.github.com')).toBe(true);
         expect(Svc.urlMatches(undefined, 'https://github.com')).toBe(false);
+    });
+
+    it('offers an entry on subdomains of its host but not the other way round', () => {
+        expect(Svc.urlMatches('https://example.com', 'https://app.example.com')).toBe(true);
+        expect(Svc.urlMatches('https://example.com', 'https://deep.app.example.com')).toBe(true);
+        // KeePassXC tests siteHost.endsWith(entryHost), so an entry saved for a
+        // subdomain is not handed out on the parent
+        expect(Svc.urlMatches('https://app.example.com', 'https://example.com')).toBe(false);
+    });
+
+    it('does not fall for a host that merely ends with the entry host', () => {
+        expect(Svc.urlMatches('https://github.com', 'https://gitlab.com')).toBe(false);
+        expect(Svc.urlMatches('https://github.com', 'https://notgithub.com')).toBe(false);
+        expect(Svc.urlMatches('https://notgithub.com', 'https://github.com')).toBe(false);
+        expect(Svc.urlMatches('https://example.com', 'https://evilexample.com')).toBe(false);
+    });
+
+    it('does not hand an https entry to an http page', () => {
+        expect(Svc.urlMatches('https://example.com', 'http://example.com')).toBe(false);
+        expect(Svc.urlMatches('http://example.com', 'https://example.com')).toBe(false);
+        expect(Svc.urlMatches('https://example.com', 'https://example.com')).toBe(true);
+    });
+
+    it('reads an entry with no scheme as https', () => {
+        // A bare host is the common way to fill the URL field in by hand
+        expect(Svc.urlMatches('example.com', 'https://example.com')).toBe(true);
+        expect(Svc.urlMatches('example.com', 'http://example.com')).toBe(false);
+        // Writing the scheme is how an intranet or local site opts back in
+        expect(Svc.urlMatches('http://intranet.local', 'http://intranet.local')).toBe(true);
+    });
+
+    it('matches a port only when the entry names one', () => {
+        expect(Svc.urlMatches('https://example.com:8443', 'https://example.com:8443')).toBe(true);
+        expect(Svc.urlMatches('https://example.com:8443', 'https://example.com')).toBe(false);
+        expect(Svc.urlMatches('https://example.com:8443', 'https://example.com:9000')).toBe(false);
+        // No port on the entry means any port on the site
+        expect(Svc.urlMatches('https://example.com', 'https://example.com:8443')).toBe(true);
+    });
+
+    it('rejects an entry url carrying characters a url cannot hold', () => {
+        for (const bad of ['https://exa<mple.com', 'https://example.com/{a}', 'https://exa|mple.com']) {
+            expect(Svc.urlMatches(bad, 'https://example.com')).toBe(false);
+        }
     });
 });
 
