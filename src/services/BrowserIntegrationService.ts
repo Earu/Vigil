@@ -72,22 +72,57 @@ export class BrowserIntegrationService {
         return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    static hostOf(url: string): string {
+    // KeePassXC rejects these outright in handleURL before any matching
+    private static readonly ILLEGAL_URL_CHARS = /[<>^`{|}]/;
+
+    // An entry URL with no scheme is read as https, the way KeePassXC does
+    // when its match-scheme setting is on (the default). A site that genuinely
+    // speaks http can still be matched by writing the scheme into the entry,
+    // which is the escape hatch for intranet and local addresses
+    private static parseUrl(url: string): URL | null {
         try {
-            return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+            return new URL(url.includes('://') ? url : `https://${url}`);
         } catch {
-            return url.toLowerCase().replace(/^www\./, '');
+            return null;
         }
     }
 
+    static hostOf(url: string): string {
+        const parsed = this.parseUrl(url);
+        return (parsed?.hostname ?? url).toLowerCase().replace(/^www\./, '');
+    }
+
+    // Mirrors KeePassXC's BrowserService::handleURL, which is the reference
+    // implementation for this protocol, in the same order: illegal characters,
+    // then port, then scheme, then host.
+    //
+    // KeePassXC guards its host test with a public suffix lookup because its
+    // test is a bare endsWith, which would otherwise let an entry for
+    // example.com match evilexample.com. The comparison below requires a dot
+    // before the entry host, so that confusion cannot arise and the suffix
+    // list buys only one thing: refusing an entry stored against a bare public
+    // suffix such as github.io. That is rare enough not to be worth carrying
+    // ten thousand rules that go stale.
     static urlMatches(entryUrl: string | undefined, requestUrl: string): boolean {
-        if (!entryUrl) return false;
-        const entryHost = this.hostOf(entryUrl);
-        const requestHost = this.hostOf(requestUrl);
-        if (!entryHost || !requestHost) return false;
-        return entryHost === requestHost
-            || entryHost.endsWith('.' + requestHost)
-            || requestHost.endsWith('.' + entryHost);
+        if (!entryUrl || this.ILLEGAL_URL_CHARS.test(entryUrl)) return false;
+
+        const entry = this.parseUrl(entryUrl);
+        const site = this.parseUrl(requestUrl);
+        if (!entry || !site) return false;
+
+        const entryHost = entry.hostname.toLowerCase().replace(/^www\./, '');
+        const siteHost = site.hostname.toLowerCase().replace(/^www\./, '');
+        if (!entryHost || !siteHost) return false;
+
+        // Only when the entry names one; a default port normalises to empty
+        if (entry.port && entry.port !== site.port) return false;
+
+        // An entry saved for https is not handed to an http page
+        if (entry.protocol !== site.protocol) return false;
+
+        // The site may be a subdomain of the entry, not the reverse: an entry
+        // for mail.example.com is not offered up on example.com
+        return siteHost === entryHost || siteHost.endsWith('.' + entryHost);
     }
 
     private static uuidHex(uuid: kdbxweb.KdbxUuid): string {
