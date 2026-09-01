@@ -1,16 +1,23 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Entry, Group } from '../src/types/database';
-import { installMockWindow } from './helpers';
+import * as kdbxweb from 'kdbxweb';
+import { installMockWindow, cred } from './helpers';
 
-const backing = new Map<string, string>();
-(globalThis as any).localStorage = {
-    getItem: (k: string) => backing.get(k) ?? null,
-    setItem: (k: string, v: string) => backing.set(k, v),
-    removeItem: (k: string) => backing.delete(k),
-};
+// Methods live on the prototype, so Object.keys returns only the stored
+// entries, the way a real Storage does and the way the cache enumerates
+class FakeStorage {
+    getItem(key: string): string | null {
+        return Object.prototype.hasOwnProperty.call(this, key) ? (this as any)[key] : null;
+    }
+    setItem(key: string, value: string): void { (this as any)[key] = String(value); }
+    removeItem(key: string): void { delete (this as any)[key]; }
+}
+
+(globalThis as any).localStorage = new FakeStorage();
 
 installMockWindow();
 
+const { BreachCacheCrypto } = await import('../src/services/BreachCacheCrypto');
 const { BreachCheckService } = await import('../src/services/BreachCheckService');
 const { BreachStatusStore } = await import('../src/services/BreachStatusStore');
 const { HaveIBeenPwnedService } = await import('../src/services/HaveIBeenPwnedService');
@@ -38,6 +45,8 @@ const vault = (ids: string[]): Group =>
 
 describe('resuming an interrupted breach sweep', () => {
     beforeEach(() => {
+        // Cached verdicts are sealed under a key derived from the open vault
+        BreachCacheCrypto.unlock(kdbxweb.Kdbx.create(cred(), 'Resume'));
         BreachStatusStore.clearAll();
         vi.restoreAllMocks();
         // findBreachedAndWeakEntries reads the open vault path from the service
@@ -89,7 +98,7 @@ describe('resuming an interrupted breach sweep', () => {
         // Lock: App.handleLock calls this while the coalesced write is pending
         BreachCheckService.cancelChecks();
 
-        expect(JSON.parse(backing.get('breach_status_store')!)[DB]['a'].count).toBe(42);
+        expect(BreachCacheCrypto.read<any>('breach')[DB]['a'].count).toBe(42);
     });
 
     it('re-checks an entry whose cached verdict has aged out', async () => {
@@ -103,11 +112,10 @@ describe('resuming an interrupted breach sweep', () => {
         BreachStatusStore.flush();
 
         // 24h cache window, so a resume a day later starts over
-        const aged = JSON.parse(backing.get('breach_status_store')!);
+        const aged = BreachCacheCrypto.read<any>('breach');
         aged[DB]['a'].timestamp = Date.now() - 25 * 60 * 60 * 1000;
-        backing.set('breach_status_store', JSON.stringify(aged));
         BreachStatusStore.clearAll();
-        backing.set('breach_status_store', JSON.stringify(aged));
+        BreachCacheCrypto.write('breach', aged);
 
         await BreachCheckService.checkGroup(DB, vault(['a']));
         expect(lookups).toBe(1);
