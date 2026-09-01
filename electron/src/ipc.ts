@@ -198,7 +198,7 @@ export function setupIpcHandlers(): void {
     });
 
     ipcMain.handle('open-external', async (_, url: string) => {
-        await openExternal(url);
+        return await openExternal(url);
     });
 
     ipcMain.handle('get-platform', () => getPlatform());
