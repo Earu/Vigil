@@ -738,3 +738,13 @@
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+/* Shown only when biometric unlock is the prompt-only fallback. The
+   hardware-backed case gets no badge: it is the expected state */
+.biometric-weak-notice {
+    margin: 0.5rem 0 0;
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--color-text-secondary);
+    cursor: help;
+}

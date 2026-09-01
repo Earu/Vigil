@@ -87,6 +87,9 @@ export const PasswordForm = ({
     const [databaseName, setDatabaseName] = useState('New Database');
     const [isBiometricsEnabled, setIsBiometricsEnabled] = useState(initialBiometricsEnabled);
     const [isBiometricsAvailable, setIsBiometricsAvailable] = useState(false);
+    // 'prompt' means the biometric check gates the UI but does not protect the
+    // stored password; the user should be told, because the two look identical
+    const [biometricsBackend, setBiometricsBackend] = useState<'hardware' | 'prompt' | 'none'>('none');
     const [showPasswordInput, setShowPasswordInput] = useState(!initialBiometricsEnabled);
     const [keyFile, setKeyFile] = useState<{ path: string; name: string } | null>(null);
     const [hardwareKey, setHardwareKey] = useState<HardwareKeySelection | null>(null);
@@ -193,8 +196,9 @@ export const PasswordForm = ({
     useEffect(() => {
         const checkBiometrics = async () => {
             if (!window.electron) return;
-            const available = await window.electron.isBiometricsAvailable();
-            setIsBiometricsAvailable(available);
+            const info = await window.electron.getBiometricsInfo();
+            setIsBiometricsAvailable(info.available);
+            setBiometricsBackend(info.backend);
         };
         checkBiometrics();
     }, []);
@@ -632,6 +636,19 @@ export const PasswordForm = ({
                             <BiometricAuthIcon className="biometric-icon" />
                             {navigator.userAgent.includes('Mac') ? 'Unlock with Touch ID' : (navigator.userAgent.includes('Windows') ? 'Unlock with Windows Hello' : 'Unlock with Biometrics')}
                         </button>
+                    )}
+
+                    {/* Nothing is shown for a hardware backed unlock: that is the
+                        expected state and a badge for it would just be noise. The
+                        weaker one has to be visible, since the button and the
+                        prompt look exactly the same either way */}
+                    {biometricsBackend === 'prompt' && (
+                        <p
+                            className="biometric-weak-notice"
+                            title="This build is not signed, so the key cannot be stored in the Secure Enclave. The prompt controls access to the app, but the saved password is not protected by it."
+                        >
+                            Not hardware backed
+                        </p>
                     )}
 
                     {isBiometricsEnabled && (
