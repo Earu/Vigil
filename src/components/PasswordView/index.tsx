@@ -44,6 +44,21 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		() => KeepassDatabaseService.findExpiredEntries(database.root),
 		[database]
 	);
+	const reusedPasswords = useMemo(
+		() => BreachCheckService.findReusedPasswords(database.root),
+		[database]
+	);
+	const reusedEntryCount = useMemo(
+		() => reusedPasswords.reduce((total, cluster) => total + cluster.count, 0),
+		[reusedPasswords]
+	);
+
+	// Every group's indicators and entry count in one pass, so the sidebar
+	// looks them up instead of re-walking its subtree per node per update
+	const groupSummaries = useMemo(
+		() => BreachCheckService.buildGroupSummaries(database.root),
+		[database, breachStoreVersion, emailStoreVersion]
+	);
 
 	useEffect(() => {
 		if (showInitialBreachReport) {
@@ -282,6 +297,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 				<Sidebar
 					database={database}
 					selectedGroup={selectedGroup}
+					groupSummaries={groupSummaries}
 					onGroupSelect={handleGroupSelect}
 					onNewGroup={handleNewGroup}
 					onRemoveGroup={handleRemoveGroup}
@@ -319,12 +335,14 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					/>
 				)}
 			</div>
-			{(showBreachReport && (reportOpenedManually || breachedEntries.length > 0 || breachedEmailEntries.length > 0 || isCheckingBreaches || isCheckingEmails)) && (
+			{(showBreachReport && (reportOpenedManually || breachedEntries.length > 0 || breachedEmailEntries.length > 0 || reusedPasswords.length > 0 || isCheckingBreaches || isCheckingEmails)) && (
 				<BreachReport
 					database={database}
 					breachedEntries={breachedEntries}
 					weakEntries={weakEntries}
 					breachedEmailEntries={breachedEmailEntries}
+					reusedPasswords={reusedPasswords}
+					reusedEntryCount={reusedEntryCount}
 					expiredEntries={expiredEntries}
 					isChecking={isCheckingBreaches}
 					isCheckingEmails={isCheckingEmails}

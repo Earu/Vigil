@@ -81,6 +81,23 @@ export interface EmailBreachCheckResult {
     allEmailsCached: boolean;
 }
 
+// Everything the sidebar needs about one group, for the whole subtree below
+// it. The entry count rides along because computing it separately means a
+// second full walk of the same tree for the same render
+export interface GroupSummary {
+    breached: boolean;
+    weak: boolean;
+    breachedEmail: boolean;
+    entryCount: number;
+}
+
+// Entries that share one password. The password itself is only ever a map key
+// inside findReusedPasswords and never reaches the report
+export interface ReusedPasswordGroup {
+    entries: Array<{ entry: Entry; group: Group }>;
+    count: number;
+}
+
 export class BreachCheckService {
     // HIBP's k-anonymity range endpoint is explicitly not rate limited, so
     // password checks run with a small concurrency pool and no delay. The
@@ -102,6 +119,10 @@ export class BreachCheckService {
     public static cancelChecks(): void {
         this.isCancelled = true;
         this.clearProgress();
+        // Whatever the sweep already learned is worth keeping; a lock must not
+        // throw away results that are still sitting in a coalesced write
+        BreachStatusStore.flush();
+        EmailBreachStatusStore.flush();
     }
 
     private static clearProgress(): void {
@@ -316,6 +337,12 @@ export class BreachCheckService {
                 this.clearProgress();
             }
             throw error;
+        } finally {
+            // The sweep wrote one status per entry through the coalescing
+            // timer; settle them however it ended
+            if (isRootGroup) {
+                BreachStatusStore.flush();
+            }
         }
     }
 
@@ -323,26 +350,80 @@ export class BreachCheckService {
         return BreachStatusStore.getEntryStatus(databasePath, entryId);
     }
 
-    public static hasBreachedEmails(group: Group): boolean {
+    // One bottom-up pass over the whole tree, keyed by group id. The sidebar
+    // used to ask each group node three separate "does this subtree contain
+    // X" questions, so a status update cost O(depth * entries) traversals per
+    // indicator; the answers for every group now come out of a single walk
+    public static buildGroupSummaries(root: Group): Map<string, GroupSummary> {
+        const summaries = new Map<string, GroupSummary>();
         const databasePath = KeepassDatabaseService.getPath();
-        if (!databasePath) return false;
 
-        // Check entries in current group
-        for (const entry of group.entries) {
-            const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
-            if (status?.breachedEmail) {
-                return true;
+        const walk = (group: Group): GroupSummary => {
+            const summary: GroupSummary = {
+                breached: false,
+                weak: false,
+                breachedEmail: false,
+                entryCount: group.entries.length,
+            };
+
+            if (databasePath) {
+                for (const entry of group.entries) {
+                    const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+                    if (!status) continue;
+                    // An exposed email is worth flagging even on a passkey-only
+                    // entry; a breached or weak password needs a password
+                    if (status.breachedEmail) summary.breachedEmail = true;
+                    if (!this.entryHasPassword(entry)) continue;
+                    if (status.isPwned) summary.breached = true;
+                    if (status.strength && status.strength.score < 3) summary.weak = true;
+                }
             }
-        }
 
-        // Check subgroups
-        for (const subgroup of group.groups) {
-            if (this.hasBreachedEmails(subgroup)) {
-                return true;
+            for (const subgroup of group.groups) {
+                const child = walk(subgroup);
+                summary.breached = summary.breached || child.breached;
+                summary.weak = summary.weak || child.weak;
+                summary.breachedEmail = summary.breachedEmail || child.breachedEmail;
+                // Matches countEntriesInGroup: the bin's contents are not part
+                // of its parents' totals, but the bin's own row still counts them
+                if (!subgroup.isRecycleBin) summary.entryCount += child.entryCount;
             }
-        }
 
-        return false;
+            summaries.set(group.id, summary);
+            return summary;
+        };
+
+        walk(root);
+        return summaries;
+    }
+
+    // Purely local: no network, no cached status, so this works the moment a
+    // vault is open. Recycle bin contents are left out, the way expiry is
+    public static findReusedPasswords(root: Group): ReusedPasswordGroup[] {
+        const byPassword = new Map<string, Array<{ entry: Entry; group: Group }>>();
+
+        const walk = (group: Group) => {
+            if (group.isRecycleBin) return;
+            for (const entry of group.entries) {
+                const password = KeepassDatabaseService.getPasswordString(entry.password);
+                if (!password) continue;
+                const bucket = byPassword.get(password);
+                if (bucket) bucket.push({ entry, group });
+                else byPassword.set(password, [{ entry, group }]);
+            }
+            group.groups.forEach(walk);
+        };
+        walk(root);
+
+        return [...byPassword.values()]
+            .filter(bucket => bucket.length > 1)
+            .map(bucket => ({ entries: bucket, count: bucket.length }))
+            // Widest reuse first, then by title so the order is stable across
+            // renders (Map iteration order alone would follow insertion)
+            .sort((a, b) =>
+                b.count - a.count ||
+                a.entries[0].entry.title.localeCompare(b.entries[0].entry.title)
+            );
     }
 
     public static clearCache(databasePath: string): void {
@@ -412,36 +493,6 @@ export class BreachCheckService {
 
     private static entryHasPassword(entry: Entry): boolean {
         return !!KeepassDatabaseService.getPasswordString(entry.password);
-    }
-
-    public static hasBreachedPasswords(group: Group): boolean {
-        const databasePath = KeepassDatabaseService.getPath();
-        if (!databasePath) return false;
-
-        const hasBreached = group.entries.some(entry => {
-            if (!this.entryHasPassword(entry)) return false;
-            const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
-            return status?.isPwned === true;
-        });
-
-        if (hasBreached) return true;
-
-        return group.groups.some(subgroup => this.hasBreachedPasswords(subgroup));
-    }
-
-    public static hasWeakPasswords(group: Group): boolean {
-        const databasePath = KeepassDatabaseService.getPath();
-        if (!databasePath) return false;
-
-        const hasWeakPassword = group.entries.some(entry => {
-            if (!this.entryHasPassword(entry)) return false;
-            const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
-            return status?.strength && status.strength.score < 3;
-        });
-
-        if (hasWeakPassword) return true;
-
-        return group.groups.some(subgroup => this.hasWeakPasswords(subgroup));
     }
 
     private static isValidEmail(email: string): boolean {
@@ -570,6 +621,13 @@ export class BreachCheckService {
                 this.clearProgress();
             }
             throw error;
+        } finally {
+            // This sweep writes to both stores: breach statuses pick up the
+            // breachedEmail flag as email results land
+            if (isRootGroup) {
+                EmailBreachStatusStore.flush();
+                BreachStatusStore.flush();
+            }
         }
     }
 
