@@ -11,6 +11,7 @@ import { KeepassDatabaseService } from './services/KeepassDatabaseService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
 import { BreachCheckService } from './services/BreachCheckService';
+import { ClipboardService } from './services/ClipboardService';
 import { userSettingsService } from './services/UserSettingsService';
 import { BrowserIntegrationService } from './services/BrowserIntegrationService';
 import { BrowserPairingDialog } from './components/BrowserPairingDialog';
@@ -197,6 +198,9 @@ function App() {
 	};
 
 	const handleLock = () => {
+		// Anything the vault put in the clipboard goes now rather than at the
+		// end of its countdown
+		ClipboardService.clearNow();
 		setDatabase(null);
 		setKdbxDb(null);
 		setShowInitialBreachReport(false);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Entry, EntryVersion, Attachment, CustomField } from '../../types/database';
 import { TotpService, MigrationAccount, TotpConfig } from '../../services/TotpService';
@@ -13,6 +13,7 @@ import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
 import { PasswordStrength } from '../../services/BreachStatusStore';
+import { ClipboardService, CLIPBOARD_CLEAR_SECONDS } from '../../services/ClipboardService';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -103,8 +104,8 @@ const PasswordStrengthIndicator = ({ score, warning, suggestions }: PasswordStre
 export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
-	const [clipboardTimer, setClipboardTimer] = useState<number>(0);
-	const [copiedField, setCopiedField] = useState<string>('');
+	// The countdown lives in the service so it survives this panel closing
+	const clipboard = useSyncExternalStore(ClipboardService.subscribe, ClipboardService.getSnapshot);
 	const [breachStatus, setBreachStatus] = useState<{ isPwned: boolean; count: number; breachedEmail?: boolean; strength: PasswordStrength | null } | null>(null);
 	const [passwordStrength, setPasswordStrength] = useState<{
 		score: number;
@@ -124,9 +125,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// Non-null while a multi-account Google Authenticator export awaits a pick
 	const [migrationAccounts, setMigrationAccounts] = useState<MigrationAccount[] | null>(null);
 	const [migrationSelected, setMigrationSelected] = useState(0);
-	const timerRef = useRef<NodeJS.Timeout>();
 	const fileInputRef = useRef<HTMLInputElement>(null);
-	const lastCopiedText = useRef('');
 	const [editedEntry, setEditedEntry] = useState<Entry>(() => {
 		if (isNew) {
 			return KeepassDatabaseService.createNewEntry();
@@ -188,64 +187,13 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		return () => window.removeEventListener('keydown', handleKeyDown);
 	}, [isEditing, isNew, editedEntry]);
 
-	useEffect(() => {
-		return () => {
-			if (timerRef.current) {
-				clearInterval(timerRef.current);
-				// Don't let a pending clear die with the component (entry
-				// closed or database locked while the countdown ran)
-				clearCopiedValue();
-			}
-		};
-	}, []);
+	// This panel is not remounted when the selection changes, so the entry has
+	// to be part of what identifies a copy button. Without it the countdown
+	// badge would follow the user onto the next entry's field of the same name
+	const copySource = (field: string) => `entry:${editedEntry.id}:${field}`;
 
-	// Clear the clipboard only when it still holds what we put there; the
-	// user may have copied something else since. If the read fails, clear
-	// anyway rather than risk leaving a password around.
-	const clearCopiedValue = async () => {
-		try {
-			const current = await navigator.clipboard.readText();
-			if (current !== lastCopiedText.current) return;
-		} catch { /* fall through to clear */ }
-		window.electron?.clearClipboard().catch(console.error);
-	};
-
-	useEffect(() => {
-		if (clipboardTimer > 0) {
-			const interval = setInterval(() => {
-				setClipboardTimer((prev) => {
-					if (prev <= 1) {
-						clearInterval(interval);
-						clearCopiedValue();
-						setCopiedField('');
-						return 0;
-					}
-					return prev - 1;
-				});
-			}, 1000);
-			timerRef.current = interval;
-			return () => clearInterval(interval);
-		}
-	}, [clipboardTimer]);
-
-	const copyToClipboard = async (text: string, field: string) => {
-		try {
-			await navigator.clipboard.writeText(text);
-			lastCopiedText.current = text;
-			setClipboardTimer(20);
-			setCopiedField(field);
-			(window as any).showToast?.({
-				message: `${field} copied to clipboard`,
-				type: 'success'
-			});
-		} catch (err) {
-			console.error('Failed to copy to clipboard:', err);
-			(window as any).showToast?.({
-				message: 'Failed to copy to clipboard',
-				type: 'error'
-			});
-		}
-	};
+	const copyToClipboard = (text: string, field: string) =>
+		ClipboardService.copy(text, field, copySource(field));
 
 	const renderCopyButton = (onClick: () => void, title: string, field: string) => (
 		<>
@@ -255,9 +203,9 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				title={title}
 			>
 				<CopyActionIcon />
-				{clipboardTimer > 0 && copiedField === field && (
-					<div className="clipboard-timer" style={{ '--progress': `${(clipboardTimer / 20) * 100}%` } as React.CSSProperties}>
-						{clipboardTimer}s
+				{clipboard.secondsLeft > 0 && clipboard.source === copySource(field) && (
+					<div className="clipboard-timer" style={{ '--progress': `${(clipboard.secondsLeft / CLIPBOARD_CLEAR_SECONDS) * 100}%` } as React.CSSProperties}>
+						{clipboard.secondsLeft}s
 					</div>
 				)}
 			</button>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import './PasswordGenerator.css';
 import * as kdbxweb from 'kdbxweb';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
@@ -10,6 +10,12 @@ import {
     GeneratorSettings,
 } from '../../services/PasswordGeneratorService';
 import { CloseActionIcon, CopyActionIcon, RefreshActionIcon } from '../../icons/actions/ActionIcons';
+import { ClipboardService, CLIPBOARD_CLEAR_SECONDS } from '../../services/ClipboardService';
+
+// Only one generator is open at a time, so a constant identifies its copy
+// button well enough to keep the countdown badge off every entry's password
+// field, which carries the same label
+const COPY_SOURCE = 'generator';
 
 interface PasswordGeneratorProps {
     onClose: () => void;
@@ -22,6 +28,8 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     // generate-password) uses what the user last picked
     const [savedSettings] = useState<GeneratorSettings>(() => PasswordGeneratorService.loadSettings());
     const [generatedPassword, setGeneratedPassword] = useState('');
+    // Shows how long before the copied password leaves the clipboard
+    const clipboard = useSyncExternalStore(ClipboardService.subscribe, ClipboardService.getSnapshot);
     const [mode, setMode] = useState<GeneratorMode>(savedSettings.mode);
     const [passphraseOptions, setPassphraseOptions] = useState<PassphraseOptions>(savedSettings.passphrase);
     const [passphraseBits, setPassphraseBits] = useState<number | null>(null);
@@ -141,21 +149,10 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
         onClose();
     };
 
-    const copyToClipboard = async () => {
-        try {
-            await navigator.clipboard.writeText(generatedPassword);
-            (window as any).showToast?.({
-                message: 'Password copied to clipboard',
-                type: 'success'
-            });
-        } catch (err) {
-            console.error('Failed to copy to clipboard:', err);
-            (window as any).showToast?.({
-                message: 'Failed to copy to clipboard',
-                type: 'error'
-            });
-        }
-    };
+    // Goes through the service so the generated password is cleared from the
+    // clipboard on the same countdown as one copied from an entry. The
+    // countdown outlives this modal, which is normally closed right after
+    const copyToClipboard = () => ClipboardService.copy(generatedPassword, 'Password', COPY_SOURCE);
 
     return (
         <div className="modal-overlay">
@@ -191,8 +188,16 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                             placeholder="Generated password will appear here"
                         />
                         <div className="password-actions">
-                            <button onClick={copyToClipboard} title="Copy password">
+                            <button className="generator-copy-button" onClick={copyToClipboard} title="Copy password">
                                 <CopyActionIcon />
+                                {clipboard.secondsLeft > 0 && clipboard.source === COPY_SOURCE && (
+                                    <div
+                                        className="clipboard-timer"
+                                        style={{ '--progress': `${(clipboard.secondsLeft / CLIPBOARD_CLEAR_SECONDS) * 100}%` } as React.CSSProperties}
+                                    >
+                                        {clipboard.secondsLeft}s
+                                    </div>
+                                )}
                             </button>
                             <button onClick={regenerate} title="Generate new password">
                                 <RefreshActionIcon />
