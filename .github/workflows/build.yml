@@ -5,6 +5,10 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+  # A manual run is the only one that signs and notarizes. Doing it on every
+  # push and pull request would add several minutes and an Apple notary round
+  # trip to each, for an artifact nobody installs
+  workflow_dispatch:
 
 jobs:
   test:
@@ -26,19 +30,21 @@ jobs:
 
   build:
     needs: test
+    # Each runner builds its host architecture. Cross-building is not
+    # supported: electron/copy-native-modules.mjs selects prebuilds by
+    # process.arch and compiles the Touch ID addon with node-gyp for the host,
+    # so a cross build silently produces binaries for the wrong architecture.
+    # Windows on arm64 is absent because passport-desktop (Windows Hello)
+    # publishes no arm64 prebuild.
     strategy:
       matrix:
         include:
           - os: windows-latest
             arch: x64
-          - os: windows-latest
-            arch: arm64
           - os: ubuntu-latest
             arch: x64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04-arm
             arch: arm64
-          - os: macos-latest
-            arch: x64
           - os: macos-latest
             arch: arm64
     runs-on: ${{ matrix.os }}
@@ -62,13 +68,73 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev
 
+    # The provisioning profile is not in the repo: it embeds the team name.
+    # Restored from a secret so signed builds still get it. Absent, the build
+    # is unsigned; absent while a certificate IS configured, electron-builder
+    # fails loudly rather than producing an app whose helpers get killed.
+    - name: Restore macOS provisioning profile
+      if: runner.os == 'macOS' && github.event_name == 'workflow_dispatch'
+      env:
+        MAC_PROVISION_PROFILE: ${{ secrets.MAC_PROVISION_PROFILE }}
+      run: |
+        if [ -n "$MAC_PROVISION_PROFILE" ]; then
+          printf '%s' "$MAC_PROVISION_PROFILE" | base64 --decode > build/vigil.provisionprofile
+          echo "provisioning profile restored"
+        else
+          echo "no MAC_PROVISION_PROFILE secret, macOS build will be unsigned"
+        fi
+
+    # macOS is built through a filter because electron-builder logs the signing
+    # identity, and a Developer ID certificate issued to an individual carries
+    # a legal name. Referencing SIGNING_IDENTITY_NAME in env is what makes the
+    # runner redact it (an unreferenced secret is never sent to the runner, so
+    # it cannot be matched); the sed is a second layer that does not depend on
+    # GitHub doing that. Public repo, public logs.
+    - name: Build Electron app (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        if [ -n "$SIGNING_IDENTITY_NAME" ]; then
+          npm run electron:build -- --publish never 2>&1 | sed "s/$SIGNING_IDENTITY_NAME/***/g"
+        else
+          npm run electron:build -- --publish never
+        fi
+      env:
+        SIGNING_IDENTITY_NAME: ${{ secrets.SIGNING_IDENTITY_NAME }}
+        NODE_ENV: production
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # macOS signing, on manual runs only, and only when the secrets exist
+        # so forks still build. Everything else produces an unsigned app: it
+        # runs, but the biometry-gated keychain rejects it and biometric
+        # unlock falls back to the prompt-only path. Verifying that path is
+        # what a manual dispatch is for (see electron/native/touchid/README.md)
+        CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_LINK != '' }}
+        CSC_LINK: ${{ github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_LINK || '' }}
+        CSC_KEY_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+        # Notarization; electron-builder skips it when these are unset
+        APPLE_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_ID || '' }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+        APPLE_TEAM_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_TEAM_ID || '' }}
+        # This is broken on macOS. Why.
+        # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
+        USE_HARD_LINKS: false
     - name: Build Electron app
+      if: runner.os != 'macOS'
       run: npm run electron:build -- --publish never
       env:
         NODE_ENV: production
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        ARCH: ${{ matrix.arch }}
-        CSC_IDENTITY_AUTO_DISCOVERY: false
+        # macOS signing, on manual runs only, and only when the secrets exist
+        # so forks still build. Everything else produces an unsigned app: it
+        # runs, but the biometry-gated keychain rejects it and biometric
+        # unlock falls back to the prompt-only path. Verifying that path is
+        # what a manual dispatch is for (see electron/native/touchid/README.md)
+        CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_LINK != '' }}
+        CSC_LINK: ${{ github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_LINK || '' }}
+        CSC_KEY_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.MAC_CSC_KEY_PASSWORD || '' }}
+        # Notarization; electron-builder skips it when these are unset
+        APPLE_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_ID || '' }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
+        APPLE_TEAM_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.APPLE_TEAM_ID || '' }}
         # This is broken on macOS. Why.
         # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
         USE_HARD_LINKS: false

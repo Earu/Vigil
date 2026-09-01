@@ -32,8 +32,21 @@ export interface IElectronAPI {
 	getLastDatabasePath: () => Promise<string | null>;
 	saveLastDatabasePath: (path: string) => Promise<boolean>;
 	isBiometricsAvailable: () => Promise<boolean>;
+	getBiometricsInfo: () => Promise<{
+		available: boolean;
+		/** 'hardware': the OS releases the key only after a biometric check.
+		 *  'prompt': a biometric prompt gates a key the app derives itself. */
+		backend: 'hardware' | 'prompt' | 'none';
+		biometryType: string;
+	}>;
 	enableBiometrics: (dbPath: string, password: string) => Promise<{ success: boolean; error?: string }>;
-	getBiometricPassword: (dbPath: string) => Promise<{ success: boolean; password?: string; error?: string }>;
+	getBiometricPassword: (dbPath: string) => Promise<{
+		success: boolean;
+		password?: string;
+		error?: string;
+		/** The stored credential is still usable; only this attempt failed. */
+		retry?: boolean;
+	}>;
 	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled: boolean; error?: string }>;
 	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
 	clearClipboard: () => Promise<{ success: boolean; error?: string }>;

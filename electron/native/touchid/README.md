@@ -1,68 +1,76 @@
-# Touch ID keychain addon (dormant)
+# Touch ID keychain addon
 
-Real biometric protection for macOS biometric unlock: a random key stored as a
-data protection keychain item gated by `SecAccessControl` (Touch ID, or device
-passcode as fallback). Reading the item makes macOS run the biometric check and
-only then release the bytes. Modeled on KeePassXC's `src/quickunlock/TouchID.mm`.
+Stores a random 32-byte wrapping key as a keychain item gated by
+`SecAccessControl(BiometryCurrentSet OR DevicePasscode)`. Reading it makes
+macOS run the biometric check before releasing the bytes, so the sealed master
+password is not openable by anything that just reads the disk. macOS
+counterpart to the Windows Hello path in `biometrics.ts`, modeled on
+KeePassXC's `src/quickunlock/TouchID.mm`.
 
-**This module is not built or wired into the app yet.** Apple only allows
-biometry-gated keychain items in the data protection keychain, and that requires
-entitlements (`com.apple.application-identifier`, `keychain-access-groups`)
-authorized by a provisioning profile, which requires a paid Apple Developer
-account and a signed build (Apple TN3137). Vigil's mac build is currently
-unsigned. Until that changes, every call would fail with
-`errSecMissingEntitlement (-34018)` and the JS layer reports `missing-entitlement`.
+Needs a build signed with entitlements authorized by a provisioning profile
+(Apple TN3137). Unsigned builds get `errSecMissingEntitlement` (-34018) and
+fall back to the prompt-only scheme; that covers forks, PRs and
+`npm run electron:dev`. A certificate without a profile does not work: the
+process is SIGKILLed at launch. `LARightStore` is backed by the same keychain
+and fails the same way.
 
 ## Files
 
-- `src/touchid_mac.mm`: the addon (macOS). Three async ops: `setSecret`,
-  `getSecret` (this one shows the Touch ID prompt), `deleteSecret`. Raw
-  `OSStatus` out, no logic.
-- `src/touchid_stub.cc`: same surface for other platforms, always reports
-  `errSecUnimplemented (-4)`. Lets the gyp/napi wiring compile everywhere.
-- `index.js`: loader plus `interpret()`, the status-to-outcome mapping
-  (unit tested in `tests/touchid-loader.test.ts`).
+- `src/touchid_mac.mm`: `isAvailable` (sync), async `setSecret`, `getSecret`
+  (prompts), `deleteSecret`, `hasSecret`. Raw `OSStatus` out, no logic.
+- `src/touchid_stub.cc`: same surface elsewhere, always `errSecUnimplemented`.
+- `index.js`: loader and the pure status mappings (`tests/touchid-loader.test.ts`).
 
-## Activation checklist
+Built by `electron/copy-native-modules.mjs` on darwin. Node-API, so one binary
+serves any Electron at the same NAPI level, but the architecture must match.
+By hand: `npx node-gyp rebuild` from this directory. Not from the repo root,
+`rebuild` starts with `rm -rf build`.
 
-1. Join the Apple Developer Program. Create a Developer ID Application
-   certificate and a Developer ID provisioning profile for `com.vigil.app`
-   carrying the application-identifier entitlement.
-2. Rename `build/entitlements.mac.plist.template` to
-   `build/entitlements.mac.plist` and replace `TEAMID` with the real team ID.
-   Keep the Electron hardened-runtime keys that are already in the template.
-3. `package.json` > `build.mac`: add
-   `"hardenedRuntime": true`, `"entitlements": "build/entitlements.mac.plist"`,
-   `"entitlementsInherit": "build/entitlements.mac.plist"`,
-   `"provisioningProfile": "build/vigil.provisionprofile"`, and notarization
-   (`"notarize": true` plus `APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` in CI).
-3b. Caveat from `electron/src/browser-integration.ts` (wrapperScript): the
-   browser proxy runs the app binary with `ELECTRON_RUN_AS_NODE`. Hardened
-   runtime strips DYLD/ELECTRON env vars unless the entitlements keep
-   `com.apple.security.cs.allow-dyld-environment-variables` (in the template)
-   and the RunAsNode Electron fuse stays enabled. Test browser integration
-   after signing, before release.
-4. CI (`.github/workflows/*.yml`): for the macOS jobs, remove
-   `CSC_IDENTITY_AUTO_DISCOVERY: false`, add `CSC_LINK` / `CSC_KEY_PASSWORD`
-   secrets with the exported cert.
-5. Build the addon on macOS: `cd electron/native/touchid && npx node-gyp rebuild`
-   (node-addon-api is already a devDependency, deployment target 11.0). Wire
-   the build into `electron:build` for darwin and copy
-   `build/Release/vigil_touchid.node` next to the other native modules in
-   `electron/copy-native-modules.mjs`.
-6. Wire `electron/src/biometrics.ts` (darwin): on enable, generate a random
-   32-byte key, `setSecret(dbPath, key)`, seal the master password with
-   AES-256-GCM under it (new `v3:` blob in keytar, same pattern as the Windows
-   `v2:` path in `biometrics-crypto.ts`); on unlock, `getSecret` (Touch ID
-   prompt) and open the blob. `missing-entitlement` or `unavailable` fall back
-   to the current Touch ID gate. Drop the legacy hardware-id scheme like the
-   Windows migration did.
-7. Verify on a real Mac: enable, lock, unlock (prompt must appear on read),
-   cancel path, and that an unsigned dev build cleanly falls back.
+## Storage
 
-## Why the native surface is minimal
+`biometrics.ts` seals the password as a `v3:` blob in keytar (base64 of IV, GCM
+tag, ciphertext) under `HKDF-SHA256(key, "vigil-biometric-v3")`. Legacy blobs
+upgrade to `v3:` on first successful unlock.
 
-The `.mm` cannot be compiled or tested from the Linux dev box, so it contains
-as little logic as possible: keychain calls and status codes. Everything with
-branching lives in `index.js` and is unit tested. The stub compiles on Linux,
-which validates the binding/gyp wiring ahead of time.
+`BiometryCurrentSet` means macOS destroys the item when enrolled fingerprints
+change. That arrives as `not-found`; the app drops the blob and asks the user
+to enable unlock again.
+
+## Signing
+
+`build/entitlements.mac.plist` covers the main app. `entitlements.mac.inherit.plist`
+covers the helpers and **must stay separate**: pointing `entitlementsInherit` at
+the main plist gives each helper an application-identifier matching neither its
+bundle id nor any profile, so the kernel kills them and the app dies with
+`GPU process isn't usable. Goodbye.` The main process verifies fine throughout,
+so it reads as a windowing bug.
+
+`build/vigil.provisionprofile` is the Developer ID direct-distribution profile,
+valid to 2044. It is **not committed**, since it embeds the team name; keep a
+local copy at that path, and CI restores it from `MAC_PROVISION_PROFILE`
+(base64). Regenerate by archiving in Xcode and exporting with
+`method: developer-id`; `xcodebuild build` only mints development profiles.
+
+CI also needs `MAC_CSC_LINK` / `MAC_CSC_KEY_PASSWORD` for the certificate, and
+`APPLE_ID` / `APPLE_APP_SPECIFIC_PASSWORD` / `APPLE_TEAM_ID` to notarize (or
+`APPLE_KEYCHAIN_PROFILE` locally). All optional: with none of them the build is
+unsigned. With a certificate but no profile it fails, which is intended, since
+signing these entitlements without a profile yields an app whose helpers are
+killed at launch.
+
+`build.appId` is `earu.vigil.app` because `com.vigil.app` belongs to another
+Apple team. Keychain items are keyed to the signing identity, so users
+re-enable biometric unlock and re-grant file access once.
+
+## Verifying a build
+
+```
+codesign --verify --deep --strict Vigil.app
+xcrun stapler validate Vigil.app            # the app, never the DMG
+spctl --assess --type execute -vv Vigil.app # source=Notarized Developer ID
+grep zip dist/latest-mac.yml                # or macOS auto-update cannot work
+```
+
+Stapling the DMG afterwards rewrites it and invalidates the `sha512` in
+`latest-mac.yml`. Launch the app too: `codesign --verify` passed throughout the
+helper-entitlement bug above.
