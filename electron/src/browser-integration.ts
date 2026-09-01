@@ -43,9 +43,14 @@ const ERROR_MESSAGES: Record<number, string> = {
     [ERROR_DENIED]: 'Action cancelled or denied',
 };
 
-interface Session {
+export interface Session {
     clientPublicKey: Uint8Array;
     keyPair: nacl.BoxKeyPair;
+    // Set once this client proves it holds a key the database knows, by way of
+    // associate or test-associate. Actions whose request carries no key of its
+    // own are gated on it, the way KeePassXC gates them on m_associated.
+    // Scoped to the session, so it dies with the connection
+    associated: boolean;
 }
 
 const b64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
@@ -183,14 +188,21 @@ function generatePassword(): string {
     return password;
 }
 
-async function handleDecryptedMessage(action: string, message: any): Promise<any> {
+// Exported for tests: this is where the association gate lives
+export async function handleDecryptedMessage(action: string, message: any, session: Session): Promise<any> {
     switch (action) {
         case 'get-databasehash':
             return await askVaults('get-databasehash', {}, 5000);
-        case 'associate':
-            return await askVaults('associate', { key: message.key, idKey: message.idKey }, 120000);
-        case 'test-associate':
-            return await askVaults('test-associate', { id: message.id, key: message.key }, 5000);
+        case 'associate': {
+            const result = await askVaults('associate', { key: message.key, idKey: message.idKey }, 120000);
+            if (!result.errorCode) session.associated = true;
+            return result;
+        }
+        case 'test-associate': {
+            const result = await askVaults('test-associate', { id: message.id, key: message.key }, 5000);
+            if (!result.errorCode) session.associated = true;
+            return result;
+        }
         case 'get-logins':
             return await askVaults('get-logins', {
                 url: message.url,
@@ -199,6 +211,10 @@ async function handleDecryptedMessage(action: string, message: any): Promise<any
                 keys: message.keys ?? [],
             }, 10000);
         case 'set-login':
+            // Carries no key of its own, so the session is what vouches for
+            // the caller. The renderer still asks the user to confirm the
+            // write; KeePassXC requires both here too
+            if (!session.associated) return { errorCode: ERROR_ASSOCIATION_FAILED };
             return await askVaults('set-login', {
                 url: message.url,
                 submitUrl: message.submitUrl,
@@ -237,6 +253,10 @@ async function handleDecryptedMessage(action: string, message: any): Promise<any
             }
             return {};
         case 'get-totp':
+            // A one-time code is vault data, and the request names only a
+            // UUID: no key to check per request, so the session is the gate
+            // (KeePassXC's handleGetTotp does the same)
+            if (!session.associated) return { errorCode: ERROR_ASSOCIATION_FAILED };
             return await askVaults('get-totp', { uuid: message.uuid }, 5000);
         default:
             return { errorCode: ERROR_INCORRECT_ACTION };
@@ -261,7 +281,9 @@ async function handleEnvelope(envelope: any): Promise<any> {
             return errorResponse(action, ERROR_CANNOT_DECRYPT);
         }
         const keyPair = nacl.box.keyPair();
-        sessions.set(clientId, { clientPublicKey: unb64(envelope.publicKey), keyPair });
+        // A fresh handshake starts unassociated, so a client cannot inherit
+        // the standing of whoever held this clientID before it
+        sessions.set(clientId, { clientPublicKey: unb64(envelope.publicKey), keyPair, associated: false });
         return {
             action,
             version: PROTOCOL_VERSION,
@@ -289,7 +311,7 @@ async function handleEnvelope(envelope: any): Promise<any> {
         return errorResponse(action, ERROR_CANNOT_DECRYPT);
     }
 
-    const result = await handleDecryptedMessage(message.action ?? action, message);
+    const result = await handleDecryptedMessage(message.action ?? action, message, session);
     if (result.errorCode) {
         return errorResponse(action, result.errorCode, nonce);
     }
@@ -350,8 +372,18 @@ export function startServer(): { success: boolean; error?: string } {
             // Lock the socket to the current user. XDG_RUNTIME_DIR is already
             // 0700, but the os.tmpdir() fallback (e.g. /tmp) is world-traversable,
             // so without this another local user on the machine could reach the
-            // vault. Windows named pipes are not filesystem objects and keep
-            // libuv's default DACL; restricting those needs a separate native fix
+            // vault.
+            //
+            // Windows named pipes are not filesystem objects and keep libuv's
+            // default DACL, which measures as:
+            //   Everyone                      Read, Synchronize
+            //   NT AUTHORITY\ANONYMOUS LOGON  Read, Synchronize
+            //   SYSTEM / Administrators       FullControl
+            // Read without write, so another user can open the pipe but cannot
+            // send a request, and each client gets its own instance so there is
+            // nothing of anyone else's to read off it. Untidy rather than a way
+            // in, which is why there is no native fix here. The handlers that
+            // matter are gated on the session being associated regardless
             if (process.platform !== 'win32') {
                 try {
                     fs.chmodSync(socketPath, 0o600);

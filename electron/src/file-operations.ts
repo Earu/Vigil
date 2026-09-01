@@ -34,6 +34,10 @@ export async function loadLastDatabasePath(): Promise<string | null> {
 // Owner read/write, for a vault this app is creating for the first time
 const NEW_VAULT_MODE = 0o600;
 
+// Same value, named for the other thing it protects: files written out of a
+// vault (attachments), which are as sensitive as the vault they came from
+const OWNER_ONLY_MODE = 0o600;
+
 // The mode the temp file must carry so the rename does not change who can
 // read the vault. An existing database keeps exactly the permissions it had;
 // a new one starts private. Windows is excluded: chmod there only toggles the
@@ -132,7 +136,21 @@ export async function saveAttachment(name: string, data: Uint8Array): Promise<{ 
     }
 
     try {
-        await fs.promises.writeFile(filePath, Buffer.from(data));
+        // An attachment out of a vault is as sensitive as the vault: it may be
+        // a private key or a recovery kit. At the umask default this would land
+        // 0644 and be readable by every user on the machine, so write it owner
+        // only. Windows is excluded for the same reason as atomicWrite: chmod
+        // there only toggles the read-only flag.
+        // The open mode is masked by the umask and ignored entirely when the
+        // file already exists, so the mode is also set explicitly, exactly as
+        // atomicWrite has to
+        const handle = await fs.promises.open(filePath, 'w', OWNER_ONLY_MODE);
+        try {
+            if (process.platform !== 'win32') await handle.chmod(OWNER_ONLY_MODE);
+            await handle.writeFile(Buffer.from(data));
+        } finally {
+            await handle.close();
+        }
         return { success: true, filePath };
     } catch (error) {
         console.error('Failed to save attachment:', error);
