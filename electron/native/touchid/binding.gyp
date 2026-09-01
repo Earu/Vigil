@@ -15,6 +15,8 @@
           "link_settings": {
             "libraries": [
               "-framework Security",
+              "-framework LocalAuthentication",
+              "-framework Foundation",
               "-framework CoreFoundation"
             ]
           }

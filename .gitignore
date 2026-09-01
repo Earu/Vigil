@@ -48,3 +48,12 @@ public
 
 # native addon build output (compiled per-platform, never committed)
 electron/native/touchid/build/
+
+# Signing material. The provisioning profile embeds the team name and the
+# certificate is private key material; neither belongs in a public repo.
+# CI restores the profile from the MAC_PROVISION_PROFILE secret.
+build/vigil.provisionprofile
+*.provisionprofile
+*.p12
+*.cer
+*.p8
