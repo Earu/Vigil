@@ -49,22 +49,41 @@ describe('the unix wrapper', () => {
     });
 });
 
-// electron-builder's electronFuses block is one setting for every platform, so
-// the split lives in an afterPack hook instead. Only the choice of binary is
-// tested here; flipping one needs a real packed app
-const { executableFor } = await import('../electron/build-fuses.cjs' as string);
+// The runAsNode fuse has to differ per platform, which package.json cannot
+// express, so it is computed in electron-builder.config.js. An afterPack hook
+// cannot do it: electron-builder applies its own electronFuses block after
+// afterPack runs and would flip the fuse straight back
+const loadConfig = async (argv: string[]) => {
+    const original = process.argv;
+    process.argv = ['node', 'electron-builder', ...argv];
+    vi.resetModules();
+    try {
+        return (await import('../electron-builder.config.js' as string)).default;
+    } finally {
+        process.argv = original;
+    }
+};
 
 describe('the runAsNode fuse', () => {
-    it('is turned off for macOS, on the binary inside the bundle', () => {
-        expect(executableFor('darwin', '/out', 'Vigil'))
-            .toBe('/out/Vigil.app/Contents/MacOS/Vigil');
+    it('is on when the build targets Windows, which needs it', async () => {
+        expect((await loadConfig(['--win'])).electronFuses.runAsNode).toBe(true);
+        expect((await loadConfig(['--windows'])).electronFuses.runAsNode).toBe(true);
     });
 
-    it('is turned off for Linux', () => {
-        expect(executableFor('linux', '/out', 'Vigil')).toBe('/out/vigil');
+    it('is off when the build targets macOS or Linux', async () => {
+        expect((await loadConfig(['--mac'])).electronFuses.runAsNode).toBe(false);
+        expect((await loadConfig(['--linux'])).electronFuses.runAsNode).toBe(false);
     });
 
-    it('is left as packed on Windows, which still needs it', () => {
-        expect(executableFor('win32', '/out', 'Vigil')).toBe(null);
+    it('is off for a mixed build, so the weaker setting never leaks across', async () => {
+        expect((await loadConfig(['--mac', '--linux'])).electronFuses.runAsNode).toBe(false);
+    });
+
+    it('leaves the other fuses alone', async () => {
+        const { electronFuses } = await loadConfig(['--mac']);
+        expect(electronFuses.enableNodeOptionsEnvironmentVariable).toBe(false);
+        expect(electronFuses.enableNodeCliInspectArguments).toBe(false);
+        expect(electronFuses.onlyLoadAppFromAsar).toBe(true);
+        expect(electronFuses.enableEmbeddedAsarIntegrityValidation).toBe(true);
     });
 });

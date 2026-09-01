@@ -6,10 +6,10 @@
 	"author": "Ryan",
 	"scripts": {
 		"dev": "vite",
-		"build": "tsc && vite build && electron-builder",
+		"build": "tsc && vite build && electron-builder --config electron-builder.config.js",
 		"preview": "vite preview",
 		"electron:dev": "node electron/build.mjs && node electron/copy-native-modules.mjs && concurrently \"vite\" \"cross-env NODE_ENV=development electron dist-electron/main.js --ozone-platform-hint=auto\"",
-		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder",
+		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder --config electron-builder.config.js",
 		"test": "vitest run"
 	},
 	"dependencies": {
@@ -26,7 +26,6 @@
 		"zxcvbn": "^4.4.2"
 	},
 	"devDependencies": {
-		"@electron/fuses": "^1.8.0",
 		"@types/qrcode": "^1.5.6",
 		"@types/react": "^18.3.17",
 		"@types/react-dom": "^18.3.5",
@@ -54,78 +53,6 @@
 		"tar-fs": "^2.1.5"
 	},
 	"main": "dist-electron/main.js",
-	"build": {
-		"appId": "earu.vigil.app",
-		"productName": "Vigil",
-		"directories": {
-			"output": "dist",
-			"buildResources": "build"
-		},
-		"files": [
-			"dist/**/*",
-			"dist-electron/**/*",
-			"package.json"
-		],
-		"asar": true,
-		"asarUnpack": [
-			"**/*.node"
-		],
-		"//electronFuses": "One setting for every platform, so runAsNode stays on for Windows, which needs it. electron/build-fuses.cjs turns it back off for macOS and Linux after each is packed.",
-		"afterPack": "electron/build-fuses.cjs",
-		"electronFuses": {
-			"runAsNode": true,
-			"enableCookieEncryption": true,
-			"enableNodeOptionsEnvironmentVariable": false,
-			"enableNodeCliInspectArguments": false,
-			"enableEmbeddedAsarIntegrityValidation": true,
-			"onlyLoadAppFromAsar": true,
-			"loadBrowserProcessSpecificV8Snapshot": false,
-			"grantFileProtocolExtraPrivileges": true
-		},
-		"extraMetadata": {
-			"main": "dist-electron/main.js"
-		},
-		"publish": {
-			"provider": "github",
-			"owner": "Earu",
-			"repo": "Vigil"
-		},
-		"mac": {
-			"target": [
-				"dmg",
-				"zip"
-			],
-			"icon": "build/icons/icon.icns",
-			"artifactName": "vigil-macos-${arch}-v${version}.${ext}",
-			"hardenedRuntime": true,
-			"entitlements": "build/entitlements.mac.plist",
-			"entitlementsInherit": "build/entitlements.mac.inherit.plist",
-			"provisioningProfile": "build/vigil.provisionprofile",
-			"notarize": true
-		},
-		"linux": {
-			"target": "AppImage",
-			"icon": "build/icons/icon.png",
-			"artifactName": "vigil-linux-${arch}-v${version}.${ext}",
-			"executableArgs": [
-				"--ozone-platform-hint=auto"
-			]
-		},
-		"win": {
-			"target": "nsis",
-			"icon": "build/icons/icon.ico",
-			"artifactName": "vigil-windows-${arch}-v${version}.${ext}"
-		},
-		"fileAssociations": [
-			{
-				"ext": "kdbx",
-				"name": "KeePass Database",
-				"description": "KeePass Password Database",
-				"role": "Editor",
-				"icon": "build/icons/icon"
-			}
-		]
-	},
 	"allowScripts": {
 		"electron@44.0.0": true,
 		"electron-winstaller@5.4.0": true,
