@@ -17,9 +17,11 @@ interface PasswordViewProps {
 	onDatabaseChange?: (database: Database) => void;
 	showInitialBreachReport?: boolean;
 	securityReportRequestId?: number;
+	// Owned by App so locking can see the edit form's state; see entryDirty there
+	entryDirty: React.MutableRefObject<boolean>;
 }
 
-export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId }: PasswordViewProps) => {
+export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId, entryDirty }: PasswordViewProps) => {
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -137,8 +139,9 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	}, [selectedGroup.id, searchQuery]);
 
 	// Set by EntryDetails while its edit form holds unsaved changes; a ref
-	// because it must be readable synchronously inside click handlers
-	const detailsDirty = useRef(false);
+	// because it must be readable synchronously inside click handlers. It lives
+	// in App rather than here because locking has to consult it too
+	const detailsDirty = entryDirty;
 	const handleDirtyChange = (dirty: boolean) => { detailsDirty.current = dirty; };
 
 	const confirmDiscardEdits = (): boolean => {

@@ -71,6 +71,15 @@ let server: net.Server | null = null;
 const sessions = new Map<string, Session>();
 const clients = new Set<net.Socket>();
 
+// Any local process can open this socket, so a client gets bounded room. The
+// largest real message is a passkey request, orders of magnitude under this;
+// a client that sends a megabyte without a newline is not speaking the
+// protocol and is dropped rather than buffered forever
+const MAX_MESSAGE_BYTES = 1024 * 1024;
+// Firefox and Chrome each hold one connection per browser; a handful of
+// browsers is the honest ceiling, and the rest is somebody looping connect()
+const MAX_CLIENTS = 32;
+
 // Unsolicited lock/unlock signals are plain JSON per the protocol, sent to
 // every connected proxy so the extension updates its state without polling
 function broadcastSignal(action: 'database-locked' | 'database-unlocked'): void {
@@ -344,26 +353,42 @@ export function startServer(): { success: boolean; error?: string } {
     try {
         removeSocketFile();
         server = net.createServer((socket) => {
+            if (clients.size >= MAX_CLIENTS) {
+                socket.destroy();
+                return;
+            }
             clients.add(socket);
             socket.on('close', () => clients.delete(socket));
             let buffer = '';
-            socket.on('data', async (chunk) => {
+            // One request at a time per connection. Framing below is synchronous,
+            // but handleEnvelope is not: without this chain a chunk arriving
+            // mid-await would start a second drain and let replies come back in
+            // a different order than the requests did
+            let pending: Promise<void> = Promise.resolve();
+            socket.on('data', (chunk) => {
                 buffer += chunk.toString('utf8');
+                if (buffer.length > MAX_MESSAGE_BYTES) {
+                    buffer = '';
+                    socket.destroy();
+                    return;
+                }
                 let newline;
                 while ((newline = buffer.indexOf('\n')) !== -1) {
                     const line = buffer.slice(0, newline);
                     buffer = buffer.slice(newline + 1);
                     if (!line.trim()) continue;
-                    let envelope: any;
-                    try {
-                        envelope = JSON.parse(line);
-                    } catch {
-                        continue;
-                    }
-                    const response = await handleEnvelope(envelope);
-                    if (!socket.destroyed) {
-                        socket.write(JSON.stringify(response) + '\n');
-                    }
+                    pending = pending.then(async () => {
+                        let envelope: any;
+                        try {
+                            envelope = JSON.parse(line);
+                        } catch {
+                            return;
+                        }
+                        const response = await handleEnvelope(envelope);
+                        if (!socket.destroyed) {
+                            socket.write(JSON.stringify(response) + '\n');
+                        }
+                    }).catch(() => { /* one bad request must not stall the rest */ });
                 }
             });
             socket.on('error', () => { /* client vanished; nothing to do */ });
@@ -428,6 +453,9 @@ process.stdin.on('data', (chunk) => {
     stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
     while (stdinBuffer.length >= 4) {
         const length = stdinBuffer.readUInt32LE(0);
+        // Native messaging caps a message at 1 MB; a longer one is a framing
+        // error, and honouring it would buffer for a length that never arrives
+        if (length > ${MAX_MESSAGE_BYTES}) process.exit(1);
         if (stdinBuffer.length < 4 + length) break;
         const message = stdinBuffer.slice(4, 4 + length).toString('utf8');
         stdinBuffer = stdinBuffer.slice(4 + length);

@@ -118,6 +118,7 @@ export class KeepassDatabaseService {
                 entries: group.entries.map(entry => ({
                     ...convertVersion(entry),
                     id: entry.uuid.toString(),
+                    previousParentGroup: entry.previousParentGroup?.toString(),
                     created: entry.times.creationTime as Date,
                     history: entry.history.map(convertVersion),
                 })),
@@ -490,6 +491,19 @@ export class KeepassDatabaseService {
         const bin = this.findRecycleBin(database.root);
         if (!bin) return false;
         return this.isGroupInHierarchy(group, bin);
+    }
+
+    // Where an entry sitting in the recycle bin goes when it is restored: the
+    // group it was moved out of, as long as that group is still there and is
+    // not itself in the bin. Anything else falls back to the root, which is
+    // where every restore used to land
+    static restoreTargetGroup(database: Database, entry: Entry): Group {
+        const previousId = entry.previousParentGroup;
+        if (!previousId || previousId === database.root.id) return database.root;
+
+        const previous = this.findGroupInDatabase(previousId, database.root);
+        if (!previous || this.isGroupInRecycleBin(database, previous)) return database.root;
+        return previous;
     }
 
     private static getOrCreateRecycleBin(root: Group): Group {

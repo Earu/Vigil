@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Background } from './components/Background';
 import { PasswordView } from './components/PasswordView';
 import * as kdbxweb from 'kdbxweb';
@@ -38,6 +38,10 @@ function App() {
 	const [passkeyConsent, setPasskeyConsent] = useState<{ request: PasskeyConsentRequest; resolve: (credentialId: string | null) => void } | null>(null);
 	const [setLoginConsent, setSetLoginConsent] = useState<{ request: SetLoginConsentRequest; resolve: (allowed: boolean) => void } | null>(null);
 	const [hardwareKeyTouchPending, setHardwareKeyTouchPending] = useState(false);
+	// True while EntryDetails holds unsaved edits. PasswordView reads it to
+	// guard navigation; locking reads it so a lock the user asked for does not
+	// throw those edits away without saying so
+	const entryDirty = useRef(false);
 
 	useEffect(() => {
 		const handleUpdateStatus = (status: { state: string; version?: string }) => {
@@ -56,7 +60,10 @@ function App() {
 	useEffect(() => {
 		const handleLockEvent = () => {
 			if (database) {
-				handleLock();
+				// Power events and the browser extension's lock-database: nobody
+				// is necessarily at the screen to answer a prompt, and a lock
+				// that waits on one is a lock that never happens
+				handleLock({ force: true });
 			}
 		};
 
@@ -92,7 +99,9 @@ function App() {
 
 		const duration = autoLockDuration * 60 * 1000;
 		const lock = () => {
-			handleLock();
+			// The user walked away, so this cannot stop to ask about unsaved
+			// edits either: a prompt here would leave the vault open all night
+			handleLock({ force: true });
 			(window as any).showToast?.({
 				message: 'Database was locked automatically',
 				type: 'warning',
@@ -208,7 +217,15 @@ function App() {
 		setShowInitialBreachReport(!!showBreachReport);
 	};
 
-	const handleLock = () => {
+	// force skips the unsaved-edits prompt, for locks that have to happen
+	// whatever the answer would be (idle timeout, suspend, screen lock)
+	const handleLock = (options?: { force?: boolean }) => {
+		if (!options?.force && entryDirty.current &&
+			!window.confirm('This entry has unsaved changes. Discard them and lock?')) {
+			return;
+		}
+		entryDirty.current = false;
+
 		// Anything the vault put in the clipboard goes now rather than at the
 		// end of its countdown
 		ClipboardService.clearNow();
@@ -251,7 +268,7 @@ function App() {
 		<>
 			<TitleBar
 				inPasswordView={true}
-				onLock={handleLock}
+				onLock={() => handleLock()}
 				searchQuery={searchQuery}
 				onSearch={setSearchQuery}
 				onOpenSettings={() => setShowSettings(true)}
@@ -263,6 +280,7 @@ function App() {
 				onDatabaseChange={handleDatabaseChange}
 				showInitialBreachReport={showInitialBreachReport}
 				securityReportRequestId={securityReportRequestId}
+				entryDirty={entryDirty}
 			/>
 		</>
 	) : (
