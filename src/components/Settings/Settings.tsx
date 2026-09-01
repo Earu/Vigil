@@ -722,7 +722,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 >
                                     Clear Cache
                                 </button>
-                                <p className="cache-help">Clears stored breach check results</p>
+                                <p className="cache-help">Clears security report cache</p>
                             </div>
                         </div>
                     </div>
