@@ -533,6 +533,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			password: version.password,
 			url: version.url,
 			notes: version.notes,
+			// Restoring a revision restores how its fields were protected too
+			protectedFields: version.protectedFields,
 			attachments: version.attachments,
 			expires: version.expires,
 			expiryTime: version.expiryTime,

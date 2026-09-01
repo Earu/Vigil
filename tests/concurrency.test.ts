@@ -157,3 +157,58 @@ describe('concurrent-change protection', () => {
         expect(allTitles(onDisk)).toContain('Shared');
     });
 });
+
+describe('overlapping saves', () => {
+    it('serializes them instead of interleaving their mutations', async () => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db0.setVersion(3);
+        const first = db0.createEntry(db0.getDefaultGroup());
+        first.fields.set('Title', 'One');
+        env.disk.bytes = Buffer.from(await db0.save());
+        env.disk.mtime = 500;
+
+        const db = await loadSaved(env);
+        Svc.setPath('/fake.kdbx');
+        await tick();
+
+        // Two edits fired without awaiting the first save, the way a quick
+        // second edit or a browser-integration write arriving mid-save does
+        const base = Svc.convertKdbxToDatabase(db);
+        const [withTwo] = Svc.saveEntry(base, { ...Svc.createNewEntry(), title: 'Two' }, base.root, true);
+        const [withThree] = Svc.saveEntry(withTwo, { ...Svc.createNewEntry(), title: 'Three' }, withTwo.root, true);
+
+        await Promise.all([Svc.saveDatabase(withTwo, db), Svc.saveDatabase(withThree, db)]);
+
+        // Two overlapping kdbxDb.save() calls regenerate the shared header
+        // salts under each other, so the file lands with a header from one
+        // save and a body encrypted under the other's key: loading it at all
+        // is the assertion that matters here
+        const saved = await loadSaved(env);
+        expect(allTitles(saved).sort()).toEqual(['One', 'Three', 'Two']);
+    });
+
+    it('keeps running after a save fails', async () => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db0.setVersion(3);
+        db0.createEntry(db0.getDefaultGroup()).fields.set('Title', 'Kept');
+        env.disk.bytes = Buffer.from(await db0.save());
+        const db = await loadSaved(env);
+        Svc.setPath('/fake.kdbx');
+        await tick();
+
+        const electron = (globalThis as any).window.electron;
+        const saveToFile = electron.saveToFile;
+        const saveFile = electron.saveFile;
+        electron.saveToFile = async () => ({ success: false, error: 'disk full' });
+        electron.saveFile = async () => ({ success: false, error: 'disk full' });
+        await expect(Svc.saveDatabase(Svc.convertKdbxToDatabase(db), db)).rejects.toThrow();
+        electron.saveToFile = saveToFile;
+        electron.saveFile = saveFile;
+
+        // A rejection must not leave the chain permanently broken
+        const database = Svc.convertKdbxToDatabase(db);
+        const [updated] = Svc.saveEntry(database, { ...Svc.createNewEntry(), title: 'After' }, database.root, true);
+        await Svc.saveDatabase(updated, db);
+        expect(allTitles(await loadSaved(env))).toContain('After');
+    });
+});

@@ -225,6 +225,7 @@ function App() {
 			return;
 		}
 		entryDirty.current = false;
+		window.electron?.setUnsavedChanges(false).catch(() => {});
 
 		// Anything the vault put in the clipboard goes now rather than at the
 		// end of its countdown

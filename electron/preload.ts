@@ -6,6 +6,7 @@ const api: IElectronAPI = {
 	minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
 	maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
 	closeWindow: () => ipcRenderer.invoke('close-window'),
+	setUnsavedChanges: (dirty: boolean) => ipcRenderer.invoke('set-unsaved-changes', dirty),
 	onMaximizeChange: (callback) => {
 		const wrapper = (_: unknown, maximized: boolean) => callback(maximized)
 		ipcRenderer.on('maximize-change', wrapper)

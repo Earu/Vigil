@@ -36,6 +36,9 @@ export interface IElectronAPI {
 	minimizeWindow: () => Promise<void>;
 	maximizeWindow: () => Promise<void>;
 	closeWindow: () => Promise<void>;
+	// Tells the main process whether an entry edit form holds unsaved changes,
+	// so closing the window can ask before discarding them
+	setUnsavedChanges: (dirty: boolean) => Promise<void>;
 	onMaximizeChange: (callback: (maximized: boolean) => void) => () => void;
 	saveFile: (data: Uint8Array, backup?: BackupOptions) => Promise<{ success: boolean; filePath?: string; error?: string }>;
 	saveToFile: (filePath: string, data: Uint8Array, backup?: BackupOptions) => Promise<{ success: boolean; error?: string }>;
