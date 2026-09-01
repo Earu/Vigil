@@ -3,7 +3,7 @@ import { CloseActionIcon, DownloadActionIcon } from '../../icons/actions/ActionI
 import { DarkThemeIcon, LightThemeIcon, SystemThemeIcon } from '../../icons/SettingsIcon';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import { ImportAuthIcon } from '../../icons/auth/AuthIcons';
-import { userSettingsService } from '../../services/UserSettingsService';
+import { userSettingsService, MIN_BACKUP_KEEP, MAX_BACKUP_KEEP } from '../../services/UserSettingsService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { ImportService } from '../../services/ImportService';
@@ -12,7 +12,7 @@ import { BrowserIntegrationService } from '../../services/BrowserIntegrationServ
 import { KeepassDatabaseService, KdfInfo } from '../../services/KeepassDatabaseService';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
-import { UpdateStatus } from '../../types/electron';
+import { UpdateStatus, BackupInfo } from '../../types/electron';
 import './Settings.css';
 
 interface SettingsProps {
@@ -27,6 +27,18 @@ interface SettingsProps {
 }
 
 export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLockEnabled, autoLockDuration, setAutoLockDuration, onDatabaseChange }: SettingsProps) {
+    const [backupOptions, setBackupOptions] = useState(() => userSettingsService.getBackupOptions());
+    const [backupInfo, setBackupInfo] = useState<BackupInfo | null>(null);
+
+    // Summary of what is on disk, refreshed each time the panel opens
+    useEffect(() => {
+        const vaultPath = KeepassDatabaseService.getPath();
+        if (!isOpen || !vaultPath || !window.electron) {
+            setBackupInfo(null);
+            return;
+        }
+        window.electron.getBackupInfo(vaultPath).then(setBackupInfo).catch(() => setBackupInfo(null));
+    }, [isOpen]);
     const { theme, setTheme } = useTheme();
     const [apiKey, setApiKey] = useState<string>(userSettingsService.getHibpApiKey() || '');
     const [showApiKey, setShowApiKey] = useState(false);
@@ -648,6 +660,56 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 />
                             </div>
                             <p className="auto-lock-help">When enabled, the database will automatically lock after the specified period of time</p>
+                        </div>
+                        <div className="backup-controls">
+                            <div className="auto-lock-toggle">
+                                <label htmlFor="backups-enabled">Keep backups before saving</label>
+                                <input
+                                    type="checkbox"
+                                    id="backups-enabled"
+                                    checked={backupOptions.enabled}
+                                    onChange={(e) => {
+                                        userSettingsService.setBackupsEnabled(e.target.checked);
+                                        setBackupOptions(userSettingsService.getBackupOptions());
+                                    }}
+                                />
+                            </div>
+                            <div className={`auto-lock-duration ${backupOptions.enabled ? 'enabled' : ''}`}>
+                                <label htmlFor="backup-keep">Copies to keep</label>
+                                <input
+                                    type="number"
+                                    id="backup-keep"
+                                    value={backupOptions.keep}
+                                    min={MIN_BACKUP_KEEP}
+                                    max={MAX_BACKUP_KEEP}
+                                    disabled={!backupOptions.enabled}
+                                    onChange={(e) => {
+                                        userSettingsService.setBackupKeep(parseInt(e.target.value) || 5);
+                                        setBackupOptions(userSettingsService.getBackupOptions());
+                                    }}
+                                />
+                            </div>
+                            <p className="auto-lock-help">Keeps recent copies of your database so you can go back if a save goes wrong, at most one every 30 minutes</p>
+                            {backupInfo && (
+                                <div className="backup-status">
+                                    <span>
+                                        {backupInfo.count === 0
+                                            ? 'No backups yet'
+                                            : `${backupInfo.count} ${backupInfo.count === 1 ? 'copy' : 'copies'}, `
+                                              + `${KeepassDatabaseService.formatAttachmentSize(backupInfo.totalBytes)}`
+                                              + `${backupInfo.newest ? `, newest ${new Date(backupInfo.newest).toLocaleString()}` : ''}`}
+                                    </span>
+                                    <button
+                                        className="clear-cache-button"
+                                        onClick={() => {
+                                            const vaultPath = KeepassDatabaseService.getPath();
+                                            if (vaultPath) window.electron?.revealBackups(vaultPath);
+                                        }}
+                                    >
+                                        Open Folder
+                                    </button>
+                                </div>
+                            )}
                         </div>
                         {contentProtection?.supported && (
                             <div className="content-protection-controls">

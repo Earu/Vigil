@@ -15,14 +15,29 @@ export interface HardwareKeyInfo {
 	slot2Configured: boolean;
 }
 
+export interface BackupOptions {
+	enabled: boolean;
+	keep: number;
+}
+
+export interface BackupInfo {
+	directory: string;
+	count: number;
+	/** ISO timestamp of the newest backup, null when there are none */
+	newest: string | null;
+	totalBytes: number;
+}
+
 export interface IElectronAPI {
 	focusWindow: () => Promise<void>;
 	minimizeWindow: () => Promise<void>;
 	maximizeWindow: () => Promise<void>;
 	closeWindow: () => Promise<void>;
 	onMaximizeChange: (callback: (maximized: boolean) => void) => () => void;
-	saveFile: (data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
-	saveToFile: (filePath: string, data: Uint8Array) => Promise<{ success: boolean; error?: string }>;
+	saveFile: (data: Uint8Array, backup?: BackupOptions) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+	saveToFile: (filePath: string, data: Uint8Array, backup?: BackupOptions) => Promise<{ success: boolean; error?: string }>;
+	getBackupInfo: (filePath: string) => Promise<BackupInfo>;
+	revealBackups: (filePath: string) => Promise<{ success: boolean; error?: string }>;
 	saveAttachment: (name: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
 	getFilePath: (path: string) => Promise<string | null>;
 	openFile: () => Promise<{ filePath: string; canceled: boolean }>;

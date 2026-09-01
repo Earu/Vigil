@@ -1,5 +1,6 @@
 import * as kdbxweb from 'kdbxweb';
 import { Database, Group, Entry, EntryVersion, Attachment, CustomField } from '../types/database';
+import { userSettingsService } from './UserSettingsService';
 
 interface SaveResult {
     success: boolean;
@@ -31,20 +32,45 @@ export class KeepassDatabaseService {
     static readonly STANDARD_FIELDS = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
 
     private static currentPath: string | undefined;
-    // mtime of the database file when we last read or wrote it; used to
-    // detect edits made outside Vigil before overwriting the file
+    // mtime of the database file when we last read or wrote it; the cheap
+    // first check for edits made outside Vigil before overwriting the file
     private static lastKnownMtimeMs: number | undefined;
+    // Digest of those same bytes. A changed mtime is a hint, not evidence:
+    // sync clients, backup tools and editors all touch a file without
+    // changing it, and merging on that alone means merging the file with
+    // itself and telling the user their database changed when it did not
+    private static lastKnownHash: string | undefined;
+    // Bumped by every setPath, so a slow stat belonging to a previous vault
+    // cannot land on the current one
+    private static pathGeneration = 0;
+
+    private static async hashBytes(bytes: Uint8Array): Promise<string> {
+        const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer);
+        return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
+    }
 
     static setPath(path: string | undefined) {
+        const generation = ++this.pathGeneration;
         this.currentPath = path;
         this.lastKnownMtimeMs = undefined;
-        if (path && window.electron) {
-            window.electron.statFile(path).then(stat => {
-                if (stat.success && this.currentPath === path) {
-                    this.lastKnownMtimeMs = stat.mtimeMs;
-                }
-            }).catch(() => {});
-        }
+        this.lastKnownHash = undefined;
+        if (!path || !window.electron) return;
+
+        // A save can complete before these land. When it does its baseline is
+        // the newer one, so these only ever fill in a blank, never overwrite
+        window.electron.statFile(path).then(stat => {
+            if (stat.success && this.pathGeneration === generation && this.lastKnownMtimeMs === undefined) {
+                this.lastKnownMtimeMs = stat.mtimeMs;
+            }
+        }).catch(() => {});
+
+        window.electron.readFile(path).then(async result => {
+            if (!result.success || !result.data) return;
+            const hash = await this.hashBytes(new Uint8Array(result.data));
+            if (this.pathGeneration === generation && this.lastKnownHash === undefined) {
+                this.lastKnownHash = hash;
+            }
+        }).catch(() => {});
     }
 
     static getPath(): string | undefined {
@@ -804,13 +830,28 @@ export class KeepassDatabaseService {
         kdbxGroup.groups = updatedGroups;
     }
 
-    private static async mergeExternalChanges(filePath: string, kdbxDb: kdbxweb.Kdbx): Promise<boolean> {
+    // A different mtime only means something touched the file. Read it and
+    // compare the bytes against what we last wrote before believing the
+    // contents actually changed, so a touch alone never triggers a merge or
+    // the notice that goes with it
+    private static async readIfChanged(filePath: string): Promise<{ changed: boolean; data?: Uint8Array }> {
+        const result = await window.electron!.readFile(filePath);
+        // Unreadable: assume the worst and let the merge path handle it
+        if (!result.success || !result.data) return { changed: true };
+
+        const bytes = new Uint8Array(result.data);
+        if (this.lastKnownHash !== undefined && await this.hashBytes(bytes) === this.lastKnownHash) {
+            return { changed: false };
+        }
+        return { changed: true, data: bytes };
+    }
+
+    private static async mergeExternalChanges(kdbxDb: kdbxweb.Kdbx, data: Uint8Array | undefined): Promise<boolean> {
         try {
-            const result = await window.electron!.readFile(filePath);
-            if (!result.success || !result.data) return false;
+            if (!data) return false;
 
             const remoteDb = await kdbxweb.Kdbx.load(
-                new Uint8Array(result.data).buffer,
+                data.slice().buffer,
                 kdbxDb.credentials
             );
             kdbxDb.merge(remoteDb);
@@ -867,8 +908,16 @@ export class KeepassDatabaseService {
             const pathBeforeSave = this.getPath();
             if (pathBeforeSave && window.electron && this.lastKnownMtimeMs !== undefined) {
                 const stat = await window.electron.statFile(pathBeforeSave);
-                if (stat.success && stat.mtimeMs !== undefined && stat.mtimeMs !== this.lastKnownMtimeMs) {
-                    const merged = await this.mergeExternalChanges(pathBeforeSave, kdbxDb);
+                // mtime is the cheap filter; the bytes are what decide
+                const touched = stat.success && stat.mtimeMs !== undefined && stat.mtimeMs !== this.lastKnownMtimeMs;
+                const external = touched ? await this.readIfChanged(pathBeforeSave) : { changed: false };
+                if (touched && !external.changed) {
+                    // Same bytes under a new timestamp: nothing to merge, just
+                    // stop re-reading the file on every save from here on
+                    this.lastKnownMtimeMs = stat.mtimeMs;
+                }
+                if (external.changed) {
+                    const merged = await this.mergeExternalChanges(kdbxDb, external.data);
                     if (!merged) {
                         const overwrite = window.confirm(
                             'The database file was modified outside Vigil and the changes could not be merged. Overwrite them with your version?'
@@ -888,20 +937,22 @@ export class KeepassDatabaseService {
             const arrayBuffer = await kdbxDb.save();
 
             let result: SaveResult | undefined;
+            // Copies kept before the file is overwritten; see electron/src/backups.ts
+            const backup = userSettingsService.getBackupOptions();
             const currentPath = this.getPath();
             if (currentPath) {
                 // If we have a path, save directly to it
-                result = await window.electron?.saveToFile(currentPath, new Uint8Array(arrayBuffer));
+                result = await window.electron?.saveToFile(currentPath, new Uint8Array(arrayBuffer), backup);
                 if (!result?.success) {
                     // If direct save fails, fall back to save dialog
-                    result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
+                    result = await window.electron?.saveFile(new Uint8Array(arrayBuffer), backup);
                     if (result?.success && result.filePath) {
                         this.setPath(result.filePath);
                     }
                 }
             } else {
                 // If no path, use save dialog
-                result = await window.electron?.saveFile(new Uint8Array(arrayBuffer));
+                result = await window.electron?.saveFile(new Uint8Array(arrayBuffer), backup);
                 if (result?.success && result.filePath) {
                     this.setPath(result.filePath);
                 }
@@ -911,7 +962,10 @@ export class KeepassDatabaseService {
                 throw new Error(result?.error || 'Failed to save database');
             }
 
-            // Refresh the conflict-detection baseline to the file we just wrote
+            // Refresh the conflict-detection baseline to the file we just
+            // wrote. The hash comes from the bytes rather than from re-reading
+            // the file, so it is exactly what landed
+            this.lastKnownHash = await this.hashBytes(new Uint8Array(arrayBuffer));
             const savedPath = this.getPath();
             if (savedPath && window.electron) {
                 const stat = await window.electron.statFile(savedPath);

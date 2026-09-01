@@ -11,8 +11,10 @@ const api: IElectronAPI = {
 		ipcRenderer.on('maximize-change', wrapper)
 		return () => { ipcRenderer.off('maximize-change', wrapper) }
 	},
-	saveFile: (data) => ipcRenderer.invoke('save-file', data),
-	saveToFile: (filePath, data) => ipcRenderer.invoke('save-to-file', filePath, data),
+	saveFile: (data, backup) => ipcRenderer.invoke('save-file', data, backup),
+	saveToFile: (filePath, data, backup) => ipcRenderer.invoke('save-to-file', filePath, data, backup),
+	getBackupInfo: (filePath) => ipcRenderer.invoke('get-backup-info', filePath),
+	revealBackups: (filePath) => ipcRenderer.invoke('reveal-backups', filePath),
 	saveAttachment: (name, data) => ipcRenderer.invoke('save-attachment', name, data),
 	getFilePath: (path) => ipcRenderer.invoke('get-file-path', path),
 	openFile: () => ipcRenderer.invoke('open-file'),

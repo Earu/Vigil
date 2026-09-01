@@ -66,6 +66,42 @@ describe('concurrent-change protection', () => {
         expect(env.toasts.some(t => /merged/i.test(t))).toBe(false);
     });
 
+    it('ignores a new timestamp when the bytes are unchanged', async () => {
+        kdbxDb = await loadSaved(env);
+        Svc.setPath('/fake.kdbx');
+        await tick();
+
+        // What a sync mount does: the file is uploaded and its timestamp comes
+        // back changed, or is reported at a different precision, while the
+        // contents are exactly what we wrote. Merging on that alone means
+        // merging the file with itself and telling the user it changed
+        env.disk.mtime += 50;
+
+        env.toasts.length = 0;
+        const database = Svc.convertKdbxToDatabase(kdbxDb);
+        const shared = database.root.entries.find(e => e.title === 'Shared')!;
+        const [updated] = Svc.saveEntry(database, { ...shared, notes: 'local only' }, database.root, false);
+        await Svc.saveDatabase(updated, kdbxDb);
+
+        expect(env.toasts.some(t => /merged/i.test(t))).toBe(false);
+        expect(env.toasts).toContain('Database saved successfully');
+        expect(env.confirm.calls).toBe(0);
+    });
+
+    it('keeps ignoring it save after save', async () => {
+        // The touched timestamp is adopted as the new baseline, so a mount
+        // that does this on every save does not cost a re-read every time
+        for (let i = 0; i < 3; i++) {
+            env.disk.mtime += 50;
+            env.toasts.length = 0;
+            const database = Svc.convertKdbxToDatabase(kdbxDb);
+            const shared = database.root.entries.find(e => e.title === 'Shared')!;
+            const [updated] = Svc.saveEntry(database, { ...shared, notes: `pass ${i}` }, database.root, false);
+            await Svc.saveDatabase(updated, kdbxDb);
+            expect(env.toasts.some(t => /merged/i.test(t))).toBe(false);
+        }
+    });
+
     it('resolves a same-entry conflict to the newer edit', async () => {
         const remote = await loadSaved(env);
         const rShared = remote.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'Shared')!;
