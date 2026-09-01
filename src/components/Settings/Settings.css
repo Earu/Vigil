@@ -269,7 +269,8 @@
     color: var(--text-muted);
 }
 
-.auto-lock-controls {
+.auto-lock-controls,
+.content-protection-controls {
     display: flex;
     flex-direction: column;
     gap: 0.75rem;

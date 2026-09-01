@@ -23,6 +23,7 @@ import {
     disableBiometrics
 } from './biometrics';
 import { checkEmailBreaches } from './hibp';
+import { isSupported as isContentProtectionSupported, isContentProtectionEnabled, setContentProtectionEnabled } from './content-protection';
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
 import path from 'path';
 
@@ -179,6 +180,16 @@ export function setupIpcHandlers(): void {
     // HIBP handlers
     ipcMain.handle('check-email-breaches', async (_, email: string, apiKey: string) => {
         return await checkEmailBreaches(email, apiKey);
+    });
+
+    // Screen capture protection
+    ipcMain.handle('get-content-protection', () => ({
+        supported: isContentProtectionSupported(),
+        enabled: isContentProtectionEnabled()
+    }));
+
+    ipcMain.handle('set-content-protection', (_, enabled: boolean) => {
+        return setContentProtectionEnabled(enabled);
     });
 
     // Utility handlers

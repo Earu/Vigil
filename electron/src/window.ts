@@ -2,6 +2,7 @@ import { BrowserWindow, app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { handleFileOpen } from './file-operations';
+import { applyContentProtection } from './content-protection';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
@@ -91,6 +92,10 @@ export function createWindow(startupFile?: string) {
             preload: path.join(__dirname, 'preload.js')
         }
     });
+
+    // Applied before anything is rendered, so the vault is never briefly
+    // capturable while the renderer boots
+    applyContentProtection(win);
 
     // Set security-related headers including CSP
     win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
