@@ -42,7 +42,7 @@ vi.mock('../electron/src/window', () => ({
     onVaultWindowsChanged: () => {},
 }));
 
-const { handleDecryptedMessage, setupBrowserIntegration } =
+const { handleDecryptedMessage, handleEnvelope, setupBrowserIntegration } =
     await import('../electron/src/browser-integration');
 const Session = () => ({
     clientPublicKey: nacl.box.keyPair().publicKey,
@@ -139,5 +139,54 @@ describe('what sets the association flag', () => {
         const totp = await handleDecryptedMessage('get-totp', { uuid: 'abc' }, session);
 
         expect(totp.errorCode).toBe(ERROR_ASSOCIATION_FAILED);
+    });
+});
+
+describe('session scope', () => {
+    const handshake = (clientID: string) => ({
+        action: 'change-public-keys',
+        clientID,
+        publicKey: Buffer.from(nacl.box.keyPair().publicKey).toString('base64'),
+        nonce: Buffer.from(nacl.randomBytes(24)).toString('base64'),
+    });
+
+    it('gives each connection its own sessions', async () => {
+        const connectionA = new Map<string, any>();
+        const connectionB = new Map<string, any>();
+
+        await handleEnvelope(handshake('shared-id'), connectionA);
+        connectionA.get('shared-id')!.associated = true;
+
+        // Same clientID over a different socket must not inherit the standing
+        // the first connection earned
+        await handleEnvelope(handshake('shared-id'), connectionB);
+        expect(connectionB.get('shared-id')!.associated).toBe(false);
+        expect(connectionA.get('shared-id')!.associated).toBe(true);
+    });
+
+    it('caps how many sessions one connection can open', async () => {
+        const sessions = new Map<string, any>();
+        for (let i = 0; i < 200; i++) {
+            await handleEnvelope(handshake(`client-${i}`), sessions);
+        }
+        expect(sessions.size).toBeLessThanOrEqual(32);
+        // The most recent handshakes are the ones kept
+        expect(sessions.has('client-199')).toBe(true);
+        expect(sessions.has('client-0')).toBe(false);
+    });
+
+    it('re-handshaking one clientID replaces it rather than filling the cap', async () => {
+        const sessions = new Map<string, any>();
+        for (let i = 0; i < 200; i++) {
+            await handleEnvelope(handshake('steady'), sessions);
+        }
+        expect(sessions.size).toBe(1);
+    });
+
+    it('refuses an encrypted message on a connection that never handshook', async () => {
+        const result = await handleEnvelope(
+            { action: 'get-logins', clientID: 'unknown', message: 'x', nonce: 'y' },
+            new Map());
+        expect(result.errorCode).toBe(String(2));
     });
 });

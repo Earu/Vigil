@@ -34,12 +34,12 @@ A modern, secure password manager with a beautiful user interface, built using E
 | Multiple vaults | Each database opens in its own window |
 | Large vaults | Virtualized entry list, fast unlock, search and save with thousands of entries |
 | Safe saves | Atomic writes, external changes to the file are merged, not clobbered |
-| Auto-updates | Self-updating builds on Windows and Linux |
+| Auto-updates | Self-updating builds on Windows, macOS and Linux |
 | Cross-platform | Windows, macOS, Linux |
 
 ## Download
 
-Grab the latest installer from the [releases page](https://github.com/Earu/Vigil/releases): Windows installer (x64), Linux AppImage (x64) or macOS DMG (Apple Silicon). The Windows and Linux builds update themselves when a new release is published.
+Grab the latest installer from the [releases page](https://github.com/Earu/Vigil/releases): Windows installer (x64), Linux AppImage (x64) or macOS DMG (Apple Silicon). The builds update themselves when a new release is published.
 
 ## Development
 

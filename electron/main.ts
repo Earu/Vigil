@@ -4,6 +4,7 @@ import { setupIpcHandlers } from './src/ipc';
 import { setupAutoUpdater } from './src/updater';
 import { setupBrowserIntegration } from './src/browser-integration';
 import { handleFileOpen } from './src/file-operations';
+import { clearOnQuit } from './src/clipboard';
 import path from 'path';
 
 declare global {
@@ -90,6 +91,22 @@ app.whenReady().then(() => {
     ["suspend", "lock-screen", "unlock-screen", "resume"].forEach(evName => {
         powerMonitor.on(evName as any, triggerLock);
     });
+});
+
+// A secret copied out of the vault is cleared when its countdown ends, but the
+// countdown lives in a renderer that quitting destroys, so the last clear has
+// to happen here. before-quit is synchronous, so the quit is held back for the
+// one async clear and then re-issued
+let clipboardClearedOnQuit = false;
+app.on('before-quit', (event) => {
+    if (clipboardClearedOnQuit) return;
+    event.preventDefault();
+    clearOnQuit()
+        .catch(error => console.error('Failed to clear the clipboard on quit:', error))
+        .finally(() => {
+            clipboardClearedOnQuit = true;
+            app.quit();
+        });
 });
 
 app.on('window-all-closed', () => {

@@ -68,7 +68,6 @@ const incrementNonce = (nonce: Uint8Array): Uint8Array => {
 };
 
 let server: net.Server | null = null;
-const sessions = new Map<string, Session>();
 const clients = new Set<net.Socket>();
 
 // Any local process can open this socket, so a client gets bounded room. The
@@ -79,6 +78,13 @@ const MAX_MESSAGE_BYTES = 1024 * 1024;
 // Firefox and Chrome each hold one connection per browser; a handful of
 // browsers is the honest ceiling, and the rest is somebody looping connect()
 const MAX_CLIENTS = 32;
+// Sessions belong to the connection that opened them, so they die with it and
+// cannot be reached by clientID from a second connection: an association is
+// something a client earned on the socket it earned it on. Within one
+// connection the clientID is still whatever the client says, so the count is
+// capped too, and the oldest goes first once it is reached. A real extension
+// uses a handful; the rest is somebody sending change-public-keys in a loop
+const MAX_SESSIONS_PER_CLIENT = 32;
 
 // Unsolicited lock/unlock signals are plain JSON per the protocol, sent to
 // every connected proxy so the extension updates its state without polling
@@ -281,7 +287,7 @@ function errorResponse(action: string, errorCode: number, nonce?: Uint8Array): a
     };
 }
 
-async function handleEnvelope(envelope: any): Promise<any> {
+export async function handleEnvelope(envelope: any, sessions: Map<string, Session>): Promise<any> {
     const action = envelope.action;
     const clientId = envelope.clientID ?? '';
 
@@ -290,6 +296,10 @@ async function handleEnvelope(envelope: any): Promise<any> {
             return errorResponse(action, ERROR_CANNOT_DECRYPT);
         }
         const keyPair = nacl.box.keyPair();
+        // Insertion order is oldest first, so the first key is the one to drop
+        while (sessions.size >= MAX_SESSIONS_PER_CLIENT && !sessions.has(clientId)) {
+            sessions.delete(sessions.keys().next().value as string);
+        }
         // A fresh handshake starts unassociated, so a client cannot inherit
         // the standing of whoever held this clientID before it
         sessions.set(clientId, { clientPublicKey: unb64(envelope.publicKey), keyPair, associated: false });
@@ -358,7 +368,12 @@ export function startServer(): { success: boolean; error?: string } {
                 return;
             }
             clients.add(socket);
-            socket.on('close', () => clients.delete(socket));
+            // Scoped to this connection and dropped with it
+            const sessions = new Map<string, Session>();
+            socket.on('close', () => {
+                clients.delete(socket);
+                sessions.clear();
+            });
             let buffer = '';
             // One request at a time per connection. Framing below is synchronous,
             // but handleEnvelope is not: without this chain a chunk arriving
@@ -384,7 +399,7 @@ export function startServer(): { success: boolean; error?: string } {
                         } catch {
                             return;
                         }
-                        const response = await handleEnvelope(envelope);
+                        const response = await handleEnvelope(envelope, sessions);
                         if (!socket.destroyed) {
                             socket.write(JSON.stringify(response) + '\n');
                         }
@@ -434,7 +449,6 @@ export function stopServer(): void {
     }
     for (const socket of clients) socket.destroy();
     clients.clear();
-    sessions.clear();
     removeSocketFile();
 }
 

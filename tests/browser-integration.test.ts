@@ -217,3 +217,36 @@ describe('set-login', () => {
         expect(entry.history.length).toBe(1);
     });
 });
+
+describe('get-totp', () => {
+    it('refuses a code from an entry in the recycle bin', async () => {
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db.setVersion(3);
+        const bin = db.createGroup(db.getDefaultGroup(), 'Recycle Bin');
+        db.meta.recycleBinUuid = bin.uuid;
+        db.meta.recycleBinEnabled = true;
+
+        const entry = db.createEntry(bin);
+        entry.fields.set('Title', 'Deleted');
+        entry.fields.set('otp', 'otpauth://totp/x?secret=JBSWY3DPEHPK3PXP');
+        const uuid = [...kdbxweb.ByteUtils.base64ToBytes(entry.uuid.id)]
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+        const ctx: any = { database: {}, kdbxDb: db, saveDatabase: async () => {}, requestPairing: async () => null };
+        expect(await Svc.handleRequest('get-totp', { uuid }, ctx)).toEqual({ errorCode: 15 });
+    });
+
+    it('still serves one from a live entry', async () => {
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db.setVersion(3);
+        const entry = db.createEntry(db.getDefaultGroup());
+        entry.fields.set('Title', 'Live');
+        entry.fields.set('otp', 'otpauth://totp/x?secret=JBSWY3DPEHPK3PXP');
+        const uuid = [...kdbxweb.ByteUtils.base64ToBytes(entry.uuid.id)]
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+        const ctx: any = { database: {}, kdbxDb: db, saveDatabase: async () => {}, requestPairing: async () => null };
+        const result = await Svc.handleRequest('get-totp', { uuid }, ctx);
+        expect(result.totp).toMatch(/^\d{6}$/);
+    });
+});
