@@ -54,11 +54,13 @@ class UserSettingsService {
             }
         } catch { /* storage unavailable; use defaults */ }
 
-        // Default settings
+        // Defaults for a fresh install only: anything already in storage is
+        // returned above untouched, so this never overrides an existing choice
         return {
             theme: 'dark',
             hibpApiKey: undefined,
-            autoLockEnabled: false,
+            // A vault that never locks is the wrong default for a password manager
+            autoLockEnabled: true,
             autoLockDuration: 20
         };
     }
