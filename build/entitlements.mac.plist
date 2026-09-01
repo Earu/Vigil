@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Signing entitlements for the macOS build.
+     Team HYFL5TVM3Y. The identifier below must stay in step with
+     package.json > build.appId: the biometry-gated keychain derives its
+     default access group from application-identifier, so a mismatch means
+     errSecMissingEntitlement and biometric unlock silently degrades to the
+     prompt-only fallback. com.vigil.app is registered to another team and
+     cannot be used; earu.vigil.app is this project's. -->
+<plist version="1.0">
+<dict>
+	<!-- Data protection keychain access (Touch ID gated items). The default
+	     keychain access group is derived from application-identifier, so both
+	     keys have to be present and agree -->
+	<key>com.apple.application-identifier</key>
+	<string>HYFL5TVM3Y.earu.vigil.app</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>HYFL5TVM3Y.earu.vigil.app</string>
+	</array>
+	<!-- Electron under hardened runtime -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<!-- Keeps ELECTRON_RUN_AS_NODE working for the browser-integration proxy -->
+	<key>com.apple.security.cs.allow-dyld-environment-variables</key>
+	<true/>
+</dict>
+</plist>

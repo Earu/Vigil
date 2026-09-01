@@ -16,6 +16,7 @@ import {
 } from './file-operations';
 import {
     isBiometricsAvailable,
+    getBiometricsInfo,
     hasBiometricsEnabled,
     enableBiometrics,
     getBiometricPassword,
@@ -153,6 +154,10 @@ export function setupIpcHandlers(): void {
     // Biometric handlers
     ipcMain.handle('is-biometrics-available', async () => {
         return await isBiometricsAvailable();
+    });
+
+    ipcMain.handle('get-biometrics-info', async () => {
+        return await getBiometricsInfo();
     });
 
     ipcMain.handle('has-biometrics-enabled', async (_, dbPath: string) => {

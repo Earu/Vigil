@@ -13,16 +13,6 @@ interface AuthenticationViewProps {
     onBreachCheckComplete: () => void;
 }
 
-function triggerBiometricUnlock() {
-    const passwordForm = document.querySelector('.password-form') as HTMLElement;
-    if (passwordForm) {
-        const biometricButton = passwordForm.querySelector('.biometric-unlock-button') as HTMLElement;
-        if (biometricButton) {
-            biometricButton.click();
-        }
-    }
-}
-
 export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: AuthenticationViewProps) => {
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [isDragging, setIsDragging] = useState(false);
@@ -46,7 +36,6 @@ export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: Au
 
                     if (await KeepassDatabaseService.checkBiometricsForFile(data.path)) {
                         setInitialBiometricsEnabled(true);
-                        setTimeout(() => triggerBiometricUnlock(), 100);
                     }
                 } catch (err) {
                     setError('Failed to open file');
@@ -64,10 +53,6 @@ export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: Au
                     setSelectedFile(result.file);
                     setDatabasePath(result.databasePath);
                     setInitialBiometricsEnabled(result.biometricsEnabled);
-
-                    if (result.biometricsEnabled) {
-                        setTimeout(() => triggerBiometricUnlock(), 100);
-                    }
                 }
             };
 
