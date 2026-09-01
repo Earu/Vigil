@@ -26,6 +26,10 @@ export interface EntryVersion {
 
 export interface Entry {
 	id: string;
+	// Group this entry sat in before it was moved, as kdbx records it. Set on
+	// the way into the recycle bin, which is what makes restoring put an entry
+	// back where it came from instead of dropping it at the root
+	previousParentGroup?: string;
 	title: string;
 	username: string;
 	password: string | kdbxweb.ProtectedValue;

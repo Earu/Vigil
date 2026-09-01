@@ -180,3 +180,89 @@ describe('recycle bin', () => {
         });
     });
 });
+
+describe('restoring to the original group', () => {
+    // Deleting an entry records the group it came out of. Restore used to
+    // ignore that and drop everything at the root, which on a vault with any
+    // structure made the bin a one-way trip.
+    //
+    // kdbx only writes previousParentGroup to the file at 4.1, so a reopened
+    // 4.0 vault has nothing to go on and keeps the old root fallback. Within a
+    // session the field is on the in-memory object either way, and App re-reads
+    // the model from that after every save, which is the path a user takes when
+    // they delete something and immediately want it back
+    const vaultWithGroups = async (minor = 0) => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Structured');
+        db0.setVersion(4);
+        // previousParentGroup is a 4.1 field, so the version is the point of
+        // this fixture. AES rather than the Argon2 default only because the
+        // test environment has no argon2 binding
+        db0.header.versionMinor = minor;
+        db0.header.setKdf(kdbxweb.Consts.KdfId.Aes);
+        const work = db0.createGroup(db0.getDefaultGroup(), 'Work');
+        const e = db0.createEntry(work);
+        e.fields.set('Title', 'Payroll');
+        e.fields.set('Password', kdbxweb.ProtectedValue.fromString('pw'));
+        db0.createGroup(db0.getDefaultGroup(), 'Personal');
+        return db0;
+    };
+
+    const trashedEntry = (database: ReturnType<typeof Svc.convertKdbxToDatabase>) =>
+        Svc.findRecycleBin(database.root)!.entries.find(e => e.title === 'Payroll')!;
+
+    it('sends a just-deleted entry back to the group it came from', async () => {
+        const kdbxDb = await vaultWithGroups();
+        const database = Svc.convertKdbxToDatabase(kdbxDb);
+        const work = database.root.groups.find(g => g.name === 'Work')!;
+        await Svc.saveDatabase(Svc.removeEntry(database, work.entries[0]), kdbxDb);
+
+        // exactly what App does after a save: re-read from the live kdbx
+        const after = Svc.convertKdbxToDatabase(kdbxDb);
+        const trashed = trashedEntry(after);
+        expect(trashed.previousParentGroup).toBe(work.id);
+        expect(Svc.restoreTargetGroup(after, trashed).name).toBe('Work');
+    });
+
+    it('still knows the group after reopening a 4.1 vault', async () => {
+        const kdbxDb = await vaultWithGroups(1);
+        const database = Svc.convertKdbxToDatabase(kdbxDb);
+        const work = database.root.groups.find(g => g.name === 'Work')!;
+        await Svc.saveDatabase(Svc.removeEntry(database, work.entries[0]), kdbxDb);
+
+        const after = Svc.convertKdbxToDatabase(await loadSaved(env));
+        expect(Svc.restoreTargetGroup(after, trashedEntry(after)).name).toBe('Work');
+    });
+
+    it('falls back to the root after reopening a 4.0 vault, which cannot store it', async () => {
+        const kdbxDb = await vaultWithGroups(0);
+        const database = Svc.convertKdbxToDatabase(kdbxDb);
+        const work = database.root.groups.find(g => g.name === 'Work')!;
+        await Svc.saveDatabase(Svc.removeEntry(database, work.entries[0]), kdbxDb);
+
+        const after = Svc.convertKdbxToDatabase(await loadSaved(env));
+        expect(trashedEntry(after).previousParentGroup).toBeUndefined();
+        expect(Svc.restoreTargetGroup(after, trashedEntry(after)).id).toBe(after.root.id);
+    });
+
+    it('falls back to the root when the original group is itself in the bin', async () => {
+        const kdbxDb = await vaultWithGroups(1);
+        let database = Svc.convertKdbxToDatabase(kdbxDb);
+        const work = database.root.groups.find(g => g.name === 'Work')!;
+        await Svc.saveDatabase(Svc.removeEntry(database, work.entries[0]), kdbxDb);
+
+        database = Svc.convertKdbxToDatabase(kdbxDb);
+        const staleWork = database.root.groups.find(g => g.name === 'Work')!;
+        await Svc.saveDatabase(Svc.removeGroup(database, staleWork), kdbxDb);
+
+        const after = Svc.convertKdbxToDatabase(kdbxDb);
+        expect(Svc.restoreTargetGroup(after, trashedEntry(after)).id).toBe(after.root.id);
+    });
+
+    it('falls back to the root for an entry that never moved', async () => {
+        const kdbxDb = await vaultWithGroups();
+        const database = Svc.convertKdbxToDatabase(kdbxDb);
+        const fresh = database.root.groups.find(g => g.name === 'Work')!.entries[0];
+        expect(fresh.previousParentGroup).toBeUndefined();
+        expect(Svc.restoreTargetGroup(database, fresh).id).toBe(database.root.id);
+    });
+});

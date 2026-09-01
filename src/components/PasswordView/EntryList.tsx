@@ -68,11 +68,13 @@ export const EntryList = ({
 		return () => observer.disconnect();
 	}, []);
 
+	// Keyed on the group id, not the object: every save rebuilds the model, so
+	// depending on identity here sent the list back to the top after each edit
 	useLayoutEffect(() => {
 		const el = entriesRef.current;
 		if (el) el.scrollTop = 0;
 		setScrollTop(0);
-	}, [group, searchQuery]);
+	}, [group.id, searchQuery]);
 
 	// Row height comes from CSS; measure a real row once instead of guessing.
 	// Measuring on every render loops forever when rows have unequal heights:
@@ -151,7 +153,7 @@ export const EntryList = ({
 		>
 			<div className="entry-list-header">
 				<div className="entry-list-header-content">
-					<h2>{searchQuery ? 'Search Results' : group.name}</h2>
+					<h2>{searchQuery ? `Search in ${group.name}` : group.name}</h2>
 					<span className="entry-count">
 						{searchQuery
 							? `${sortedEntries.length} found`
@@ -252,7 +254,7 @@ export const EntryList = ({
 								className="restore-entry-button"
 								onClick={(e) => {
 									e.stopPropagation();
-									onMoveEntry(entry, database.root);
+									onMoveEntry(entry, KeepassDatabaseService.restoreTargetGroup(database, entry));
 								}}
 								title="Restore entry"
 							>
