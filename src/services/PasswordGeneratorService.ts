@@ -62,25 +62,35 @@ export class PasswordGeneratorService {
         if (options.underline) chars += '_';
         if (options.latin1) chars += 'ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿ';
         if (options.customChars) chars += options.customChars;
-        return chars;
+        // The sets overlap: brackets, minus and underline repeat characters
+        // the special set already has, and custom characters can repeat
+        // anything. A duplicate would make that character twice as likely, so
+        // collapse them. Iterating the string yields code points rather than
+        // UTF-16 units, which keeps astral custom characters intact
+        return [...new Set([...chars])].join('');
     }
 
-    // Rejection sampling: bytes past the largest multiple of the pool size
-    // are discarded so every character is equally likely
+    // Rejection sampling: draws past the largest multiple of the pool size are
+    // discarded so every character is equally likely. Draws are 32-bit because
+    // the pool can exceed 256 characters once custom ones are added, and with
+    // an 8-bit draw the rejection limit collapsed to zero and spun forever.
+    // Characters are collected in an array rather than concatenated: string
+    // length counts UTF-16 units, which would cut the count short by one for
+    // every astral character drawn
     static generate(options: PasswordOptions): string {
-        const chars = this.characterPool(options);
-        if (!chars) throw new Error('No character sets selected');
-        const limit = 256 - (256 % chars.length);
-        let password = '';
-        while (password.length < options.length) {
-            const bytes = crypto.getRandomValues(new Uint8Array(options.length * 2));
-            for (const byte of bytes) {
-                if (byte < limit && password.length < options.length) {
-                    password += chars[byte % chars.length];
+        const pool = [...this.characterPool(options)];
+        if (pool.length === 0) throw new Error('No character sets selected');
+        const limit = Math.floor(0x100000000 / pool.length) * pool.length;
+        const out: string[] = [];
+        while (out.length < options.length) {
+            const draws = crypto.getRandomValues(new Uint32Array(options.length * 2));
+            for (const draw of draws) {
+                if (draw < limit && out.length < options.length) {
+                    out.push(pool[draw % pool.length]);
                 }
             }
         }
-        return password;
+        return out.join('');
     }
 
     static loadSettings(): GeneratorSettings {

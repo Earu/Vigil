@@ -46,6 +46,12 @@
 		"vite-plugin-wasm": "^3.4.1",
 		"vitest": "^4.1.11"
 	},
+	"overrides": {
+		"kdbxweb": {
+			"@xmldom/xmldom": "^0.8.15"
+		},
+		"tar-fs": "^2.1.5"
+	},
 	"main": "dist-electron/main.js",
 	"build": {
 		"appId": "earu.vigil.app",
