@@ -13,6 +13,12 @@ interface LoadLastDatabaseResult {
     biometricsEnabled: boolean;
 }
 
+// Lookup tables for one save pass; see indexDatabase
+interface KdbxIndex {
+    entries: Map<string, kdbxweb.KdbxEntry>;
+    groups: Map<string, kdbxweb.KdbxGroup>;
+}
+
 export interface KdfInfo {
     type: 'argon2d' | 'argon2id' | 'aes' | 'aes-kdbx3';
     iterations: number;
@@ -664,25 +670,57 @@ export class KeepassDatabaseService {
         return false;
     }
 
-    private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, isRoot = false): Promise<void> {
+    // Every entry and group in the file, by UUID. The save walk resolves
+    // against this rather than against the group it is currently writing, so
+    // an object the user dragged elsewhere (or deleted into the recycle bin)
+    // is found where it used to live and moved, instead of being rebuilt from
+    // the UI model and losing everything the model does not carry
+    private static indexDatabase(root: kdbxweb.KdbxGroup): KdbxIndex {
+        const index: KdbxIndex = { entries: new Map(), groups: new Map() };
+        const walk = (kdbxGroup: kdbxweb.KdbxGroup) => {
+            index.groups.set(kdbxGroup.uuid.toString(), kdbxGroup);
+            for (const entry of kdbxGroup.entries) {
+                index.entries.set(entry.uuid.toString(), entry);
+            }
+            for (const child of kdbxGroup.groups) walk(child);
+        };
+        walk(root);
+        return index;
+    }
+
+    // Same bookkeeping kdbxweb's own move() does. previousParentGroup is what
+    // KeePass uses to restore an item out of the recycle bin, and
+    // locationChanged is what a merge compares to decide which parent wins
+    private static reparent(object: kdbxweb.KdbxEntry | kdbxweb.KdbxGroup, newParent: kdbxweb.KdbxGroup): void {
+        if (object.parentGroup === newParent) return;
+        object.previousParentGroup = object.parentGroup?.uuid;
+        object.parentGroup = newParent;
+        object.times.locationChanged = new Date();
+    }
+
+    private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, index: KdbxIndex, isRoot = false): Promise<void> {
         // The UI labels the root group "All Entries"; never write that label
         // over the real group name stored in the file
         if (!isRoot) {
             kdbxGroup.name = group.name;
         }
 
-        // Create a map of existing entries for faster lookup
-        const existingEntries = new Map(
-            kdbxGroup.entries.map(entry => [entry.uuid.toString(), entry])
-        );
-
         // Process all entries in one pass
         const updatedEntries: kdbxweb.KdbxEntry[] = [];
         for (const entry of group.entries) {
-            let kdbxEntry = entry.id ? existingEntries.get(entry.id) : undefined;
+            let kdbxEntry = entry.id ? index.entries.get(entry.id) : undefined;
             if (kdbxEntry) {
+                // Claimed, so a UUID appearing twice in the model cannot put
+                // one kdbx object into two groups
+                index.entries.delete(entry.id);
+                // The entry may have come from another group. Reparenting the
+                // existing object keeps its history, tags and everything else
+                // the UI model does not carry; recreating it would drop them
+                this.reparent(kdbxEntry, kdbxGroup);
                 // Untouched entries keep their kdbx object as-is: no field
-                // rewrites, no attachment re-hashing, no history snapshot
+                // rewrites, no attachment re-hashing, no history snapshot.
+                // A move is a location change, not a field change, so it
+                // records no revision of its own
                 if (!this.entryChanged(kdbxEntry, entry)) {
                     updatedEntries.push(kdbxEntry);
                     continue;
@@ -739,16 +777,17 @@ export class KeepassDatabaseService {
         // Replace all entries at once
         kdbxGroup.entries = updatedEntries;
 
-        // Create a map of existing groups for faster lookup
-        const existingGroups = new Map(
-            kdbxGroup.groups.map(g => [g.uuid.toString(), g])
-        );
-
         // Process all groups in one pass
         const updatedGroups: kdbxweb.KdbxGroup[] = [];
         for (const subgroup of group.groups) {
-            let kdbxSubgroup = existingGroups.get(subgroup.id);
-            if (!kdbxSubgroup) {
+            let kdbxSubgroup = subgroup.id ? index.groups.get(subgroup.id) : undefined;
+            if (kdbxSubgroup) {
+                index.groups.delete(subgroup.id);
+                // Reparent rather than recreate: a recreated group would take
+                // a fresh UUID, which reads as a delete plus an unrelated
+                // insert to any replica merging this file
+                this.reparent(kdbxSubgroup, kdbxGroup);
+            } else {
                 kdbxSubgroup = kdbxDb.createGroup(kdbxGroup, subgroup.name);
                 subgroup.id = kdbxSubgroup.uuid.toString();
                 if (subgroup.isRecycleBin) {
@@ -757,7 +796,7 @@ export class KeepassDatabaseService {
                     kdbxDb.meta.recycleBinEnabled = true;
                 }
             }
-            await this.updateGroup(subgroup, kdbxSubgroup, kdbxDb);
+            await this.updateGroup(subgroup, kdbxSubgroup, kdbxDb, index);
             updatedGroups.push(kdbxSubgroup);
         }
 
@@ -806,7 +845,7 @@ export class KeepassDatabaseService {
                 const uuidsBefore = new Set<string>();
                 collectUuids(root, uuidsBefore);
 
-                await this.updateGroup(database.root, root, kdbxDb, true);
+                await this.updateGroup(database.root, root, kdbxDb, this.indexDatabase(root), true);
 
                 // Record permanently deleted objects so a later merge (another
                 // machine editing the same file) deletes them instead of
