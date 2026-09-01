@@ -26,6 +26,7 @@
 		"zxcvbn": "^4.4.2"
 	},
 	"devDependencies": {
+		"@electron/fuses": "^1.8.0",
 		"@types/qrcode": "^1.5.6",
 		"@types/react": "^18.3.17",
 		"@types/react-dom": "^18.3.5",
@@ -69,6 +70,8 @@
 		"asarUnpack": [
 			"**/*.node"
 		],
+		"//electronFuses": "One setting for every platform, so runAsNode stays on for Windows, which needs it. electron/build-fuses.cjs turns it back off for macOS and Linux after each is packed.",
+		"afterPack": "electron/build-fuses.cjs",
 		"electronFuses": {
 			"runAsNode": true,
 			"enableCookieEncryption": true,

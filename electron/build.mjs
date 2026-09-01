@@ -2,10 +2,16 @@ import * as esbuild from 'esbuild';
 
 const config = {
 	platform: 'node',
-	entryPoints: ['electron/main.ts', 'electron/preload.ts'],
+	// main.ts is a shim that requires one of the other two at runtime; they
+	// are separate outputs, not bundled into it, so the branch not taken is
+	// never loaded (see the comment at the top of electron/main.ts)
+	entryPoints: ['electron/main.ts', 'electron/app-main.ts', 'electron/browser-proxy.ts', 'electron/preload.ts'],
 	bundle: true,
 	outdir: 'dist-electron',
 	external: [
+		// Resolved at runtime from dist-electron/, where both land
+		'./app-main',
+		'./browser-proxy',
 		'electron',
 		'keytar',
 		'node-hid',

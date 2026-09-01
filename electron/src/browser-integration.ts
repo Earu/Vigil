@@ -6,6 +6,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import nacl from 'tweetnacl';
+import { getSocketPath, MAX_MESSAGE_BYTES } from './browser-socket';
 import { getVaultWindows, onVaultWindowsChanged } from './window';
 import {
     HOST_NAME,
@@ -70,11 +71,6 @@ const incrementNonce = (nonce: Uint8Array): Uint8Array => {
 let server: net.Server | null = null;
 const clients = new Set<net.Socket>();
 
-// Any local process can open this socket, so a client gets bounded room. The
-// largest real message is a passkey request, orders of magnitude under this;
-// a client that sends a megabyte without a newline is not speaking the
-// protocol and is dropped rather than buffered forever
-const MAX_MESSAGE_BYTES = 1024 * 1024;
 // Firefox and Chrome each hold one connection per browser; a handful of
 // browsers is the honest ceiling, and the rest is somebody looping connect()
 const MAX_CLIENTS = 32;
@@ -99,12 +95,8 @@ function broadcastSignal(action: 'database-locked' | 'database-unlocked'): void 
 let requestCounter = 0;
 const pendingRendererRequests = new Map<number, (result: any) => void>();
 
-export function getSocketPath(): string {
-    // Windows named pipes live in their own namespace, not the filesystem
-    if (process.platform === 'win32') return '\\\\.\\pipe\\vigil.BrowserServer';
-    const runtimeDir = process.env.XDG_RUNTIME_DIR || os.tmpdir();
-    return path.join(runtimeDir, 'vigil.BrowserServer');
-}
+// Defined in browser-socket.ts, which the proxy can import without electron
+export { getSocketPath };
 
 // Stale socket files only exist on unix; pipes vanish with their server
 function removeSocketFile(): void {
@@ -495,26 +487,33 @@ process.stdin.on('end', () => process.exit(0));
 `;
 }
 
-function wrapperScript(proxyJsPath: string): string {
-    // Run the proxy with the Electron binary in Node mode so no system Node
-    // install is required; APPIMAGE points at the packaged binary when set.
-    // This is why build.electronFuses pins runAsNode on: with it off the
-    // binary ignores ELECTRON_RUN_AS_NODE and every wrapper written here
-    // launches a second copy of the GUI instead of the proxy. The cost of
-    // keeping it on is that the signed binary will run any script handed to
-    // it, which on macOS means running inside Vigil's entitlements. Closing
-    // that means teaching main.ts a proxy mode reached by a CLI flag, so the
-    // wrapper needs no env var at all. Same trap for hardened-runtime
-    // entitlements that strip env vars.
-    const executable = process.env.APPIMAGE || process.execPath;
+// macOS and Linux: the binary is asked for its proxy mode by a flag, so the
+// wrapper carries no environment variable and the runAsNode fuse can be off
+// (electron/build-fuses.cjs). APPIMAGE points at the packaged binary when set.
+// A dev run needs the app directory as well, because there the executable is
+// the bare Electron binary and has no app of its own to load.
+// The browser's own arguments are forwarded: nothing reads them, but a proxy
+// that quietly drops them would be the wrong thing to debug against later
+export function wrapperScript(executable: string, appPath?: string): string {
+    const appArgument = appPath ? ` "${appPath}"` : '';
     return `#!/bin/sh
-export ELECTRON_RUN_AS_NODE=1
-exec "${executable}" "${proxyJsPath}"
+exec "${executable}"${appArgument} --browser-proxy "$@"
 `;
 }
 
-// Same idea as the .sh wrapper; @echo off keeps cmd's command echo out of
-// the native messaging stdout stream, which must carry only framed JSON
+// Windows cannot do the same. Electron writes a stray CRLF to stdout on
+// startup there, before any application code runs (electron/electron#12578,
+// still open), and stdout is the native messaging protocol stream: two bytes
+// of noise ahead of the first frame and the extension reads a garbage length.
+// ELECTRON_RUN_AS_NODE skips the Chromium startup that emits it, so Windows
+// keeps the env var, the generated proxy script and the runAsNode fuse.
+//
+// The cost is a signed binary that will run a script handed to it, which is
+// worth much less to an attacker here than on macOS: Windows has no TCC
+// grants or keychain access groups to inherit, and anyone who can set the
+// variable already has local code execution.
+//
+// @echo off keeps cmd's command echo out of that same stdout stream
 function windowsWrapperScript(proxyJsPath: string): string {
     return `@echo off\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${process.execPath}" "${proxyJsPath}"\r\n`;
 }
@@ -524,10 +523,10 @@ export function installManifests(): { success: boolean; written: string[]; error
         const baseDir = path.join(app.getPath('userData'), 'browser');
         fs.mkdirSync(baseDir, { recursive: true });
 
-        const proxyJs = path.join(baseDir, 'vigil-proxy.js');
-        fs.writeFileSync(proxyJs, proxyScript());
-
         if (process.platform === 'win32') {
+            // Only Windows still runs the proxy as a separate script
+            const proxyJs = path.join(baseDir, 'vigil-proxy.js');
+            fs.writeFileSync(proxyJs, proxyScript());
             const wrapper = path.join(baseDir, 'vigil-proxy.cmd');
             fs.writeFileSync(wrapper, windowsWrapperScript(proxyJs));
             // One manifest file per family, pointed at from the registry
@@ -554,7 +553,11 @@ export function installManifests(): { success: boolean; written: string[]; error
         }
 
         const wrapper = path.join(baseDir, 'vigil-proxy.sh');
-        fs.writeFileSync(wrapper, wrapperScript(proxyJs), { mode: 0o755 });
+        const executable = process.env.APPIMAGE || process.execPath;
+        fs.writeFileSync(
+            wrapper,
+            wrapperScript(executable, app.isPackaged ? undefined : app.getAppPath()),
+            { mode: 0o755 });
 
         const manifests: Record<ManifestType, string> = {
             chromium: chromiumManifest(wrapper),
