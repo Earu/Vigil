@@ -92,6 +92,20 @@ describe('copying a secret', () => {
             .toBe('secret');
     });
 
+    // An entry written with an empty string never reaches the platform
+    // clipboard: Electron drops it, so no format is registered and the marker
+    // protects nothing. Confirmed on Windows by enumerating the real clipboard
+    // from another process, where the two markers written empty were absent
+    // and the two carrying a DWORD were present
+    it.each(['darwin', 'win32', 'linux'])('writes no empty marker on %s', async (platform) => {
+        setPlatform(platform);
+        expect(await mod.copySecret('hunter2')).toEqual({ success: true });
+        const empty = Object.entries(lastWrite!)
+            .filter(([, value]) => value === '')
+            .map(([key]) => key);
+        expect(empty).toEqual([]);
+    });
+
     it('writes plain text on a platform with no convention of its own', async () => {
         setPlatform('freebsd');
         expect(await mod.copySecret('hunter2')).toEqual({ success: true });
