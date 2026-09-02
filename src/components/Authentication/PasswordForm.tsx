@@ -87,9 +87,13 @@ export const PasswordForm = ({
     const [databaseName, setDatabaseName] = useState('New Database');
     const [isBiometricsEnabled, setIsBiometricsEnabled] = useState(initialBiometricsEnabled);
     const [isBiometricsAvailable, setIsBiometricsAvailable] = useState(false);
-    // 'prompt' means the biometric check gates the UI but does not protect the
-    // stored password; the user should be told, because the two look identical
-    const [biometricsBackend, setBiometricsBackend] = useState<'hardware' | 'prompt' | 'none'>('none');
+    // Why the option is missing on a machine whose sensor works (an unsigned
+    // macOS build); the user should be told, since nothing else explains it
+    const [biometricsUnavailableReason, setBiometricsUnavailableReason] = useState<string | null>(null);
+    // What protects the stored password right now. False only for a legacy
+    // macOS blob that the next unlock re-seals under the keychain; until then
+    // the button looks the same but the guarantee is not
+    const [biometricsHardwareBacked, setBiometricsHardwareBacked] = useState(true);
     const [showPasswordInput, setShowPasswordInput] = useState(!initialBiometricsEnabled);
     const [keyFile, setKeyFile] = useState<{ path: string; name: string } | null>(null);
     const [hardwareKey, setHardwareKey] = useState<HardwareKeySelection | null>(null);
@@ -198,10 +202,23 @@ export const PasswordForm = ({
             if (!window.electron) return;
             const info = await window.electron.getBiometricsInfo();
             setIsBiometricsAvailable(info.available);
-            setBiometricsBackend(info.backend);
+            setBiometricsUnavailableReason(info.unavailableReason ?? null);
         };
         checkBiometrics();
     }, []);
+
+    useEffect(() => {
+        if (!window.electron || !databasePath || !isBiometricsEnabled) {
+            setBiometricsHardwareBacked(true);
+            return;
+        }
+        let cancelled = false;
+        window.electron.hasBiometricsEnabled(databasePath).then(result => {
+            if (cancelled) return;
+            setBiometricsHardwareBacked(!(result.success && result.enabled && result.hardwareBacked === false));
+        }).catch(() => {});
+        return () => { cancelled = true; };
+    }, [databasePath, isBiometricsEnabled]);
 
     useEffect(() => {
         setIsBiometricsEnabled(initialBiometricsEnabled);
@@ -654,12 +671,12 @@ export const PasswordForm = ({
                         expected state and a badge for it would just be noise. The
                         weaker one has to be visible, since the button and the
                         prompt look exactly the same either way */}
-                    {biometricsBackend === 'prompt' && (
+                    {isBiometricsEnabled && !biometricsHardwareBacked && (
                         <p
                             className="biometric-weak-notice"
-                            title="This build is not signed, so the key cannot be stored in the Secure Enclave. The prompt controls access to the app, but the saved password is not protected by it."
+                            title="The saved password was stored by an earlier version under a key this machine can rebuild without a biometric check. The next unlock moves it into the biometry-gated keychain."
                         >
-                            Not hardware backed
+                            Not hardware backed until the next unlock
                         </p>
                     )}
 
@@ -673,6 +690,12 @@ export const PasswordForm = ({
                         </button>
                     )}
                 </>
+            )}
+
+            {selectedFile && !isCreatingNew && !isBiometricsAvailable && biometricsUnavailableReason && (
+                <p className="biometric-weak-notice" title={biometricsUnavailableReason}>
+                    Biometric unlock is off in this build
+                </p>
             )}
 
             {(!isBiometricsAvailable || showPasswordInput || !isBiometricsEnabled || isCreatingNew) && (
