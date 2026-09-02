@@ -57,10 +57,13 @@ export interface IElectronAPI {
 	isBiometricsAvailable: () => Promise<boolean>;
 	getBiometricsInfo: () => Promise<{
 		available: boolean;
-		/** 'hardware': the OS releases the key only after a biometric check.
-		 *  'prompt': a biometric prompt gates a key the app derives itself. */
-		backend: 'hardware' | 'prompt' | 'none';
+		/** 'hardware': the OS releases the key only after a biometric check it
+		 *  enforces itself. The only backend a password is ever stored under. */
+		backend: 'hardware' | 'none';
 		biometryType: string;
+		/** Set when the sensor works but this build cannot use it (macOS,
+		 *  unsigned build), so the unlock screen can say why the option is absent */
+		unavailableReason?: string;
 	}>;
 	enableBiometrics: (dbPath: string, password: string) => Promise<{ success: boolean; error?: string }>;
 	getBiometricPassword: (dbPath: string) => Promise<{
@@ -70,7 +73,9 @@ export interface IElectronAPI {
 		/** The stored credential is still usable; only this attempt failed. */
 		retry?: boolean;
 	}>;
-	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled: boolean; error?: string }>;
+	// hardwareBacked reports what protects the stored password now: false for
+	// a legacy macOS blob awaiting its re-seal at the next unlock
+	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled: boolean; hardwareBacked?: boolean; error?: string }>;
 	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
 	// Copying runs in the main process so it can carry the macOS pasteboard
 	// markers and so a quit mid-countdown can still take the secret back

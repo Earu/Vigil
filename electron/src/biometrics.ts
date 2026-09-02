@@ -1,6 +1,6 @@
 import { systemPreferences } from 'electron';
 import { execSync } from 'child_process';
-import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from 'crypto';
+import { createDecipheriv, pbkdf2Sync, randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
@@ -18,8 +18,8 @@ import {
 } from './biometrics-crypto';
 
 // Biometry-gated keychain addon (macOS). Reports 'unavailable' on every call
-// when the binary is missing, so the require is safe on every platform
-const touchid = require('../native/touchid');
+// when the binary is missing, so the import is safe on every platform
+import * as touchid from '../native/touchid';
 
 let Passport: any;
 if (process.platform === 'win32') {
@@ -34,6 +34,12 @@ const SALT_PATH = path.join(app.getPath('userData'), '.salt');
 const ENTITLEMENT_PROBE_ACCOUNT = '__vigil_entitlement_probe__';
 
 let biometricsAvailableCache: boolean | null = null;
+
+// Tests exercise both macOS backends in one process
+export function resetForTests(): void {
+    biometricsAvailableCache = null;
+    macBackendProbe = null;
+}
 
 function generateNewSalt(): string {
     const buffer = Buffer.alloc(32);
@@ -87,13 +93,13 @@ export async function isBiometricsAvailable(): Promise<boolean> {
     return biometricsAvailableCache || false;
 }
 
-// macOS fallback path: gates access with a Touch ID prompt. This is a UI
-// gate, not a cryptographic one, and the key it guards is derived from the
-// hardware UUID plus an on-disk salt, so anything that can read both can open
-// the blob without ever meeting the prompt. Only used when the keychain addon
-// cannot store a biometry-gated item (see probeMacBackend). Windows does not
-// use this: there the Hello prompt itself produces the key (getWindowsHelloKey)
-export async function authenticateWithBiometrics(data: { dbPath: string, dbName: string }): Promise<boolean> {
+// macOS Touch ID prompt on its own. This is a UI gate, not a cryptographic
+// one: nothing about the stored password depends on it passing. It survives
+// only to front the one-time upgrade of a legacy blob (see
+// getBiometricPassword); the scheme that relied on it is no longer written.
+// Windows does not use this: there the Hello prompt itself produces the key
+// (getWindowsHelloKey)
+async function authenticateWithBiometrics(data: { dbPath: string, dbName: string }): Promise<boolean> {
     if (process.platform === 'darwin') {
         try {
             await systemPreferences.promptTouchID(`unlock ${data.dbName} with biometrics`);
@@ -123,12 +129,12 @@ let macBackendProbe: Promise<MacBiometricBackend> | null = null;
 // the only way to ask is to try, so probe once with a throwaway item
 async function probeMacBackend(): Promise<MacBiometricBackend> {
     if (!touchid.isLoaded() || !touchid.availability().usable) {
-        console.info('Biometric backend: prompt (Touch ID addon unavailable)');
+        console.info('Biometric backend: none (Touch ID addon unavailable)');
         return 'gate';
     }
     const written = await touchid.setSecret(ENTITLEMENT_PROBE_ACCOUNT, randomBytes(32));
     if (!written.ok) {
-        console.info(`Biometric backend: prompt (keychain rejected the probe: ${written.code})`);
+        console.info(`Biometric backend: none (keychain rejected the probe: ${written.code})`);
         return 'gate';
     }
     await touchid.deleteSecret(ENTITLEMENT_PROBE_ACCOUNT);
@@ -160,15 +166,20 @@ async function enableSecureMac(account: string, dbName: string):
     }
 
     const readBack = await touchid.getSecret(account, `confirm biometric unlock for ${dbName}`);
-    if (!readBack.ok || !readBack.data.equals(wrappingKey)) {
+    if (!readBack.ok) {
         await touchid.deleteSecret(account);
         if (readBack.code === 'canceled') {
             return { error: 'Biometric authentication was cancelled' };
         }
         // Anything else means the round trip is not trustworthy on this
-        // machine; let the caller fall back rather than storing a blob only
-        // a broken keychain item can open
+        // machine. The caller refuses to enable: storing a blob only a broken
+        // keychain item can open helps nobody, and no weaker scheme is offered
         console.error('Touch ID keychain read-back failed:', readBack.code, readBack.status ?? '');
+        return null;
+    }
+    if (!readBack.data.equals(wrappingKey)) {
+        await touchid.deleteSecret(account);
+        console.error('Touch ID keychain returned a different key than it stored');
         return null;
     }
 
@@ -190,30 +201,22 @@ async function getWindowsHelloKey(dbPath: string, challenge: Buffer): Promise<Bu
     return deriveKeyFromSignature(signature);
 }
 
-// macOS only (legacy scheme; see authenticateWithBiometrics)
+// Legacy macOS scheme, read side only. Blobs written by earlier versions are
+// sealed under PBKDF2(hardware UUID, on-disk salt): a key any process running
+// as the user can rebuild, so the Touch ID prompt in front of it protected
+// nothing. Nothing writes this format any more; it is opened exactly once, to
+// re-seal the password under the keychain, and only by a build that can.
+// There is no fallback identifier: the old one (user name plus host name) was
+// public, and a blob this cannot open is one to discard, not to guess at
 async function getHardwareId(): Promise<string> {
-    try {
-        const hardwareUUID = execSync('system_profiler SPHardwareDataType | grep "Hardware UUID"').toString().split(':')[1].trim();
-        return hardwareUUID;
-    } catch (error) {
-        console.error('Failed to get hardware ID:', error);
-        return `${process.env.USER}-${execSync('hostname').toString().trim()}`;
-    }
+    const output = execSync('system_profiler SPHardwareDataType | grep "Hardware UUID"').toString();
+    const hardwareUUID = output.split(':')[1]?.trim();
+    if (!hardwareUUID) throw new Error('Hardware UUID not reported');
+    return hardwareUUID;
 }
 
 async function deriveEncryptionKey(hardwareId: string, salt: string): Promise<Buffer> {
     return pbkdf2Sync(hardwareId, salt, 100000, 32, 'sha512');
-}
-
-async function encryptPassword(password: string): Promise<string> {
-    const hardwareId = await getHardwareId();
-    const salt = await getInstallationSalt();
-    const key = await deriveEncryptionKey(hardwareId, salt);
-    const iv = randomBytes(16);
-    const cipher = createCipheriv('aes-256-gcm', key, iv);
-    const encrypted = Buffer.concat([cipher.update(password, 'utf8'), cipher.final()]);
-    const authTag = cipher.getAuthTag();
-    return Buffer.concat([iv, authTag, encrypted]).toString('base64');
 }
 
 async function decryptPassword(encryptedData: string): Promise<string> {
@@ -229,15 +232,47 @@ async function decryptPassword(encryptedData: string): Promise<string> {
     return decipher.update(encrypted) + decipher.final('utf8');
 }
 
-export async function hasBiometricsEnabled(dbPath: string): Promise<{ success: boolean, error?: string, enabled?: boolean }> {
+// A macOS blob in the legacy format is a stored master password that a
+// Touch ID prompt only pretends to guard. Whether it may stay depends on the
+// build: one that can reach the biometry-gated keychain re-seals it at the
+// next unlock; one that cannot has nothing better to offer, so the blob goes
+const LEGACY_MAC_UNSUPPORTED = 'Biometric unlock was turned off: this build cannot protect the saved password. Enable it again on a signed build of Vigil';
+
+// Why a Mac with a working sensor still gets no biometric unlock: the
+// biometry-gated keychain only accepts writes from a build signed with the
+// entitlements a provisioning profile authorizes. Shown to the user, since
+// from where they sit the sensor works and the option is simply missing
+const MAC_UNSIGNED_BUILD = 'Biometric unlock needs a signed build of Vigil: this build cannot keep the key in the biometry-gated keychain';
+
+async function discardLegacyMacBlob(key: string): Promise<void> {
+    console.warn('Discarding a legacy biometric blob this build cannot protect');
+    await keytar?.deletePassword(SERVICE_NAME, key);
+}
+
+// `hardwareBacked` says what protects the stored password right now, so the
+// UI can show the state of the blob rather than the capability of the build
+export async function hasBiometricsEnabled(dbPath: string): Promise<{ success: boolean, error?: string, enabled?: boolean, hardwareBacked?: boolean }> {
     try {
         if (!await isBiometricsAvailable()) {
             return { success: false, error: 'Biometric authentication is not available on this device' };
         }
 
         const key = await generateUniqueKey(dbPath);
-        const hasPassword = await keytar?.getPassword(SERVICE_NAME, key);
-        return { success: true, enabled: !!hasPassword };
+        const stored = await keytar?.getPassword(SERVICE_NAME, key);
+        if (!stored) return { success: true, enabled: false };
+
+        if (process.platform === 'darwin') {
+            if (isV3Blob(stored)) return { success: true, enabled: true, hardwareBacked: true };
+            if (await getMacBackend() !== 'secure') {
+                await discardLegacyMacBlob(key);
+                return { success: true, enabled: false };
+            }
+            return { success: true, enabled: true, hardwareBacked: false };
+        }
+        if (process.platform === 'win32') {
+            return { success: true, enabled: true, hardwareBacked: isV2Blob(stored) };
+        }
+        return { success: true, enabled: true };
     } catch (error) {
         console.error('Failed to check biometrics status:', error);
         return { success: false, error: 'Failed to check biometrics status' };
@@ -261,25 +296,29 @@ export async function enableBiometrics(dbPath: string, password: string): Promis
             return { success: true };
         }
 
+        if (process.platform !== 'darwin') {
+            return { success: false, error: 'Biometric authentication is not available on this platform' };
+        }
+
+        // The keychain is the only place the password may be sealed to. A
+        // build the keychain refuses gets no unlock rather than a weaker one:
+        // the old fallback stored the password under a key the whole user
+        // account could derive, behind a prompt that decided nothing
+        if (await getMacBackend() !== 'secure') {
+            return { success: false, error: MAC_UNSIGNED_BUILD };
+        }
+
         const dbName = dbPath.split('/').pop() as string;
-
-        if (process.platform === 'darwin' && await getMacBackend() === 'secure') {
-            const sealed = await enableSecureMac(key, dbName);
-            if (sealed && 'error' in sealed) return { success: false, error: sealed.error };
-            if (sealed) {
-                await keytar?.setPassword(SERVICE_NAME, key, sealWithKeychainKey(password, sealed.wrappingKey));
-                return { success: true };
-            }
-            // null means the keychain round trip did not work here; fall
-            // through to the prompt-only scheme rather than losing the feature
+        const sealed = await enableSecureMac(key, dbName);
+        if (!sealed) {
+            // The keychain took the key and would not give it back. That is a
+            // hard failure: enabling anyway would either store a blob only a
+            // broken keychain item can open, or fall back to the scheme above
+            return { success: false, error: 'Could not set up biometric unlock: the keychain did not release the key it stored' };
         }
+        if ('error' in sealed) return { success: false, error: sealed.error };
 
-        if (!await authenticateWithBiometrics({ dbPath, dbName })) {
-            return { success: false, error: 'Biometric authentication failed' };
-        }
-
-        const encryptedPassword = await encryptPassword(password);
-        await keytar?.setPassword(SERVICE_NAME, key, encryptedPassword);
+        await keytar?.setPassword(SERVICE_NAME, key, sealWithKeychainKey(password, sealed.wrappingKey));
         return { success: true };
     } catch (error) {
         console.error('Failed to enable biometrics:', error);
@@ -361,25 +400,44 @@ export async function getBiometricPassword(dbPath: string):
             }
         }
 
+        if (process.platform !== 'darwin') {
+            return { success: false, error: 'Biometric authentication is not available on this platform' };
+        }
+
+        // Legacy blob. Only a build that can re-seal it under the keychain
+        // may open it, and then only to do that; any other build discards it
+        if (await getMacBackend() !== 'secure') {
+            await discardLegacyMacBlob(key);
+            return { success: false, error: LEGACY_MAC_UNSUPPORTED };
+        }
+
         if (!await authenticateWithBiometrics({ dbPath, dbName })) {
             return { success: false, error: 'Biometric authentication failed', retry: true };
         }
 
-        const password = await decryptPassword(stored);
+        let password: string;
+        try {
+            password = await decryptPassword(stored);
+        } catch (error) {
+            // The hardware identifier is gone or the blob does not open under
+            // it; there is no other key to try
+            console.error('Legacy biometric blob could not be opened:', error);
+            await keytar?.deletePassword(SERVICE_NAME, key);
+            return { success: false, error: 'Biometric data is stale, please enable biometric unlock again' };
+        }
 
-        // Legacy blob on a build that can do the real thing: re-seal it now so
-        // the next unlock is enforced by the keychain instead of the prompt.
-        // Best effort, an unlock must not fail because the upgrade did
-        if (process.platform === 'darwin' && await getMacBackend() === 'secure') {
-            try {
-                const wrappingKey = randomBytes(32);
-                const written = await touchid.setSecret(key, wrappingKey);
-                if (written.ok) {
-                    await keytar?.setPassword(SERVICE_NAME, key, sealWithKeychainKey(password, wrappingKey));
-                }
-            } catch (error) {
-                console.error('Failed to upgrade biometric storage:', error);
-            }
+        // Re-seal under the keychain so the next unlock is enforced by the OS.
+        // The unlock itself goes ahead either way, but the legacy blob does
+        // not survive it: if the upgrade fails the user re-enables, rather
+        // than keep a copy of the password that nothing protects
+        try {
+            const wrappingKey = randomBytes(32);
+            const written = await touchid.setSecret(key, wrappingKey);
+            if (!written.ok) throw new Error(`keychain write failed: ${written.code}`);
+            await keytar?.setPassword(SERVICE_NAME, key, sealWithKeychainKey(password, wrappingKey));
+        } catch (error) {
+            console.error('Failed to upgrade biometric storage, discarding the legacy blob:', error);
+            await keytar?.deletePassword(SERVICE_NAME, key);
         }
 
         return { success: true, password };
@@ -412,15 +470,16 @@ export async function disableBiometrics(dbPath: string): Promise<{ success: bool
     }
 }
 
-// What is actually protecting the stored password, so the UI can say so
-// rather than showing the same "biometric unlock" affordance for two very
-// different guarantees
-export type BiometricsBackend = 'hardware' | 'prompt' | 'none';
+// 'hardware' is the only backend a password is ever stored under: the OS
+// releases the key after a biometric check it enforces itself. A platform
+// without that has no biometric unlock, and says why
+export type BiometricsBackend = 'hardware' | 'none';
 
 export async function getBiometricsInfo(): Promise<{
     available: boolean,
     backend: BiometricsBackend,
-    biometryType: string
+    biometryType: string,
+    unavailableReason?: string
 }> {
     const available = await isBiometricsAvailable();
     if (!available) return { available: false, backend: 'none', biometryType: 'none' };
@@ -430,13 +489,12 @@ export async function getBiometricsInfo(): Promise<{
     }
 
     if (process.platform === 'darwin') {
-        const backend = await getMacBackend();
-        return {
-            available: true,
-            backend: backend === 'secure' ? 'hardware' : 'prompt',
-            biometryType: touchid.availability().biometryType,
-        };
+        const biometryType = touchid.availability().biometryType;
+        if (await getMacBackend() !== 'secure') {
+            return { available: false, backend: 'none', biometryType, unavailableReason: MAC_UNSIGNED_BUILD };
+        }
+        return { available: true, backend: 'hardware', biometryType };
     }
 
-    return { available, backend: 'none', biometryType: 'none' };
+    return { available: false, backend: 'none', biometryType: 'none' };
 }
