@@ -33,15 +33,17 @@ describe('the unix wrapper', () => {
         expect(script).toContain('exec "/tmp/Vigil.AppImage" --browser-proxy "$@"');
     });
 
-    it('passes the app directory only when there is one to pass', () => {
+    it('passes the app entry file only when there is one to pass', () => {
         // Packaged: the executable knows its own app
         expect(wrapperScript('/Applications/Vigil.app/Contents/MacOS/Vigil'))
             .not.toMatch(/--browser-proxy.*\S.*--browser-proxy/);
         expect(wrapperScript('/bin/electron')).toBe(
             '#!/bin/sh\nexec "/bin/electron" --browser-proxy "$@"\n');
-        // Dev: the bare Electron binary has no app of its own to load
-        expect(wrapperScript('/bin/electron', '/repo')).toBe(
-            '#!/bin/sh\nexec "/bin/electron" "/repo" --browser-proxy "$@"\n');
+        // Dev: the bare Electron binary has no app of its own to load. The
+        // entry file, never a directory: dist-electron has no package.json,
+        // so Electron refuses it and the browser's key exchange fails
+        expect(wrapperScript('/bin/electron', '/repo/dist-electron/main.js')).toBe(
+            '#!/bin/sh\nexec "/bin/electron" "/repo/dist-electron/main.js" --browser-proxy "$@"\n');
     });
 
     it('starts with a shebang so the browser can exec it', () => {
@@ -73,6 +75,16 @@ describe('the runAsNode fuse', () => {
     it('is off when the build targets macOS or Linux', async () => {
         expect((await loadConfig(['--mac'])).electronFuses.runAsNode).toBe(false);
         expect((await loadConfig(['--linux'])).electronFuses.runAsNode).toBe(false);
+    });
+
+    // electron-builder's own short forms. An unrecognised one reads as "no
+    // platform named" and falls through to the host, which on a Linux runner
+    // would ship a Windows build with the fuse off and browser integration
+    // quietly dead
+    it('recognises the single-letter platform flags', async () => {
+        expect((await loadConfig(['-w'])).electronFuses.runAsNode).toBe(true);
+        expect((await loadConfig(['-m'])).electronFuses.runAsNode).toBe(false);
+        expect((await loadConfig(['-l'])).electronFuses.runAsNode).toBe(false);
     });
 
     it('is off for a mixed build, so the weaker setting never leaks across', async () => {

@@ -7,7 +7,7 @@ import { getSocketPath, MAX_MESSAGE_BYTES } from './src/browser-socket';
 //
 // This runs in the Vigil binary itself, reached by --browser-proxy rather than
 // by ELECTRON_RUN_AS_NODE, which is what lets the runAsNode fuse be turned off
-// on the platforms that use it (see electron/build-fuses.cjs). Nothing here may
+// on the platforms that use it (see electron-builder.config.js). Nothing here may
 // import electron: stdout is the browser's protocol stream and the process must
 // not become the app. See the comment at the top of electron/main.ts.
 export function run(): void {

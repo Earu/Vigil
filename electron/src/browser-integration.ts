@@ -489,13 +489,17 @@ process.stdin.on('end', () => process.exit(0));
 
 // macOS and Linux: the binary is asked for its proxy mode by a flag, so the
 // wrapper carries no environment variable and the runAsNode fuse can be off
-// (electron/build-fuses.cjs). APPIMAGE points at the packaged binary when set.
-// A dev run needs the app directory as well, because there the executable is
-// the bare Electron binary and has no app of its own to load.
+// (electron-builder.config.js). APPIMAGE points at the packaged binary when
+// set. A dev run needs the app entry file as well, because there the
+// executable is the bare Electron binary and has no app of its own to load.
+// The entry FILE, not app.getAppPath(): in dev that is dist-electron, a bare
+// output directory with no package.json or index.js, and Electron refuses to
+// load it ("Unable to find Electron app") so the key exchange dies before a
+// byte moves. Electron given the main.js path runs it directly.
 // The browser's own arguments are forwarded: nothing reads them, but a proxy
 // that quietly drops them would be the wrong thing to debug against later
-export function wrapperScript(executable: string, appPath?: string): string {
-    const appArgument = appPath ? ` "${appPath}"` : '';
+export function wrapperScript(executable: string, appEntry?: string): string {
+    const appArgument = appEntry ? ` "${appEntry}"` : '';
     return `#!/bin/sh
 exec "${executable}"${appArgument} --browser-proxy "$@"
 `;
@@ -554,9 +558,11 @@ export function installManifests(): { success: boolean; written: string[]; error
 
         const wrapper = path.join(baseDir, 'vigil-proxy.sh');
         const executable = process.env.APPIMAGE || process.execPath;
+        // __dirname is dist-electron, where esbuild puts main.js next to this
+        // bundle; stable however the dev app itself was launched
         fs.writeFileSync(
             wrapper,
-            wrapperScript(executable, app.isPackaged ? undefined : app.getAppPath()),
+            wrapperScript(executable, app.isPackaged ? undefined : path.join(__dirname, 'main.js')),
             { mode: 0o755 });
 
         const manifests: Record<ManifestType, string> = {

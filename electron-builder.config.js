@@ -5,11 +5,17 @@
 // Each platform is built on its own runner (cross building is not supported,
 // see .github/workflows/build.yml), so the target is the host unless the
 // invocation names one.
+// The single-letter forms are electron-builder's documented ones and have to
+// be listed: an unrecognised -w reads as "no platform named" and falls through
+// to the host, so building Windows from Linux with -w would ship a Windows
+// build with runAsNode off and no working browser integration, silently
+const WINDOWS_FLAGS = ['--win', '--windows', '--w', '-w'];
+const PLATFORM_FLAGS = ['--mac', '--macos', '-m', '--linux', '-l', ...WINDOWS_FLAGS];
+
 function targetsWindows() {
-    const named = ['--mac', '--macos', '--linux', '--win', '--windows', '--w'];
-    const explicit = process.argv.filter((arg) => named.includes(arg));
+    const explicit = process.argv.filter((arg) => PLATFORM_FLAGS.includes(arg));
     if (explicit.length > 0) {
-        return explicit.some((arg) => arg === '--win' || arg === '--windows' || arg === '--w');
+        return explicit.some((arg) => WINDOWS_FLAGS.includes(arg));
     }
     return process.platform === 'win32';
 }
