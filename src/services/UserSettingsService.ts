@@ -21,6 +21,11 @@ interface UserSettings {
     // WebAuthn treats localhost as a secure context, but serving passkeys to
     // arbitrary local processes is opt-in (matches KeePassXC's setting)
     allowPasskeysLocalhost?: boolean;
+    // Skips the per-entry access confirmation on get-logins (matches
+    // KeePassXC's "always allow access to entries"). Off by default: with it
+    // on, an association key alone reads credentials. Entries with a
+    // remembered refusal stay withheld either way
+    alwaysAllowBrowserAccess?: boolean;
     // Copies of the vault kept before it is overwritten. On by default: the
     // save path merges external changes, and a merge that resolves badly
     // would otherwise take the only copy with it
@@ -118,6 +123,15 @@ class UserSettingsService {
 
     setAllowPasskeysLocalhost(enabled: boolean): void {
         this.current.allowPasskeysLocalhost = enabled;
+        this.saveSettings();
+    }
+
+    getAlwaysAllowBrowserAccess(): boolean {
+        return this.current.alwaysAllowBrowserAccess ?? false;
+    }
+
+    setAlwaysAllowBrowserAccess(enabled: boolean): void {
+        this.current.alwaysAllowBrowserAccess = enabled;
         this.saveSettings();
     }
 

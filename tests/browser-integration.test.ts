@@ -4,6 +4,7 @@ import { installMockWindow, cred } from './helpers';
 
 installMockWindow();
 const { BrowserIntegrationService: Svc } = await import('../src/services/BrowserIntegrationService');
+const { userSettingsService } = await import('../src/services/UserSettingsService');
 
 const makeDb = async () => {
     const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
@@ -34,6 +35,8 @@ const ctxFor = (kdbxDb: kdbxweb.Kdbx, pairingName: string | null = null) => ({
     saveDatabase: vi.fn(async () => {}),
     requestPairing: vi.fn(async (_fingerprint: string, _existingNames: string[]) => pairingName),
     requestSetLoginConsent: vi.fn(async () => true),
+    requestAccessConsent: vi.fn(async ({ entries }: { entries: Array<{ id: string }> }) =>
+        ({ allowedIds: entries.map(e => e.id), remember: false })),
 });
 
 // Follows KeePassXC's BrowserService::handleURL, so a database moved between
@@ -147,6 +150,15 @@ describe('association', () => {
         expect(Svc.listAssociations(db)).toEqual([]);
     });
 
+    it('rolls the pairing back and reports failure when the save fails', async () => {
+        const db = await makeDb();
+        const ctx = { ...ctxFor(db, 'Firefox'), saveDatabase: vi.fn(async () => { throw new Error('disk full'); }) };
+        const result = await Svc.handleRequest('associate', { key: 'sess', idKey: 'id-key-b64' }, ctx);
+
+        expect(result.errorCode).toBe(8); // ERROR_ASSOCIATION_FAILED
+        expect(Svc.listAssociations(db)).toEqual([]);
+    });
+
     it('test-associate validates name and key', async () => {
         const db = await makeDb();
         db.meta.customData.set('KPXC_BROWSER_Firefox', { value: 'the-key' });
@@ -195,6 +207,133 @@ describe('get-logins', () => {
     });
 });
 
+// Association authenticates the channel; each entry still needs the user's
+// permission before its password leaves the vault. Decisions are stored the
+// way KeePassXC's BrowserEntryConfig stores them, so they carry across
+describe('get-logins access control', () => {
+    const paired = async () => {
+        const db = await makeDb();
+        db.meta.customData.set('KPXC_BROWSER_FF', { value: 'good' });
+        return db;
+    };
+    const request = { url: 'https://github.com', keys: [{ id: 'FF', key: 'good' }] };
+
+    it('asks before handing out an entry with no stored decision', async () => {
+        const db = await paired();
+        const ctx = ctxFor(db);
+        const result = await Svc.handleRequest('get-logins', request, ctx);
+
+        expect(ctx.requestAccessConsent).toHaveBeenCalledTimes(1);
+        const asked = ctx.requestAccessConsent.mock.calls[0][0];
+        expect(asked.host).toBe('github.com');
+        expect(asked.entries).toEqual([expect.objectContaining({ title: 'GitHub', username: 'octo' })]);
+        expect(result.entries).toHaveLength(1);
+    });
+
+    it('withholds every entry when the user denies', async () => {
+        const db = await paired();
+        const ctx = { ...ctxFor(db), requestAccessConsent: vi.fn(async () => null) };
+        const result = await Svc.handleRequest('get-logins', request, ctx);
+        expect(result.errorCode).toBe(15);
+    });
+
+    it('fails closed when the host provides no consent callback', async () => {
+        const db = await paired();
+        const ctx = { ...ctxFor(db), requestAccessConsent: undefined };
+        const result = await Svc.handleRequest('get-logins', request, ctx);
+        expect(result.errorCode).toBe(15);
+    });
+
+    it('remembers an allow: writes KeePassXC browser settings and stops asking', async () => {
+        const db = await paired();
+        const ctx = {
+            ...ctxFor(db),
+            requestAccessConsent: vi.fn(async ({ entries }: { entries: Array<{ id: string }> }) =>
+                ({ allowedIds: entries.map(e => e.id), remember: true })),
+        };
+        await Svc.handleRequest('get-logins', request, ctx);
+
+        const entry = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
+        const stored = JSON.parse(entry.customData!.get('KeePassXC-Browser Settings')!.value!);
+        expect(stored.Allow).toEqual(['github.com']);
+        expect(ctx.saveDatabase).toHaveBeenCalled();
+
+        const again = await Svc.handleRequest('get-logins', request, ctx);
+        expect(ctx.requestAccessConsent).toHaveBeenCalledTimes(1);
+        expect(again.entries).toHaveLength(1);
+    });
+
+    it('remembers a deny: the entry stays withheld without asking again', async () => {
+        const db = await paired();
+        const ctx = {
+            ...ctxFor(db),
+            requestAccessConsent: vi.fn(async () => ({ allowedIds: [], remember: true })),
+        };
+        const first = await Svc.handleRequest('get-logins', request, ctx);
+        expect(first.errorCode).toBe(15);
+
+        const entry = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
+        const stored = JSON.parse(entry.customData!.get('KeePassXC-Browser Settings')!.value!);
+        expect(stored.Deny).toEqual(['github.com']);
+
+        const again = await Svc.handleRequest('get-logins', request, ctx);
+        expect(again.errorCode).toBe(15);
+        expect(ctx.requestAccessConsent).toHaveBeenCalledTimes(1);
+    });
+
+    it('honors a decision KeePassXC wrote, deny outranking allow', async () => {
+        const db = await paired();
+        const entry = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
+        entry.customData = new Map([[
+            'KeePassXC-Browser Settings',
+            { value: '{"Allow":["github.com"],"Deny":[],"Realm":""}' },
+        ]]);
+        const ctx = ctxFor(db);
+        const result = await Svc.handleRequest('get-logins', request, ctx);
+        expect(ctx.requestAccessConsent).not.toHaveBeenCalled();
+        expect(result.entries).toHaveLength(1);
+
+        entry.customData.set('KeePassXC-Browser Settings',
+            { value: '{"Allow":["github.com"],"Deny":["github.com"]}' });
+        const denied = await Svc.handleRequest('get-logins', request, ctx);
+        expect(denied.errorCode).toBe(15);
+    });
+
+    it('skips the confirmation when always-allow is on, but a remembered deny still holds', async () => {
+        const db = await paired();
+        const entry = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
+        const ctx = ctxFor(db);
+
+        userSettingsService.setAlwaysAllowBrowserAccess(true);
+        try {
+            const result = await Svc.handleRequest('get-logins', request, ctx);
+            expect(ctx.requestAccessConsent).not.toHaveBeenCalled();
+            expect(result.entries).toHaveLength(1);
+
+            entry.customData = new Map([[
+                'KeePassXC-Browser Settings',
+                { value: '{"Allow":[],"Deny":["github.com"]}' },
+            ]]);
+            const denied = await Svc.handleRequest('get-logins', request, ctx);
+            expect(denied.errorCode).toBe(15);
+        } finally {
+            userSettingsService.setAlwaysAllowBrowserAccess(false);
+        }
+    });
+
+    it('still answers when remembering cannot be saved', async () => {
+        const db = await paired();
+        const ctx = {
+            ...ctxFor(db),
+            saveDatabase: vi.fn(async () => { throw new Error('disk full'); }),
+            requestAccessConsent: vi.fn(async ({ entries }: { entries: Array<{ id: string }> }) =>
+                ({ allowedIds: entries.map(e => e.id), remember: true })),
+        };
+        const result = await Svc.handleRequest('get-logins', request, ctx);
+        expect(result.entries).toHaveLength(1);
+    });
+});
+
 describe('set-login', () => {
     it('creates a new entry in the Browser Passwords group', async () => {
         const db = await makeDb();
@@ -235,6 +374,17 @@ describe('set-login', () => {
         }, ctx);
         expect(result.errorCode).toBe(17);
         expect(ctx.saveDatabase).not.toHaveBeenCalled();
+    });
+
+    it('reports failure to the extension when the save fails', async () => {
+        const db = await makeDb();
+        const ctx = { ...ctxFor(db), saveDatabase: vi.fn(async () => { throw new Error('disk full'); }) };
+        const result = await Svc.handleRequest('set-login', {
+            url: 'https://new.example.org/login', login: 'newuser', password: 'newpass',
+        }, ctx);
+
+        expect(result.errorCode).toBe(17);
+        expect(result.hash).toBeUndefined();
     });
 
     it('updates an existing entry by uuid and keeps history', async () => {

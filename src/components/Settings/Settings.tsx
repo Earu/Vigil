@@ -45,6 +45,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [showImportModal, setShowImportModal] = useState(false);
     const [fetchFavicons, setFetchFavicons] = useState<boolean>(userSettingsService.getFetchFavicons());
     const [allowPasskeysLocalhost, setAllowPasskeysLocalhost] = useState<boolean>(userSettingsService.getAllowPasskeysLocalhost());
+    const [alwaysAllowBrowserAccess, setAlwaysAllowBrowserAccess] = useState<boolean>(userSettingsService.getAlwaysAllowBrowserAccess());
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
     const [dbName, setDbName] = useState('');
     const [dbDesc, setDbDesc] = useState('');
@@ -825,6 +826,23 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     Lets the KeePassXC-Browser extension fill credentials from your vaults.
                                     Enabling registers Vigil with the browsers on this machine
                                     {browserIntegration?.running ? '; the connection server is running' : ''}
+                                </p>
+                                <div className="auto-lock-toggle">
+                                    <label htmlFor="always-allow-browser-access">Always allow access to entries</label>
+                                    <input
+                                        type="checkbox"
+                                        id="always-allow-browser-access"
+                                        checked={alwaysAllowBrowserAccess}
+                                        onChange={(e) => {
+                                            setAlwaysAllowBrowserAccess(e.target.checked);
+                                            userSettingsService.setAlwaysAllowBrowserAccess(e.target.checked);
+                                        }}
+                                    />
+                                </div>
+                                <p className="database-help">
+                                    Skips the confirmation when the extension requests credentials.
+                                    Anything holding a pairing key can then read matching entries
+                                    silently; entries you denied stay denied
                                 </p>
                                 <div className="auto-lock-toggle">
                                     <label htmlFor="allow-passkeys-localhost">Allow passkeys on localhost</label>

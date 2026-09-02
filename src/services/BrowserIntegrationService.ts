@@ -13,6 +13,11 @@ import { userSettingsService } from './UserSettingsService';
 const ASSOCIATION_PREFIX = 'KPXC_BROWSER_';
 const BROWSER_GROUP_NAME = 'Browser Passwords';
 
+// Per-entry site permissions, stored the way KeePassXC's BrowserEntryConfig
+// stores them (entry custom data, JSON {"Allow": [hosts], "Deny": [hosts]}),
+// so decisions made in either app bind the other
+const BROWSER_SETTINGS_KEY = 'KeePassXC-Browser Settings';
+
 const ERROR_ASSOCIATION_FAILED = 8;
 const ERROR_NO_LOGINS_FOUND = 15;
 const ERROR_DENIED = 17;
@@ -24,6 +29,20 @@ export interface PasskeyConsentRequest {
     username?: string;
     // get: matching credentials the user picks from
     entries?: Array<{ title: string; username: string; credentialId: string }>;
+}
+
+export interface AccessConsentRequest {
+    url: string;
+    host: string;
+    entries: Array<{ id: string; title: string; username: string }>;
+}
+
+export interface AccessConsentResponse {
+    // Entry ids the user granted; the rest are withheld
+    allowedIds: string[];
+    // Write the decisions (grant and refusal both) into the entries so this
+    // site never asks again
+    remember: boolean;
 }
 
 export interface SetLoginConsentRequest {
@@ -52,6 +71,11 @@ export interface BrowserRequestContext {
     // this user confirmation is the gate (same as KeePassXC). When absent, the
     // write fails closed
     requestSetLoginConsent?: (request: SetLoginConsentRequest) => Promise<boolean>;
+    // Shows the credential access confirmation for get-logins: which of the
+    // matching entries may be handed to this site. Resolves null to deny them
+    // all without remembering. When absent, undecided entries are withheld:
+    // association alone must never be enough to read passwords and TOTP codes
+    requestAccessConsent?: (request: AccessConsentRequest) => Promise<AccessConsentResponse | null>;
 }
 
 export class BrowserIntegrationService {
@@ -147,6 +171,37 @@ export class BrowserIntegrationService {
         return value instanceof kdbxweb.ProtectedValue ? value.getText() : String(value);
     }
 
+    // What the entry's stored browser settings say about handing it to this
+    // host. Deny wins over allow, the way KeePassXC reads the same record
+    static accessDecision(entry: kdbxweb.KdbxEntry, host: string): 'allow' | 'deny' | 'unknown' {
+        const raw = entry.customData?.get(BROWSER_SETTINGS_KEY)?.value;
+        if (!raw) return 'unknown';
+        try {
+            const config = JSON.parse(raw);
+            if (Array.isArray(config.Deny) && config.Deny.includes(host)) return 'deny';
+            if (Array.isArray(config.Allow) && config.Allow.includes(host)) return 'allow';
+        } catch { /* unreadable settings decide nothing */ }
+        return 'unknown';
+    }
+
+    static recordAccessDecision(entry: kdbxweb.KdbxEntry, host: string, allowed: boolean): void {
+        let config: any = {};
+        const raw = entry.customData?.get(BROWSER_SETTINGS_KEY)?.value;
+        if (raw) {
+            try {
+                config = JSON.parse(raw) ?? {};
+            } catch { /* start over rather than carry unreadable settings */ }
+        }
+        const allow = new Set<string>(Array.isArray(config.Allow) ? config.Allow : []);
+        const deny = new Set<string>(Array.isArray(config.Deny) ? config.Deny : []);
+        (allowed ? allow : deny).add(host);
+        (allowed ? deny : allow).delete(host);
+        config.Allow = [...allow];
+        config.Deny = [...deny];
+        if (!entry.customData) entry.customData = new Map();
+        entry.customData.set(BROWSER_SETTINGS_KEY, { value: JSON.stringify(config), lastModified: new Date() });
+    }
+
     private static isAssociated(kdbxDb: kdbxweb.Kdbx, keys: Array<{ id: string; key: string }>): boolean {
         for (const { id, key } of keys ?? []) {
             const stored = kdbxDb.meta.customData.get(ASSOCIATION_PREFIX + id);
@@ -196,7 +251,14 @@ export class BrowserIntegrationService {
                 const name = await ctx.requestPairing(fingerprint, existingNames);
                 if (!name) return { errorCode: ERROR_DENIED };
                 kdbxDb.meta.customData.set(ASSOCIATION_PREFIX + name, { value: payload.idKey });
-                await ctx.saveDatabase();
+                try {
+                    await ctx.saveDatabase();
+                } catch {
+                    // The pairing never reached the file, so the browser must
+                    // not believe it holds one; take it back out of memory too
+                    kdbxDb.meta.customData.delete(ASSOCIATION_PREFIX + name);
+                    return { errorCode: ERROR_ASSOCIATION_FAILED };
+                }
                 return { hash: await this.databaseHash(kdbxDb), id: name };
             }
 
@@ -213,14 +275,64 @@ export class BrowserIntegrationService {
                     return { errorCode: ERROR_ASSOCIATION_FAILED };
                 }
                 const recycleBinUuid = kdbxDb.meta.recycleBinEnabled ? kdbxDb.meta.recycleBinUuid?.id : undefined;
-                const entries: any[] = [];
+                const matching: kdbxweb.KdbxEntry[] = [];
                 for (const entry of this.allEntries(kdbxDb.getDefaultGroup(), recycleBinUuid)) {
                     const url = this.fieldString(entry.fields.get('URL'));
                     if (this.urlMatches(url, payload.url)) {
-                        entries.push(await this.entryToLogin(entry));
+                        matching.push(entry);
                     }
                 }
-                if (entries.length === 0) return { errorCode: ERROR_NO_LOGINS_FOUND };
+
+                // The association key authenticates the channel, not the read:
+                // anything holding the extension's storage holds that key. Each
+                // entry needs the user's standing permission for this site, or
+                // a fresh confirmation (same second gate as KeePassXC)
+                const siteHost = this.hostOf(payload.url);
+                const granted: kdbxweb.KdbxEntry[] = [];
+                const undecided: kdbxweb.KdbxEntry[] = [];
+                for (const entry of matching) {
+                    const decision = this.accessDecision(entry, siteHost);
+                    if (decision === 'allow') granted.push(entry);
+                    else if (decision === 'unknown') undecided.push(entry);
+                }
+
+                // The user can opt out of per-entry confirmations, the way
+                // KeePassXC's "always allow access" does. A remembered refusal
+                // still holds: the setting only answers the undecided
+                if (userSettingsService.getAlwaysAllowBrowserAccess()) {
+                    granted.push(...undecided);
+                    undecided.length = 0;
+                }
+
+                if (undecided.length > 0 && ctx.requestAccessConsent) {
+                    const consent = await ctx.requestAccessConsent({
+                        url: payload.url,
+                        host: siteHost,
+                        entries: undecided.map(entry => ({
+                            id: this.uuidHex(entry.uuid),
+                            title: this.fieldString(entry.fields.get('Title')),
+                            username: this.fieldString(entry.fields.get('UserName')),
+                        })),
+                    });
+                    if (consent) {
+                        for (const entry of undecided) {
+                            const allowed = consent.allowedIds.includes(this.uuidHex(entry.uuid));
+                            if (consent.remember) this.recordAccessDecision(entry, siteHost, allowed);
+                            if (allowed) granted.push(entry);
+                        }
+                        if (consent.remember) {
+                            try {
+                                await ctx.saveDatabase();
+                            } catch { /* the decisions hold in memory and ride the next save */ }
+                        }
+                    }
+                }
+
+                if (granted.length === 0) return { errorCode: ERROR_NO_LOGINS_FOUND };
+                const entries: any[] = [];
+                for (const entry of granted) {
+                    entries.push(await this.entryToLogin(entry));
+                }
                 return { entries };
             }
 
@@ -257,7 +369,13 @@ export class BrowserIntegrationService {
                 entry.fields.set('UserName', payload.login ?? '');
                 entry.fields.set('Password', kdbxweb.ProtectedValue.fromString(payload.password ?? ''));
                 entry.times.lastModTime = new Date();
-                await ctx.saveDatabase();
+                try {
+                    await ctx.saveDatabase();
+                } catch {
+                    // The write is in memory only; it rides the next successful
+                    // save, but the extension must hear failure, not success
+                    return { errorCode: ERROR_DENIED };
+                }
                 return { hash: await this.databaseHash(kdbxDb) };
             }
 
@@ -285,7 +403,16 @@ export class BrowserIntegrationService {
                     return { response: { errorCode: PASSKEY_ERRORS.REQUEST_CANCELED } };
                 }
                 result.store();
-                await ctx.saveDatabase();
+                try {
+                    await ctx.saveDatabase();
+                } catch {
+                    // Reporting success here while the private key never hit
+                    // the disk would let the site complete a registration the
+                    // user can never assert again. Fail the ceremony instead;
+                    // the stored key stays in memory and is either persisted
+                    // by a later save (a harmless orphan) or discarded
+                    return { response: { errorCode: PASSKEY_ERRORS.UNKNOWN_ERROR } };
+                }
                 return { response: result.response };
             }
 

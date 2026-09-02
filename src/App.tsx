@@ -20,8 +20,9 @@ import { BrowserIntegrationService } from './services/BrowserIntegrationService'
 import { BrowserPairingDialog } from './components/BrowserPairingDialog';
 import { PasskeyConsentDialog } from './components/PasskeyConsentDialog';
 import { SetLoginConsentDialog } from './components/SetLoginConsentDialog';
+import { AccessConsentDialog } from './components/AccessConsentDialog';
 import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
-import { PasskeyConsentRequest, SetLoginConsentRequest } from './services/BrowserIntegrationService';
+import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -37,11 +38,16 @@ function App() {
 	const [pairingRequest, setPairingRequest] = useState<{ fingerprint: string; existingNames: string[]; resolve: (name: string | null) => void } | null>(null);
 	const [passkeyConsent, setPasskeyConsent] = useState<{ request: PasskeyConsentRequest; resolve: (credentialId: string | null) => void } | null>(null);
 	const [setLoginConsent, setSetLoginConsent] = useState<{ request: SetLoginConsentRequest; resolve: (allowed: boolean) => void } | null>(null);
+	const [accessConsent, setAccessConsent] = useState<{ request: AccessConsentRequest; resolve: (response: AccessConsentResponse | null) => void } | null>(null);
 	const [hardwareKeyTouchPending, setHardwareKeyTouchPending] = useState(false);
 	// True while EntryDetails holds unsaved edits. PasswordView reads it to
 	// guard navigation; locking reads it so a lock the user asked for does not
 	// throw those edits away without saying so
 	const entryDirty = useRef(false);
+	// True after a save failed: the in-memory vault holds changes the file does
+	// not. Locking or closing while set loses them, so both prompt first, and
+	// the next successful save clears it
+	const saveFailed = useRef(false);
 
 	useEffect(() => {
 		const handleUpdateStatus = (status: { state: string; version?: string }) => {
@@ -172,6 +178,16 @@ function App() {
 							},
 						});
 					}),
+					requestAccessConsent: (request) => new Promise((resolve) => {
+						window.electron?.focusWindow().catch(() => {});
+						setAccessConsent({
+							request,
+							resolve: (response) => {
+								setAccessConsent(null);
+								resolve(response);
+							},
+						});
+					}),
 				});
 				window.electron?.browserIntegrationRespond(id, result);
 				if (action === 'associate' && !result.errorCode) {
@@ -230,7 +246,12 @@ function App() {
 			!window.confirm('This entry has unsaved changes. Discard them and lock?')) {
 			return;
 		}
+		if (!options?.force && saveFailed.current &&
+			!window.confirm('The last save failed, so recent changes are not in the file. Discard them and lock?')) {
+			return;
+		}
 		entryDirty.current = false;
+		saveFailed.current = false;
 		window.electron?.setUnsavedChanges(false).catch(() => {});
 
 		// Anything the vault put in the clipboard goes now rather than at the
@@ -249,6 +270,11 @@ function App() {
 		window.electron?.reportVaultClosed().catch(() => {});
 	};
 
+	// Rethrows on failure so callers that answer someone (browser integration)
+	// report the save as failed instead of claiming success. UI callers go
+	// through handleDatabaseChangeFromUi below, which swallows the rejection:
+	// the save path has already toasted, and the flags set here keep the close
+	// and lock guards honest about the unpersisted state
 	const handleDatabaseChange = async (updatedDatabase: Database) => {
 		setDatabase(updatedDatabase);
 
@@ -261,14 +287,18 @@ function App() {
 			// Re-read the model from the kdbx so state produced during the save
 			// (history revisions, retention trims) reaches the UI
 			setDatabase(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+			saveFailed.current = false;
+			window.electron?.setUnsavedChanges(entryDirty.current).catch(() => {});
 		} catch (err) {
 			console.error('Failed to save database:', err);
-			// Show error toast
-			(window as any).showToast?.({
-				message: 'Failed to save database',
-				type: 'error'
-			});
+			saveFailed.current = true;
+			window.electron?.setUnsavedChanges(true).catch(() => {});
+			throw err;
 		}
+	};
+
+	const handleDatabaseChangeFromUi = (updatedDatabase: Database) => {
+		handleDatabaseChange(updatedDatabase).catch(() => {});
 	};
 
 	const content = database ? (
@@ -284,10 +314,11 @@ function App() {
 			<PasswordView
 				database={database}
 				searchQuery={searchQuery}
-				onDatabaseChange={handleDatabaseChange}
+				onDatabaseChange={handleDatabaseChangeFromUi}
 				showInitialBreachReport={showInitialBreachReport}
 				securityReportRequestId={securityReportRequestId}
 				entryDirty={entryDirty}
+				saveFailed={saveFailed}
 				onSearch={setSearchQuery}
 			/>
 		</>
@@ -324,7 +355,7 @@ function App() {
 					if (database && kdbxDb) {
 						// Get the updated database state after CSV import
 						const updatedDatabase = KeepassDatabaseService.convertKdbxToDatabase(kdbxDb);
-						handleDatabaseChange(updatedDatabase);
+						handleDatabaseChangeFromUi(updatedDatabase);
 					}
 				}}
 			/>
@@ -349,6 +380,13 @@ function App() {
 					request={setLoginConsent.request}
 					onSubmit={() => setLoginConsent.resolve(true)}
 					onCancel={() => setLoginConsent.resolve(false)}
+				/>
+			)}
+			{accessConsent && (
+				<AccessConsentDialog
+					request={accessConsent.request}
+					onSubmit={(allowedIds, remember) => accessConsent.resolve({ allowedIds, remember })}
+					onCancel={() => accessConsent.resolve(null)}
 				/>
 			)}
 			{hardwareKeyTouchPending && <HardwareKeyTouchDialog />}

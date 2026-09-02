@@ -19,11 +19,15 @@ interface PasswordViewProps {
 	securityReportRequestId?: number;
 	// Owned by App so locking can see the edit form's state; see entryDirty there
 	entryDirty: React.MutableRefObject<boolean>;
+	// Owned by App: true while a failed save leaves the in-memory vault ahead
+	// of the file. Read here so closing an edit form does not clear the main
+	// process's unsaved-changes flag while that state persists
+	saveFailed: React.MutableRefObject<boolean>;
 	// Clicking a tag rewrites the search box, which App owns
 	onSearch?: (query: string) => void;
 }
 
-export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId, entryDirty, onSearch }: PasswordViewProps) => {
+export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId, entryDirty, saveFailed, onSearch }: PasswordViewProps) => {
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -154,7 +158,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const setDirty = (dirty: boolean) => {
 		if (detailsDirty.current === dirty) return;
 		detailsDirty.current = dirty;
-		window.electron?.setUnsavedChanges(dirty).catch(() => {});
+		window.electron?.setUnsavedChanges(dirty || saveFailed.current).catch(() => {});
 	};
 	const handleDirtyChange = (dirty: boolean) => setDirty(dirty);
 

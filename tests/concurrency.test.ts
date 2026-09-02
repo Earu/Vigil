@@ -187,6 +187,38 @@ describe('overlapping saves', () => {
         expect(allTitles(saved).sort()).toEqual(['One', 'Three', 'Two']);
     });
 
+    it('collapses a burst of overlapping saves into at most two writes', async () => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db0.setVersion(3);
+        db0.createEntry(db0.getDefaultGroup()).fields.set('Title', 'One');
+        env.disk.bytes = Buffer.from(await db0.save());
+        env.disk.mtime = 900;
+        const db = await loadSaved(env);
+        Svc.setPath('/fake.kdbx');
+        await tick();
+
+        const electron = (globalThis as any).window.electron;
+        const original = electron.saveToFile;
+        let writes = 0;
+        electron.saveToFile = async (...args: unknown[]) => { writes++; return original(...args); };
+
+        // Four edits fired back to back without awaiting, like a multi-entry
+        // drag: one save runs, the other three collapse into one follow-up
+        let base = Svc.convertKdbxToDatabase(db);
+        const saves: Promise<void>[] = [];
+        for (const title of ['Two', 'Three', 'Four', 'Five']) {
+            const [next] = Svc.saveEntry(base, { ...Svc.createNewEntry(), title }, base.root, true);
+            base = next;
+            saves.push(Svc.saveDatabase(next, db));
+        }
+        await Promise.all(saves);
+        electron.saveToFile = original;
+
+        expect(writes).toBe(2);
+        // Collapsing must not drop any of the edits it collapsed
+        expect(allTitles(await loadSaved(env)).sort()).toEqual(['Five', 'Four', 'One', 'Three', 'Two']);
+    });
+
     it('keeps running after a save fails', async () => {
         const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
         db0.setVersion(3);

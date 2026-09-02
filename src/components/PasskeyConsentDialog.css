@@ -41,3 +41,14 @@
     color: var(--text-tertiary);
     margin-left: auto;
 }
+
+/* The remember toggle reads as an option, not another entry */
+.access-remember-row {
+    border: none;
+    padding: 0 0.6rem;
+}
+
+.access-remember-row .passkey-entry-title {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
