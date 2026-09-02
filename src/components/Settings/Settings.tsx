@@ -168,13 +168,30 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const handleCsvExport = async () => {
         if (!kdbxDb || !window.electron) return;
 
-        const count = ExportService.entryCount(kdbxDb);
+        // Collected once and reused for the count, the formula check and the
+        // file itself, rather than walking the vault three times
+        const rows = ExportService.collectRows(kdbxDb);
+        const count = rows.length;
+
+        // Only raised when the vault actually holds one; see formulaRisks
+        const risks = ExportService.formulaRisks(rows);
+        const examples = risks.slice(0, 3)
+            .map(risk => `"${risk.title}" (${risk.column})`)
+            .join(', ');
+        const formulaWarning = risks.length === 0 ? '' : `\n\n`
+            + `Warning: ${risks.length} ${risks.length === 1 ? 'field' : 'fields'} in this vault `
+            + `${risks.length === 1 ? 'starts' : 'start'} with a spreadsheet formula: ${examples}`
+            + `${risks.length > 3 ? ', and others' : ''}. Excel and Google Sheets run formulas when the `
+            + `file is opened, and a formula can read the password column beside it. Open this export `
+            + `in a text editor rather than a spreadsheet.`;
+
         const confirmed = window.confirm(
             `Export ${count} entries to a plaintext CSV file? Anyone who can read that file can read every password in it.`
+            + formulaWarning
         );
         if (!confirmed) return;
 
-        const csv = ExportService.toCsv(kdbxDb);
+        const csv = ExportService.toCsv(kdbxDb, rows);
         const result = await window.electron.saveAttachment(
             ExportService.exportFileName(kdbxDb),
             new TextEncoder().encode(csv)
