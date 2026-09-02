@@ -11,6 +11,7 @@ import { KeepassDatabaseService } from './services/KeepassDatabaseService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
 import { BreachCheckService } from './services/BreachCheckService';
+import { HaveIBeenPwnedService } from './services/HaveIBeenPwnedService';
 import { BreachStatusStore } from './services/BreachStatusStore';
 import { EmailBreachStatusStore } from './services/EmailBreachStatusStore';
 import { ClipboardService } from './services/ClipboardService';
@@ -48,6 +49,16 @@ function App() {
 	// not. Locking or closing while set loses them, so both prompt first, and
 	// the next successful save clears it
 	const saveFailed = useRef(false);
+
+	// The strength estimator (zxcvbn, roughly half the bundle) is split out
+	// and fetched after first paint, so it is ready by the time a password
+	// field needs it without slowing the unlock screen down
+	useEffect(() => {
+		const timer = setTimeout(() => {
+			HaveIBeenPwnedService.preloadStrengthEstimator().catch(() => {});
+		}, 1500);
+		return () => clearTimeout(timer);
+	}, []);
 
 	useEffect(() => {
 		const handleUpdateStatus = (status: { state: string; version?: string }) => {

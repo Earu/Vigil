@@ -1252,17 +1252,19 @@ export class KeepassDatabaseService {
             const backup = { ...userSettingsService.getBackupOptions(), replacingExternalChanges };
             const currentPath = this.getPath();
             if (currentPath) {
-                // If we have a path, save directly to it
                 result = await window.electron?.saveToFile(currentPath, new Uint8Array(arrayBuffer), backup);
                 if (!result?.success) {
-                    // If direct save fails, fall back to save dialog
-                    result = await window.electron?.saveFile(new Uint8Array(arrayBuffer), backup);
-                    if (result?.success && result.filePath) {
-                        this.setPath(result.filePath);
-                    }
+                    // One retry after a beat: sync clients and virus scanners
+                    // hold the file briefly and let go. This used to fall
+                    // back to a save dialog, which repointed the session's
+                    // vault at whatever path was picked under pressure and
+                    // left the original file behind, silently forked
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                    result = await window.electron?.saveToFile(currentPath, new Uint8Array(arrayBuffer), backup);
                 }
             } else {
-                // If no path, use save dialog
+                // No path yet (a newly created database): the dialog is the
+                // only way to get one
                 result = await window.electron?.saveFile(new Uint8Array(arrayBuffer), backup);
                 if (result?.success && result.filePath) {
                     this.setPath(result.filePath);
@@ -1309,9 +1311,13 @@ export class KeepassDatabaseService {
                 throw err;
             }
             console.error('Failed to save database:', err);
-            // Show error toast
+            // The toast names the underlying error: a save that failed twice
+            // is worth more than a generic apology, and there is no log to
+            // find it in later
+            const detail = err instanceof Error && err.message && err.message !== 'Failed to save database'
+                ? `: ${err.message}` : '';
             (window as any).showToast?.({
-                message: 'Failed to save database',
+                message: `Failed to save database${detail}`,
                 type: 'error'
             });
             throw err;

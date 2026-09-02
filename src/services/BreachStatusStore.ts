@@ -32,8 +32,9 @@ export class BreachStatusStore {
     // A breach sweep writes one status per entry. Persisting and notifying on
     // each one is quadratic: the whole store is re-serialized every time, and
     // every subscriber re-walks the entry tree. These drive background
-    // indicators, so coalescing a quarter second of them costs nothing
-    private static readonly COALESCE_MS = 250;
+    // indicators, so coalescing a second of them costs nothing; each tick
+    // still costs the subscribers several full tree walks
+    private static readonly COALESCE_MS = 1000;
 
     // Decrypted once per vault; all lookups hit this in-memory copy
     private static store: DatabaseBreachStatus | null = null;

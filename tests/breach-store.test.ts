@@ -49,7 +49,7 @@ describe('breach status store write coalescing', () => {
         }
         expect(writes.set).toBe(0);
 
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
         expect(writes.set).toBe(1);
         expect(BreachCacheCrypto.read<any>('breach')['/db.kdbx']).toHaveProperty('entry-49');
     });
@@ -63,7 +63,7 @@ describe('breach status store write coalescing', () => {
         }
         expect(notifications).toBe(0);
 
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
         expect(notifications).toBe(1);
         unsubscribe();
     });
@@ -82,7 +82,7 @@ describe('breach status store write coalescing', () => {
         BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-1', status);
         expect(BreachStatusStore.getVersion()).toBe(before);
 
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
         expect(BreachStatusStore.getVersion()).toBe(before + 1);
     });
 
@@ -95,13 +95,13 @@ describe('breach status store write coalescing', () => {
         expect(writes.set).toBe(1);
 
         // the timer must not fire a second write for the same batch
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
         expect(writes.set).toBe(1);
     });
 
     it('writes clears through immediately', () => {
         BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-1', status);
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
         writes.set = 0;
 
         BreachStatusStore.clearStatus('/db.kdbx', 'entry-1');
@@ -113,7 +113,7 @@ describe('breach status store write coalescing', () => {
         // Something already persisted, so the clear has a blob to remove,
         // plus a second write still sitting in the coalescing window
         BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-0', status);
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
         writes.set = 0;
         writes.remove = 0;
 
@@ -121,7 +121,7 @@ describe('breach status store write coalescing', () => {
         BreachStatusStore.clearAll();
         expect(writes.remove).toBe(1);
 
-        vi.advanceTimersByTime(250);
+        vi.advanceTimersByTime(1000);
         expect(writes.set).toBe(0);
         expect(BreachStatusStore.getEntryStatus('/db.kdbx', 'entry-1')).toBeNull();
     });
