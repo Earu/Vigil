@@ -87,6 +87,23 @@ describe('the runAsNode fuse', () => {
         expect((await loadConfig(['-l'])).electronFuses.runAsNode).toBe(false);
     });
 
+    // yargs accepts every alias with either dash count and an inline value
+    it('recognises inline-value and double-dash alias spellings', async () => {
+        expect((await loadConfig(['--win=nsis'])).electronFuses.runAsNode).toBe(true);
+        expect((await loadConfig(['--windows=nsis'])).electronFuses.runAsNode).toBe(true);
+        expect((await loadConfig(['--w'])).electronFuses.runAsNode).toBe(true);
+        expect((await loadConfig(['--m'])).electronFuses.runAsNode).toBe(false);
+        expect((await loadConfig(['--l'])).electronFuses.runAsNode).toBe(false);
+        expect((await loadConfig(['--mac=dmg'])).electronFuses.runAsNode).toBe(false);
+        expect((await loadConfig(['--linux=AppImage'])).electronFuses.runAsNode).toBe(false);
+    });
+
+    // Arch and unrelated flags must not read as a platform choice
+    it('ignores non-platform flags', async () => {
+        const host = process.platform === 'win32';
+        expect((await loadConfig(['--x64', '--dir'])).electronFuses.runAsNode).toBe(host);
+    });
+
     it('is off for a mixed build, so the weaker setting never leaks across', async () => {
         expect((await loadConfig(['--mac', '--linux'])).electronFuses.runAsNode).toBe(false);
     });

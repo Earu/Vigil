@@ -180,7 +180,7 @@ export const PasswordForm = ({
 
     const unlockError = (err: unknown): string => {
         if (err instanceof Error && err.message === 'KEYFILE_READ_FAILED') {
-            return `Failed to read key file ${keyFile?.path}`;
+            return `Failed to read key file ${keyFile?.path}; select it again to restore access`;
         }
         if (err instanceof Error && err.message.startsWith('HARDWARE_KEY')) {
             return hardwareKeyErrorMessage(err.message);

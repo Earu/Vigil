@@ -2,6 +2,7 @@ import { app, dialog, BrowserWindow } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { backupBeforeWrite, BackupRequest, DEFAULT_BACKUP_OPTIONS } from './backups';
+import { grantPath, grantPathPersistent } from './path-authority';
 
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
 
@@ -21,6 +22,8 @@ export async function loadLastDatabasePath(): Promise<string | null> {
             const data = await fs.promises.readFile(LAST_DB_PATH, 'utf-8');
             const { path: dbPath } = JSON.parse(data);
             if (fs.existsSync(dbPath)) {
+                // The renderer follows up with read-file and stat-file on it
+                grantPath(dbPath);
                 return dbPath;
             }
         }
@@ -119,6 +122,8 @@ export async function saveFile(data: Uint8Array, backup: BackupRequest = DEFAULT
         await tryBackup(filePath, backup);
         await atomicWrite(filePath, Buffer.from(data));
         await saveLastDatabasePath(filePath);
+        // Every later save of this session goes through save-to-file
+        grantPath(filePath);
         return { success: true, filePath };
     } catch (error) {
         console.error('Failed to save file:', error);
@@ -151,6 +156,10 @@ export async function saveAttachment(name: string, data: Uint8Array): Promise<{ 
         } finally {
             await handle.close();
         }
+        // The generated-key-file flow saves through this dialog and the
+        // renderer remembers the path to read at every later unlock, so the
+        // grant must outlive the session, like selectKeyFile's
+        grantPathPersistent(filePath);
         return { success: true, filePath };
     } catch (error) {
         console.error('Failed to save attachment:', error);
@@ -169,22 +178,15 @@ export async function saveToFile(filePath: string, data: Uint8Array, backup: Bac
     }
 }
 
-export async function getFilePath(filePath: string): Promise<string | null> {
-    try {
-        if (path.isAbsolute(filePath)) {
-            return filePath;
-        }
-
-        const resolvedPath = path.resolve(process.cwd(), filePath);
-        if (fs.existsSync(resolvedPath)) {
-            return resolvedPath;
-        }
-
-        return null;
-    } catch (error) {
-        console.error('Error resolving file path:', error);
+// A vault dropped onto the unlock screen. The path arrives from the preload's
+// webUtils.getPathForFile, never as a renderer-chosen string; the extension
+// check keeps the resulting grant (which allows writes) to vault files
+export function registerDroppedVault(filePath: string): string | null {
+    if (typeof filePath !== 'string' || !/\.kdbx$/i.test(filePath) || !path.isAbsolute(filePath)) {
         return null;
     }
+    grantPath(filePath);
+    return filePath;
 }
 
 export async function openFile(targetWindow?: BrowserWindow): Promise<{ success: boolean, error?: string, filePath?: string }> {
@@ -220,6 +222,9 @@ export async function selectKeyFile(): Promise<{ canceled: boolean, filePath?: s
         return { canceled: true };
     }
 
+    // Persistent: the renderer remembers key file paths per vault and reads
+    // them at the next unlock, sessions after this dialog closed
+    grantPathPersistent(filePaths[0]);
     return { canceled: false, filePath: filePaths[0] };
 }
 
@@ -235,6 +240,9 @@ export async function readFile(filePath: string): Promise<{ success: boolean, er
 
 export async function handleFileOpen(filePath: string, targetWindow?: BrowserWindow): Promise<void> {
     try {
+        // Covers every open route that starts in the main process: the open
+        // dialog, a file-manager launch, second instances, macOS open-file
+        grantPath(filePath);
         const result = await fs.promises.readFile(filePath);
         const window = targetWindow ?? BrowserWindow.getAllWindows()[0];
         if (!window || window.isDestroyed()) return;

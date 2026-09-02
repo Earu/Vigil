@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IElectronAPI } from '../src/types/electron'
 
 const api: IElectronAPI = {
@@ -17,7 +17,13 @@ const api: IElectronAPI = {
 	getBackupInfo: (filePath) => ipcRenderer.invoke('get-backup-info', filePath),
 	revealBackups: (filePath) => ipcRenderer.invoke('reveal-backups', filePath),
 	saveAttachment: (name, data) => ipcRenderer.invoke('save-attachment', name, data),
-	getFilePath: (path) => ipcRenderer.invoke('get-file-path', path),
+	// webUtils only yields a path for a File backed by a real disk file, so
+	// the grant behind this is mintable solely from files the user actually
+	// dropped or picked
+	registerDroppedFile: (file) => {
+		const filePath = webUtils.getPathForFile(file)
+		return filePath ? ipcRenderer.invoke('register-dropped-file', filePath) : Promise.resolve(null)
+	},
 	openFile: () => ipcRenderer.invoke('open-file'),
 	readFile: (filePath) => ipcRenderer.invoke('read-file', filePath),
 	selectKeyFile: () => ipcRenderer.invoke('select-key-file'),
