@@ -26,6 +26,11 @@ interface UserSettings {
     // would otherwise take the only copy with it
     backupsEnabled?: boolean;
     backupKeep?: number;
+    // Names this installation in the history notes written into a vault; see
+    // HistoryNotesService. Random and opaque on purpose: it is written into a
+    // file that gets synced and shared, so it must say nothing about the
+    // machine or the person using it
+    replicaId?: string;
 }
 
 export const MIN_BACKUP_KEEP = 1;
@@ -180,6 +185,29 @@ class UserSettingsService {
         }
         this.current.hardwareKeys = keys;
         this.saveSettings();
+    }
+
+    // Identifies this installation to the history notes a vault carries. Held
+    // in a field of its own as well as in storage, so a run with no storage at
+    // all (the test environment, a profile that cannot write) still gets one
+    // identity for its whole session instead of a new one per call
+    getReplicaId(): string {
+        if (!this.replicaId) {
+            this.replicaId = this.current.replicaId ?? this.newReplicaId();
+        }
+        if (this.current.replicaId !== this.replicaId) {
+            this.current.replicaId = this.replicaId;
+            this.saveSettings();
+        }
+        return this.replicaId;
+    }
+
+    private replicaId: string | undefined;
+
+    private newReplicaId(): string {
+        const bytes = new Uint8Array(8);
+        crypto.getRandomValues(bytes);
+        return [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
     // Method to get all settings (useful for debugging or backup)

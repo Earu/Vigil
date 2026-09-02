@@ -1,6 +1,7 @@
 import * as kdbxweb from 'kdbxweb';
 import { Database, Group, Entry, EntryVersion, Attachment, CustomField } from '../types/database';
 import { userSettingsService } from './UserSettingsService';
+import { HistoryNotesService } from './HistoryNotesService';
 
 interface SaveResult {
     success: boolean;
@@ -1038,6 +1039,18 @@ export class KeepassDatabaseService {
                 data.slice().buffer,
                 kdbxDb.credentials
             );
+
+            // Before the merge, not after: these notes are what it reads to
+            // decide whether a revision missing from the incoming file was
+            // deleted there or simply never seen. The incoming file's own
+            // notes count too, and are only reachable here, because the merge
+            // that would copy them across has not run yet
+            HistoryNotesService.apply(
+                kdbxDb,
+                HistoryNotesService.read(kdbxDb),
+                HistoryNotesService.read(remoteDb)
+            );
+
             kdbxDb.merge(remoteDb);
 
             (window as any).showToast?.({
@@ -1048,6 +1061,52 @@ export class KeepassDatabaseService {
         } catch (err) {
             console.error('Failed to merge external changes:', err);
             return false;
+        }
+    }
+
+    // A vault just opened carries the notes every replica that touched it
+    // recorded; hand them to kdbxweb so its merge can read them. Without this
+    // the notes would only ever cover the current session, which is the window
+    // in which they are least needed
+    static restoreHistoryNotes(kdbxDb: kdbxweb.Kdbx): void {
+        HistoryNotesService.apply(kdbxDb, HistoryNotesService.read(kdbxDb));
+    }
+
+    // The merge settles entry history from notes saying which revisions a
+    // replica recorded: pushHistory writes one, and the merge reads them to
+    // tell "somebody added this" apart from "the other side deleted it".
+    // kdbxweb keeps a deleted list too, and drops the lot once the state has
+    // been written. This does neither, for reasons that are all the same
+    // reason: a kdbx file in a synced folder has no central upstream, so a
+    // replica writing over the top has not necessarily read what it replaces.
+    //
+    // The added notes are kept and written into the file (HistoryNotesService),
+    // less the ones that can no longer say anything. The merge only ever asks
+    // about revisions an entry still holds, so a note for a revision retention
+    // has since dropped is dead weight. That bounds the list by the retention
+    // limit instead of letting it grow once per save for the life of the
+    // session, which matters both for what goes in the file and because the
+    // merge scans the list linearly for every revision it looks at.
+    //
+    // The deleted notes go entirely. Their only job is to stop a revision this
+    // replica trimmed coming back from someone who still has it, and the
+    // retention pass runs on every save, so anything a merge re-adds is
+    // trimmed again before the file is written. Keeping them would buy nothing
+    // and cost the one thing they can do wrong: refuse a revision back
+    // permanently, on a timestamp match, whoever offers it
+    private static pruneLocalEditState(kdbxDb: kdbxweb.Kdbx): void {
+        for (const entry of kdbxDb.getDefaultGroup().allEntries()) {
+            const editState = entry._editState;
+            if (!editState) continue;
+
+            const live = new Set<number>();
+            for (const revision of entry.history) {
+                const time = revision.times.lastModTime?.getTime();
+                if (time !== undefined) live.add(time);
+            }
+
+            const added = editState.added.filter(time => live.has(time));
+            entry._editState = added.length > 0 ? { added, deleted: [] } : undefined;
         }
     }
 
@@ -1141,6 +1200,13 @@ export class KeepassDatabaseService {
             // longer referenced by any entry or history revision
             kdbxDb.cleanup({ historyRules: true, binaries: true });
 
+            // After the retention trim, so notes for revisions it just dropped
+            // are not carried, and before the save, because these go into the
+            // bytes it produces
+            this.pruneLocalEditState(kdbxDb);
+            HistoryNotesService.purgeEmpty(kdbxDb);
+            HistoryNotesService.write(kdbxDb, userSettingsService.getReplicaId());
+
             // Save the updated database
             const arrayBuffer = await kdbxDb.save();
 
@@ -1169,6 +1235,16 @@ export class KeepassDatabaseService {
             if (!result?.success) {
                 throw new Error(result?.error || 'Failed to save database');
             }
+
+            // The format gives no change date of its own to history retention,
+            // colour or the key change interval, so a merge settles those from
+            // an in-memory note alone: whoever holds one keeps their value.
+            // Unlike the entry notes there is no history riding on this, so
+            // holding it past the write only pins the field to this session
+            // and makes a change from another machine unreachable. Cleared
+            // here rather than before the save because a save that failed
+            // published nothing, and the local value still has to win
+            kdbxDb.meta.editState = undefined;
 
             // Refresh the conflict-detection baseline to the file we just
             // wrote. The hash comes from the bytes rather than from re-reading
