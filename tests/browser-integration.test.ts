@@ -32,7 +32,7 @@ const ctxFor = (kdbxDb: kdbxweb.Kdbx, pairingName: string | null = null) => ({
     database: {} as any,
     kdbxDb,
     saveDatabase: vi.fn(async () => {}),
-    requestPairing: vi.fn(async () => pairingName),
+    requestPairing: vi.fn(async (_fingerprint: string, _existingNames: string[]) => pairingName),
     requestSetLoginConsent: vi.fn(async () => true),
 });
 
@@ -101,6 +101,43 @@ describe('association', () => {
         expect(db.meta.customData.get('KPXC_BROWSER_Firefox')?.value).toBe('id-key-b64');
         expect(ctx.saveDatabase).toHaveBeenCalled();
         expect(Svc.listAssociations(db)).toEqual([{ name: 'Firefox', key: 'id-key-b64' }]);
+    });
+
+    // Reusing a name replaces that pairing's key and leaves the browser
+    // holding the old one silently de-authorized, so the dialog is handed the
+    // names already in the database and warns first. KeePassXC's storeKey
+    // asks the same question ("Overwrite existing key?") before replacing
+    it('hands the pairing dialog the names already in the database', async () => {
+        const db = await makeDb();
+        db.meta.customData.set('KPXC_BROWSER_Firefox', { value: 'old-key' });
+        db.meta.customData.set('KPXC_BROWSER_Chrome', { value: 'other-key' });
+
+        const ctx = ctxFor(db, 'Edge');
+        await Svc.handleRequest('associate', { key: 'sess', idKey: 'new-key' }, ctx);
+
+        expect(ctx.requestPairing).toHaveBeenCalledWith('new-key', ['Firefox', 'Chrome']);
+    });
+
+    it('passes an empty list when nothing is paired yet', async () => {
+        const db = await makeDb();
+        const ctx = ctxFor(db, 'Firefox');
+        await Svc.handleRequest('associate', { key: 'sess', idKey: 'k' }, ctx);
+        expect(ctx.requestPairing).toHaveBeenCalledWith('k', []);
+    });
+
+    it('flags a reused name as a collision, exactly and after trimming', () => {
+        const existing = ['Firefox', 'Chrome'];
+        expect(Svc.pairingNameCollides('Firefox', existing)).toBe(true);
+        expect(Svc.pairingNameCollides('  Firefox  ', existing)).toBe(true);
+        expect(Svc.pairingNameCollides('Edge', existing)).toBe(false);
+        expect(Svc.pairingNameCollides('Firefox 2', existing)).toBe(false);
+        expect(Svc.pairingNameCollides('Firefox', [])).toBe(false);
+    });
+
+    // Custom data keys are case sensitive, so these two coexist rather than
+    // one replacing the other; warning about it would be a false alarm
+    it('does not flag a name differing only in case', () => {
+        expect(Svc.pairingNameCollides('firefox', ['Firefox'])).toBe(false);
     });
 
     it('denied pairing returns an error and stores nothing', async () => {

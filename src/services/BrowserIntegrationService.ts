@@ -39,8 +39,11 @@ export interface BrowserRequestContext {
     database: Database;
     kdbxDb: kdbxweb.Kdbx;
     saveDatabase: () => Promise<void>;
-    // Shows the pairing dialog; resolves with the connection name or null
-    requestPairing: (keyFingerprint: string) => Promise<string | null>;
+    // Shows the pairing dialog; resolves with the connection name or null.
+    // existingNames are the pairings the database already holds: a name that
+    // repeats one of them replaces that pairing's key and silently
+    // de-authorizes the browser holding it, so the dialog warns first
+    requestPairing: (keyFingerprint: string, existingNames: string[]) => Promise<string | null>;
     // Shows the passkey consent dialog; resolves with the chosen credentialId
     // ('register' resolves with any non-null value on approval), null on deny
     requestPasskeyConsent?: (request: PasskeyConsentRequest) => Promise<string | null>;
@@ -64,6 +67,15 @@ export class BrowserIntegrationService {
 
     static removeAssociation(kdbxDb: kdbxweb.Kdbx, name: string): void {
         kdbxDb.meta.customData.delete(ASSOCIATION_PREFIX + name);
+    }
+
+    // Whether pairing under this name would replace an existing pairing, and
+    // so silently de-authorize the browser holding it. Exact matches only,
+    // after the same trim the dialog applies before storing: custom data keys
+    // are case sensitive, so "firefox" next to "Firefox" is a second pairing
+    // rather than a replacement, and warning about it would be a false alarm
+    static pairingNameCollides(name: string, existingNames: string[]): boolean {
+        return existingNames.includes(name.trim());
     }
 
     static async databaseHash(kdbxDb: kdbxweb.Kdbx): Promise<string> {
@@ -180,7 +192,8 @@ export class BrowserIntegrationService {
             case 'associate': {
                 if (!payload.idKey) return { errorCode: ERROR_ASSOCIATION_FAILED };
                 const fingerprint = String(payload.idKey).slice(0, 12);
-                const name = await ctx.requestPairing(fingerprint);
+                const existingNames = this.listAssociations(kdbxDb).map(a => a.name);
+                const name = await ctx.requestPairing(fingerprint, existingNames);
                 if (!name) return { errorCode: ERROR_DENIED };
                 kdbxDb.meta.customData.set(ASSOCIATION_PREFIX + name, { value: payload.idKey });
                 await ctx.saveDatabase();
