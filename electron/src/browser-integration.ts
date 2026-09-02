@@ -101,7 +101,13 @@ export { getSocketPath };
 // Stale socket files only exist on unix; pipes vanish with their server
 function removeSocketFile(): void {
     if (process.platform !== 'win32') {
-        fs.rmSync(getSocketPath(), { force: true });
+        try {
+            fs.rmSync(getSocketPath(), { force: true });
+        } catch (err) {
+            // force only covers a missing file; one owned by someone else in a
+            // sticky /tmp is EPERM, and listen will say so in its own words
+            console.error('Failed to remove a stale browser socket:', err);
+        }
     }
 }
 
@@ -127,6 +133,10 @@ function askRenderer(win: BrowserWindow, action: string, payload: any, timeoutMs
         const id = ++requestCounter;
         const timer = setTimeout(() => {
             pendingRendererRequests.delete(id);
+            // The browser hears a denial now; the dialog must go with it, or
+            // a later click saves a login or mints a passkey the browser was
+            // told it did not get
+            if (!win.isDestroyed()) win.webContents.send('browser-integration-cancel', { id });
             resolve({ errorCode: ERROR_DENIED });
         }, timeoutMs);
         pendingRendererRequests.set(id, (result) => {
@@ -351,9 +361,14 @@ export async function handleEnvelope(envelope: any, sessions: Map<string, Sessio
 
 // ---- socket server ----
 
-export function startServer(): { success: boolean; error?: string } {
-    if (server) return { success: true };
+// Resolves once the server is actually listening, or with the reason it is
+// not. It used to return before listen had finished and log its failure,
+// leaving `server` set: the status read as running while nothing was, which
+// on Windows is exactly what a second user (or a squatted pipe name) looks like
+export function startServer(): Promise<{ success: boolean; error?: string }> {
+    if (server) return Promise.resolve({ success: true });
     const socketPath = getSocketPath();
+    return new Promise((resolve) => {
     try {
         removeSocketFile();
         server = net.createServer((socket) => {
@@ -425,15 +440,20 @@ export function startServer(): { success: boolean; error?: string } {
                     console.error('Failed to restrict browser socket permissions:', err);
                 }
             }
+            resolve({ success: true });
         });
         server.on('error', (err) => {
             console.error('Browser integration server error:', err);
+            // A listen failure (the name is taken) leaves nothing to keep
+            server?.close();
+            server = null;
+            resolve({ success: false, error: err.message });
         });
-        return { success: true };
     } catch (error) {
         server = null;
-        return { success: false, error: error instanceof Error ? error.message : 'Failed to start server' };
+        resolve({ success: false, error: error instanceof Error ? error.message : 'Failed to start server' });
     }
+    });
 }
 
 export function stopServer(): void {
@@ -613,10 +633,10 @@ export function setupBrowserIntegration(): void {
         socketPath: getSocketPath(),
     }));
 
-    ipcMain.handle('browser-integration-set-enabled', (_event, enabled: boolean) => {
+    ipcMain.handle('browser-integration-set-enabled', async (_event, enabled: boolean) => {
         persistEnabled(enabled);
         if (enabled) {
-            const result = startServer();
+            const result = await startServer();
             // Enabling means the whole thing should work: register the
             // native messaging manifests in the same step
             const manifests = installManifests();
@@ -631,7 +651,9 @@ export function setupBrowserIntegration(): void {
     });
 
     if (isEnabled()) {
-        startServer();
+        startServer().then(result => {
+            if (!result.success) console.error('Browser integration is not listening:', result.error);
+        });
         // Re-write the manifests on every start: the proxy wrapper bakes in
         // the current binary path, which changes between dev and packaged runs
         installManifests();
