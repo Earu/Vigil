@@ -391,6 +391,14 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
 
     const handleApplyKdf = () => {
         if (!kdbxDb || !kdfInfo) return;
+        if (KeepassDatabaseService.argon2WorkExceeded(kdfInfo)) {
+            const budget = KeepassDatabaseService.ARGON2_MAX_WORK_MIB_PASSES;
+            (window as any).showToast?.({
+                message: `Memory times iterations may not exceed ${budget.toLocaleString()} MiB; a vault past that would take too long to unlock`,
+                type: 'error'
+            });
+            return;
+        }
         KeepassDatabaseService.setKdf(kdbxDb, kdfInfo);
         onDatabaseChange?.();
         setKdfInfo(KeepassDatabaseService.getKdfInfo(kdbxDb));

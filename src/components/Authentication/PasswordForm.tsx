@@ -189,6 +189,15 @@ export const PasswordForm = ({
         if (err instanceof Error && err.message.startsWith('HARDWARE_KEY')) {
             return hardwareKeyErrorMessage(err.message);
         }
+        // Refused by the main process before any key derivation ran: the
+        // header asks for more than the app will do. Not a wrong password,
+        // and retyping it will not help, so say what actually happened
+        if (err instanceof Error && /Unreasonable Argon2 parameters/.test(err.message)) {
+            return 'This database asks for more key derivation work than Vigil will do; it may be corrupted or crafted to hang the app';
+        }
+        if (err instanceof Error && /window that asked for this unlock|took too long and was stopped/.test(err.message)) {
+            return 'Key derivation was stopped before it finished';
+        }
         if (hardwareKey) {
             return 'Invalid password or wrong hardware key response';
         }

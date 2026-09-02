@@ -1440,7 +1440,22 @@ export class KeepassDatabaseService {
         };
     }
 
+    // The most key derivation work an unlock will do, as memory in MiB times
+    // iterations: the main process refuses a header past this (MAX_WORK_KIB_PASSES
+    // in electron/src/crypto.ts, same value in KiB) so a hostile file cannot
+    // hang the app, and the settings UI refuses to write one past it so a
+    // vault Vigil made always opens in Vigil. Keep the two in step
+    static readonly ARGON2_MAX_WORK_MIB_PASSES = 64 * 1024;
+
+    static argon2WorkExceeded(info: KdfInfo): boolean {
+        if (info.type !== 'argon2d' && info.type !== 'argon2id') return false;
+        return (info.memoryMiB ?? 64) * info.iterations > this.ARGON2_MAX_WORK_MIB_PASSES;
+    }
+
     static setKdf(kdbxDb: kdbxweb.Kdbx, info: KdfInfo): void {
+        if (this.argon2WorkExceeded(info)) {
+            throw new Error('KDF_WORK_EXCEEDED');
+        }
         if (kdbxDb.header.versionMajor < 4) {
             kdbxDb.header.keyEncryptionRounds = info.iterations;
             return;
