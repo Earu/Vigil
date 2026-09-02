@@ -1,9 +1,28 @@
-import zxcvbn from 'zxcvbn';
+import type zxcvbnType from 'zxcvbn';
 import { userSettingsService } from './UserSettingsService';
 import { HibpBreach } from './BreachCheckService';
 
 export class HaveIBeenPwnedService {
     private static readonly HIBP_API_URL = 'https://api.pwnedpasswords.com';
+
+    // zxcvbn's dictionaries are ~800 KB of the bundle, about half of it.
+    // Loaded on demand instead of at startup, so the unlock screen does not
+    // pay for a strength meter the session may never open. App kicks the
+    // load off shortly after first paint, so by the time someone reaches a
+    // password field the estimator is almost always ready
+    private static zxcvbn: typeof zxcvbnType | null = null;
+    private static zxcvbnLoading: Promise<void> | null = null;
+
+    public static preloadStrengthEstimator(): Promise<void> {
+        if (!this.zxcvbnLoading) {
+            this.zxcvbnLoading = import('zxcvbn').then(module => {
+                this.zxcvbn = module.default;
+            });
+            // A failed chunk load retries on the next call
+            this.zxcvbnLoading.catch(() => { this.zxcvbnLoading = null; });
+        }
+        return this.zxcvbnLoading;
+    }
 
     // Range responses shared between passwords with the same 5-char hash
     // prefix (identical passwords across entries always share one). Bounded;
@@ -101,6 +120,8 @@ export class HaveIBeenPwnedService {
      * Checks the strength of a password using zxcvbn.
      * Local and synchronous: use this for UI feedback instead of
      * checkPassword, which also hits the HIBP API.
+     * Returns null while the estimator chunk is still loading (and starts
+     * the load); callers show no rating rather than a made-up one.
      */
     public static checkPasswordStrength(password: string): {
         score: number;
@@ -108,11 +129,15 @@ export class HaveIBeenPwnedService {
             warning: string;
             suggestions: string[];
         };
-    } {
+    } | null {
+        if (!this.zxcvbn) {
+            void this.preloadStrengthEstimator();
+            return null;
+        }
         // zxcvbn cost grows superlinearly with length (130ms+ at 100 chars,
         // all on the UI thread). The score saturates at 4 well below 32
         // random characters, so longer input only burns CPU
-        const result = zxcvbn(password.slice(0, 32));
+        const result = this.zxcvbn(password.slice(0, 32));
         return {
             score: result.score, // 0-4 (0 = weak, 4 = strong)
             feedback: {
@@ -137,10 +162,14 @@ export class HaveIBeenPwnedService {
             };
         };
     }> {
-        const [pwnedResult, strengthResult] = await Promise.all([
+        const [pwnedResult] = await Promise.all([
             this.isPasswordPwned(password),
-            Promise.resolve(this.checkPasswordStrength(password))
+            this.preloadStrengthEstimator()
         ]);
+        // Non-null once the preload above has resolved. A failed chunk load
+        // rejected the Promise.all instead, so the entry stays uncached and
+        // the next sweep retries rather than recording a made-up strength
+        const strengthResult = this.checkPasswordStrength(password)!;
 
         return {
             isPwned: pwnedResult.isPwned,

@@ -491,8 +491,22 @@ export class BreachCheckService {
         };
     }
 
+    // Cached per password object: the summary and report walks run on every
+    // store tick during a sweep, and decrypting every ProtectedValue each
+    // time made those ticks cost a full vault of AES work. Only the boolean
+    // is kept, never the decrypted text, and the model is rebuilt on every
+    // save so a stale object simply stops being asked
+    private static hasPasswordCache = new WeakMap<object, boolean>();
+
     private static entryHasPassword(entry: Entry): boolean {
-        return !!KeepassDatabaseService.getPasswordString(entry.password);
+        const password = entry.password;
+        if (!password) return false;
+        if (typeof password === 'string') return password.length > 0;
+        const cached = this.hasPasswordCache.get(password);
+        if (cached !== undefined) return cached;
+        const has = !!KeepassDatabaseService.getPasswordString(password);
+        this.hasPasswordCache.set(password, has);
+        return has;
     }
 
     private static isValidEmail(email: string): boolean {

@@ -29,7 +29,7 @@ export class EmailBreachStatusStore {
     // account API is rate limited to one lookup every few seconds, so writes
     // are rare), but the two stores drive the same indicators and diverging
     // write behaviour between them is only a trap for later
-    private static readonly COALESCE_MS = 250;
+    private static readonly COALESCE_MS = 1000;
 
     // Decrypted once per vault; all lookups hit this in-memory copy
     private static store: DatabaseEmailBreachStatus | null = null;

@@ -17,6 +17,21 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 	const [isMaximized, setIsMaximized] = useState(false);
 	const [isMacOS, setIsMacOS] = useState(false);
 	const [isFullscreen, setIsFullscreen] = useState(false);
+	// The input is its own source of truth while typing; the vault-wide
+	// filter (a full scan and sort per change) follows a beat behind instead
+	// of running on every keystroke
+	const [localQuery, setLocalQuery] = useState(searchQuery);
+
+	// External rewrites of the query (a tag click) land in the box too
+	useEffect(() => {
+		setLocalQuery(searchQuery);
+	}, [searchQuery]);
+
+	useEffect(() => {
+		if (localQuery === searchQuery) return;
+		const timer = setTimeout(() => onSearch?.(localQuery), 150);
+		return () => clearTimeout(timer);
+	}, [localQuery]);
 
 	useEffect(() => {
 		// Only run in electron environment
@@ -69,9 +84,9 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 								type="text"
 								className="search-input"
 								placeholder="Search passwords..."
-								value={searchQuery}
+								value={localQuery}
 								autoFocus
-								onChange={(e) => onSearch?.(e.target.value)}
+								onChange={(e) => setLocalQuery(e.target.value)}
 							/>
 						</div>
 						<button className="lock-button" onClick={onLock} title="Lock database">

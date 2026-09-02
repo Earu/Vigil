@@ -219,6 +219,65 @@ describe('overlapping saves', () => {
         expect(allTitles(await loadSaved(env)).sort()).toEqual(['Five', 'Four', 'One', 'Three', 'Two']);
     });
 
+    it('retries a transient write failure instead of opening a save dialog', async () => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db0.setVersion(3);
+        db0.createEntry(db0.getDefaultGroup()).fields.set('Title', 'Kept');
+        env.disk.bytes = Buffer.from(await db0.save());
+        const db = await loadSaved(env);
+        Svc.setPath('/fake.kdbx');
+        await tick();
+
+        const electron = (globalThis as any).window.electron;
+        const saveToFile = electron.saveToFile;
+        const saveFile = electron.saveFile;
+        let attempts = 0;
+        // What a sync client or a virus scanner does: hold the file for a
+        // moment, then let go
+        electron.saveToFile = async (...args: unknown[]) => {
+            attempts++;
+            if (attempts === 1) return { success: false, error: 'EBUSY' };
+            return saveToFile(...args);
+        };
+        let dialogs = 0;
+        electron.saveFile = async () => { dialogs++; return { success: false }; };
+
+        const database = Svc.convertKdbxToDatabase(db);
+        const [updated] = Svc.saveEntry(database, { ...Svc.createNewEntry(), title: 'Retried' }, database.root, true);
+        await Svc.saveDatabase(updated, db);
+        electron.saveToFile = saveToFile;
+        electron.saveFile = saveFile;
+
+        expect(attempts).toBe(2);
+        expect(dialogs).toBe(0);
+        expect(allTitles(await loadSaved(env))).toContain('Retried');
+    });
+
+    it('fails outright when the write keeps failing, still without a dialog', async () => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db0.setVersion(3);
+        db0.createEntry(db0.getDefaultGroup()).fields.set('Title', 'Kept');
+        env.disk.bytes = Buffer.from(await db0.save());
+        const db = await loadSaved(env);
+        Svc.setPath('/fake.kdbx');
+        await tick();
+
+        const electron = (globalThis as any).window.electron;
+        const saveToFile = electron.saveToFile;
+        const saveFile = electron.saveFile;
+        electron.saveToFile = async () => ({ success: false, error: 'EACCES' });
+        let dialogs = 0;
+        electron.saveFile = async () => { dialogs++; return { success: true, filePath: '/elsewhere.kdbx' }; };
+
+        await expect(Svc.saveDatabase(Svc.convertKdbxToDatabase(db), db)).rejects.toThrow('EACCES');
+        electron.saveToFile = saveToFile;
+        electron.saveFile = saveFile;
+
+        // The dialog fallback used to repoint the vault at a new path here
+        expect(dialogs).toBe(0);
+        expect(Svc.getPath()).toBe('/fake.kdbx');
+    });
+
     it('keeps running after a save fails', async () => {
         const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
         db0.setVersion(3);
