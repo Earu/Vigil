@@ -1,4 +1,4 @@
-import { app, BrowserWindow, powerMonitor } from 'electron';
+import { app, BrowserWindow, powerMonitor, session } from 'electron';
 import { createWindow, findVaultWindow, findIdleWindow, focusWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
 import { setupAutoUpdater } from './src/updater';
@@ -84,6 +84,19 @@ app.on('second-instance', (_event, argv) => {
 });
 
 app.whenReady().then(() => {
+    // Chromium's default grants most permission requests. The renderer needs
+    // exactly two: clipboard read for the scan-QR-from-clipboard flow and
+    // sanitized write for the non-electron clipboard fallback. Everything
+    // else (camera, microphone, geolocation, display capture, notifications
+    // from the page) is denied outright
+    const allowedPermissions = new Set(['clipboard-read', 'clipboard-sanitized-write']);
+    session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+        callback(allowedPermissions.has(permission));
+    });
+    session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+        return allowedPermissions.has(permission);
+    });
+
     // Before the first window, so no window is ever briefly reachable from a
     // default menu that still has DevTools on it
     applyApplicationMenu();

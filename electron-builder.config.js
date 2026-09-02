@@ -5,17 +5,19 @@
 // Each platform is built on its own runner (cross building is not supported,
 // see .github/workflows/build.yml), so the target is the host unless the
 // invocation names one.
-// The single-letter forms are electron-builder's documented ones and have to
-// be listed: an unrecognised -w reads as "no platform named" and falls through
-// to the host, so building Windows from Linux with -w would ship a Windows
-// build with runAsNode off and no working browser integration, silently
-const WINDOWS_FLAGS = ['--win', '--windows', '--w', '-w'];
-const PLATFORM_FLAGS = ['--mac', '--macos', '-m', '--linux', '-l', ...WINDOWS_FLAGS];
+// Matched by regex rather than a literal list: electron-builder's yargs CLI
+// accepts every alias with either dash count and with an inline value
+// ("--win=nsis"), and an unrecognised spelling reads as "no platform named"
+// and falls through to the host, so building Windows from Linux would ship
+// a Windows build with runAsNode off and no working browser integration,
+// silently
+const WINDOWS_FLAG = /^--?(w|win|windows)(=.*)?$/;
+const PLATFORM_FLAG = /^--?(w|win|windows|m|mac|macos|l|linux)(=.*)?$/;
 
 function targetsWindows() {
-    const explicit = process.argv.filter((arg) => PLATFORM_FLAGS.includes(arg));
+    const explicit = process.argv.filter((arg) => PLATFORM_FLAG.test(arg));
     if (explicit.length > 0) {
-        return explicit.some((arg) => WINDOWS_FLAGS.includes(arg));
+        return explicit.some((arg) => WINDOWS_FLAG.test(arg));
     }
     return process.platform === 'win32';
 }

@@ -104,6 +104,10 @@ export function createWindow(startupFile?: string) {
             sandbox: true,
             webSecurity: true,
             allowRunningInsecureContent: false,
+            // With spellcheck on, Chromium fetches dictionaries from
+            // Google's CDN and macOS runs typed text through the system
+            // spellchecker; vault contents stay out of both
+            spellcheck: false,
             // Paired with the View submenu being absent from a packaged build
             // (see menu.ts): with this off there is nothing left for a stray
             // openDevTools call to open either. Keyed on isPackaged rather

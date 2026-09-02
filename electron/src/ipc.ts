@@ -7,7 +7,7 @@ import {
     saveFile,
     saveToFile,
     saveAttachment,
-    getFilePath,
+    registerDroppedVault,
     openFile,
     readFile,
     selectKeyFile,
@@ -28,6 +28,7 @@ import { isSupported as isContentProtectionSupported, isContentProtectionEnabled
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
 import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
 import { logRendererError, revealLogs } from './logger';
+import { isPathGranted } from './path-authority';
 import path from 'path';
 
 export function setupIpcHandlers(): void {
@@ -43,9 +44,14 @@ export function setupIpcHandlers(): void {
         return await revealLogs();
     });
 
-    // Crypto handlers
-    ipcMain.handle('argon2', async (_, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
-        return await hashPassword(password, salt, memory, iterations, length, parallelism, type, version);
+    // Crypto handlers. Serialized: the per-call memory cap means nothing if
+    // N concurrent invokes each allocate up to it; one at a time bounds the
+    // KDF's footprint to a single allocation
+    let argon2Chain: Promise<unknown> = Promise.resolve();
+    ipcMain.handle('argon2', (_, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
+        const run = argon2Chain.then(() => hashPassword(password, salt, memory, iterations, length, parallelism, type, version));
+        argon2Chain = run.catch(() => {});
+        return run;
     });
 
     // Hardware key (YubiKey challenge-response) handlers
@@ -85,15 +91,26 @@ export function setupIpcHandlers(): void {
     });
 
     ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array, backup?: BackupRequest) => {
+        if (!isPathGranted(filePath)) {
+            return { success: false, error: 'Failed to save file' };
+        }
         return await saveToFile(filePath, data, backup ?? DEFAULT_BACKUP_OPTIONS);
     });
 
-    // Backups taken before each overwrite; see electron/src/backups.ts
+    // Backups taken before each overwrite; see electron/src/backups.ts.
+    // Gated like save-to-file: both derive filesystem locations from the
+    // argument, and only an open vault has backups to ask about
     ipcMain.handle('get-backup-info', async (_, filePath: string) => {
+        if (!isPathGranted(filePath)) {
+            return { directory: '', count: 0, newest: null, totalBytes: 0 };
+        }
         return await getBackupInfo(filePath);
     });
 
     ipcMain.handle('reveal-backups', async (_, filePath: string) => {
+        if (!isPathGranted(filePath)) {
+            return { success: false, error: 'Unknown database path' };
+        }
         return await revealBackups(filePath);
     });
 
@@ -101,8 +118,8 @@ export function setupIpcHandlers(): void {
         return await saveAttachment(name, data);
     });
 
-    ipcMain.handle('get-file-path', async (_, filePath: string) => {
-        return await getFilePath(filePath);
+    ipcMain.handle('register-dropped-file', async (_, filePath: string) => {
+        return registerDroppedVault(filePath);
     });
 
     ipcMain.handle('open-file', async (event) => {
@@ -162,7 +179,14 @@ export function setupIpcHandlers(): void {
         if (senderWindow) unregisterWindow(senderWindow);
     });
 
+    // read-file and stat-file reach only paths the user pointed the app at:
+    // dialogs, file-manager opens, real drops, the last-database record. See
+    // path-authority.ts. Without the gate they are arbitrary file read for
+    // any renderer bug
     ipcMain.handle('read-file', async (_, filePath: string) => {
+        if (!isPathGranted(filePath)) {
+            return { success: false, error: 'Failed to read file' };
+        }
         return await readFile(filePath);
     });
 
@@ -171,6 +195,9 @@ export function setupIpcHandlers(): void {
     });
 
     ipcMain.handle('stat-file', async (_, filePath: string) => {
+        if (!isPathGranted(filePath)) {
+            return { success: false, error: 'Failed to stat file' };
+        }
         return await statFile(filePath);
     });
 
@@ -179,7 +206,13 @@ export function setupIpcHandlers(): void {
         return await loadLastDatabasePath();
     });
 
+    // Only a path already granted this session may be persisted: the stored
+    // path is re-granted on the next launch, so an ungated write here would
+    // let the renderer launder any path into a grant across a restart
     ipcMain.handle('save-last-database-path', async (_, dbPath: string) => {
+        if (!isPathGranted(dbPath)) {
+            return false;
+        }
         return await saveLastDatabasePath(dbPath);
     });
 
@@ -192,19 +225,26 @@ export function setupIpcHandlers(): void {
         return await getBiometricsInfo();
     });
 
+    // Gated like the file channels: get-biometric-password hands out a
+    // master password for whatever path it is given (the OS prompt shows
+    // only a basename), so the path must be one this session actually opened
     ipcMain.handle('has-biometrics-enabled', async (_, dbPath: string) => {
+        if (!isPathGranted(dbPath)) return { success: false, enabled: false, error: 'Unknown database path' };
         return await hasBiometricsEnabled(dbPath);
     });
 
     ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) => {
+        if (!isPathGranted(dbPath)) return { success: false, error: 'Unknown database path' };
         return await enableBiometrics(dbPath, password);
     });
 
     ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
+        if (!isPathGranted(dbPath)) return { success: false, error: 'Unknown database path' };
         return await getBiometricPassword(dbPath);
     });
 
     ipcMain.handle('disable-biometrics', async (_, dbPath: string) => {
+        if (!isPathGranted(dbPath)) return { success: false, error: 'Unknown database path' };
         return await disableBiometrics(dbPath);
     });
 

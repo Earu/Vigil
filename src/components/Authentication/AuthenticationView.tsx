@@ -83,11 +83,17 @@ export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: Au
             setError(null);
 
             if (window.electron) {
-                const fullPath = await window.electron.getFilePath(file.name);
+                const fullPath = await window.electron.registerDroppedFile(file);
                 if (fullPath) {
                     setDatabasePath(fullPath);
                     const biometricsEnabled = await KeepassDatabaseService.checkBiometricsForFile(fullPath);
                     setInitialBiometricsEnabled(biometricsEnabled);
+                } else {
+                    // A stale path from the previously shown vault must not
+                    // survive here: the unlock would read the old file while
+                    // the form shows the dropped one
+                    setDatabasePath(null);
+                    setInitialBiometricsEnabled(false);
                 }
             }
         }

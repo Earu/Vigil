@@ -45,7 +45,9 @@ export interface IElectronAPI {
 	getBackupInfo: (filePath: string) => Promise<BackupInfo>;
 	revealBackups: (filePath: string) => Promise<{ success: boolean; error?: string }>;
 	saveAttachment: (name: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
-	getFilePath: (path: string) => Promise<string | null>;
+	// Resolves a dropped/picked File to its real path and grants it in the
+	// main process (vault files only); null when the File has no disk path
+	registerDroppedFile: (file: File) => Promise<string | null>;
 	openFile: () => Promise<{ filePath: string; canceled: boolean }>;
 	readFile: (filePath: string) => Promise<{ success: boolean; data?: Uint8Array; error?: string }>;
 	selectKeyFile: () => Promise<{ canceled: boolean; filePath?: string }>;
