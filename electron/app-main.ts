@@ -3,6 +3,7 @@ import { createWindow, findVaultWindow, findIdleWindow, focusWindow } from './sr
 import { setupIpcHandlers } from './src/ipc';
 import { setupAutoUpdater } from './src/updater';
 import { setupBrowserIntegration } from './src/browser-integration';
+import { applyApplicationMenu } from './src/menu';
 import { handleFileOpen } from './src/file-operations';
 import { clearOnQuit } from './src/clipboard';
 import path from 'path';
@@ -77,6 +78,9 @@ app.on('second-instance', (_event, argv) => {
 });
 
 app.whenReady().then(() => {
+    // Before the first window, so no window is ever briefly reachable from a
+    // default menu that still has DevTools on it
+    applyApplicationMenu();
     setupIpcHandlers();
     setupAutoUpdater();
     setupBrowserIntegration();

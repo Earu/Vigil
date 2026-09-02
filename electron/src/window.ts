@@ -104,6 +104,12 @@ export function createWindow(startupFile?: string) {
             sandbox: true,
             webSecurity: true,
             allowRunningInsecureContent: false,
+            // Paired with the View submenu being absent from a packaged build
+            // (see menu.ts): with this off there is nothing left for a stray
+            // openDevTools call to open either. Keyed on isPackaged rather
+            // than NODE_ENV because an environment variable must not be able
+            // to turn a security control back on
+            devTools: !app.isPackaged,
             preload: path.join(__dirname, 'preload.js')
         }
     });
