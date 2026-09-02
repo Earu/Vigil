@@ -195,6 +195,11 @@ function App() {
 		// and re-checking the whole vault against HaveIBeenPwned
 		BreachCacheCrypto.unlock(kdbxDb);
 
+		// The vault records which revisions each replica has archived, so that
+		// a merge can still tell an unseen revision from a deleted one after a
+		// lock or a restart has emptied what was only held in memory
+		KeepassDatabaseService.restoreHistoryNotes(kdbxDb);
+
 		// One window per vault: if another window already has this file open,
 		// hand over to it instead of racing it for writes
 		const path = KeepassDatabaseService.getPath();
