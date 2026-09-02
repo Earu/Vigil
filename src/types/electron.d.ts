@@ -92,6 +92,9 @@ export interface IElectronAPI {
 	getBrowserIntegrationStatus: () => Promise<{ supported: boolean; enabled: boolean; running: boolean; socketPath: string }>;
 	setBrowserIntegrationEnabled: (enabled: boolean) => Promise<{ success: boolean; running: boolean; written?: string[]; error?: string }>;
 	installBrowserManifests: () => Promise<{ success: boolean; written: string[]; error?: string }>;
+	// Fire and forget into the main process log file; see errorReporting.ts
+	logError: (message: string) => void;
+	revealLogs: () => Promise<{ success: boolean; error?: string }>;
 	getUpdateStatus: () => Promise<UpdateStatus>;
 	checkForUpdates: () => Promise<UpdateStatus>;
 	installUpdate: () => Promise<void>;

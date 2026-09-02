@@ -4,6 +4,10 @@ import App from './App';
 import './index.css';
 import * as kdbxweb from 'kdbxweb';
 import { IElectronAPI } from './types/electron';
+import { installErrorReporting } from './errorReporting';
+
+// Before anything else can fail
+installErrorReporting();
 
 // On Linux the frameless window has no system-drawn rounded corners, so the
 // window is made transparent there and the corners are rounded in CSS

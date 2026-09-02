@@ -804,6 +804,27 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 </button>
                                 <p className="cache-help">Clears security report cache</p>
                             </div>
+                            {window.electron && (
+                                <div className="cache-controls">
+                                    <button
+                                        className="clear-cache-button"
+                                        onClick={() => {
+                                            window.electron?.revealLogs().then((result) => {
+                                                if (!result.success) {
+                                                    (window as any).showToast?.({
+                                                        message: result.error || 'Failed to open the log folder',
+                                                        type: 'error',
+                                                        duration: 3000
+                                                    });
+                                                }
+                                            });
+                                        }}
+                                    >
+                                        Show Logs
+                                    </button>
+                                    <p className="cache-help">Opens the diagnostic log folder, useful for bug reports</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                     )}

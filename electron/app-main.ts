@@ -6,6 +6,7 @@ import { setupBrowserIntegration } from './src/browser-integration';
 import { applyApplicationMenu } from './src/menu';
 import { handleFileOpen } from './src/file-operations';
 import { clearOnQuit } from './src/clipboard';
+import { setupLogging } from './src/logger';
 import path from 'path';
 
 declare global {
@@ -22,6 +23,11 @@ declare global {
 // userData is derived before app code runs and must be re-pointed explicitly
 app.setName('Vigil');
 app.setPath('userData', path.join(app.getPath('appData'), 'Vigil'));
+
+// After the userData re-point above, so the log file lands under Vigil/
+// rather than an Electron default; before everything else, so setup failures
+// have somewhere to go
+setupLogging();
 
 function triggerLock() {
     for (const window of BrowserWindow.getAllWindows()) {

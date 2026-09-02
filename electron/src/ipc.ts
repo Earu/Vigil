@@ -27,9 +27,22 @@ import { checkEmailBreaches } from './hibp';
 import { isSupported as isContentProtectionSupported, isContentProtectionEnabled, setContentProtectionEnabled } from './content-protection';
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
 import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
+import { logRendererError, revealLogs } from './logger';
 import path from 'path';
 
 export function setupIpcHandlers(): void {
+    // Renderer failures land in the same file as main-process ones. Fire and
+    // forget from the renderer; the size cap keeps a looping error from
+    // filling the disk faster than rotation can
+    ipcMain.on('renderer-log-error', (_, message: unknown) => {
+        if (typeof message !== 'string') return;
+        logRendererError(message.slice(0, 8192));
+    });
+
+    ipcMain.handle('reveal-logs', async () => {
+        return await revealLogs();
+    });
+
     // Crypto handlers
     ipcMain.handle('argon2', async (_, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
         return await hashPassword(password, salt, memory, iterations, length, parallelism, type, version);
