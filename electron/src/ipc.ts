@@ -46,10 +46,28 @@ export function setupIpcHandlers(): void {
 
     // Crypto handlers. Serialized: the per-call memory cap means nothing if
     // N concurrent invokes each allocate up to it; one at a time bounds the
-    // KDF's footprint to a single allocation
+    // KDF's footprint to a single allocation. The cost of that is that every
+    // window's unlock waits behind whatever is running, so a call is dropped
+    // from the queue when its window goes away, and a running one is asked
+    // to stop. The binding honours the signal for a call still queued on its
+    // side; a hash already computing runs to the end, which the work cap in
+    // crypto.ts keeps to minutes. The timeout is the backstop for a machine
+    // slow enough to make even that unreasonable
+    const ARGON2_TIMEOUT_MS = 10 * 60 * 1000;
     let argon2Chain: Promise<unknown> = Promise.resolve();
-    ipcMain.handle('argon2', (_, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
-        const run = argon2Chain.then(() => hashPassword(password, salt, memory, iterations, length, parallelism, type, version));
+    ipcMain.handle('argon2', (event, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
+        const abort = new AbortController();
+        const onGone = () => abort.abort(new Error('The window that asked for this unlock was closed'));
+        event.sender.once('destroyed', onGone);
+        const timer = setTimeout(() => abort.abort(new Error('Key derivation took too long and was stopped')), ARGON2_TIMEOUT_MS);
+
+        const run = argon2Chain.then(() => {
+            if (abort.signal.aborted) throw abort.signal.reason;
+            return hashPassword(password, salt, memory, iterations, length, parallelism, type, version, abort.signal);
+        }).finally(() => {
+            clearTimeout(timer);
+            if (!event.sender.isDestroyed()) event.sender.off('destroyed', onGone);
+        });
         argon2Chain = run.catch(() => {});
         return run;
     });
