@@ -60,11 +60,17 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 				{inPasswordView && (
 					<div className="title-bar-controls">
 						<div className="search-container">
+							{/* Focused as the vault opens so the first keystroke
+							    searches instead of going nowhere. The whole
+							    title bar is a fresh mount at that point (App
+							    swaps branches on `database`), so this fires
+							    once per unlock rather than on every render */}
 							<input
 								type="text"
 								className="search-input"
 								placeholder="Search passwords..."
 								value={searchQuery}
+								autoFocus
 								onChange={(e) => onSearch?.(e.target.value)}
 							/>
 						</div>
