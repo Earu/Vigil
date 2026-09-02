@@ -48,6 +48,16 @@
     border-color: var(--accent);
 }
 
+/* The names already paired, so a reused one is visible before it is typed
+   rather than only after the replace warning */
+/* Outranks the .pairing-dialog p rule above rather than fighting it with
+   !important */
+.pairing-dialog p.pairing-existing {
+    font-size: 0.78rem;
+    opacity: 0.8;
+    word-break: break-word;
+}
+
 .pairing-actions {
     display: flex;
     justify-content: flex-end;

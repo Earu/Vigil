@@ -34,7 +34,7 @@ function App() {
 	const [showSettings, setShowSettings] = useState(false);
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
-	const [pairingRequest, setPairingRequest] = useState<{ fingerprint: string; resolve: (name: string | null) => void } | null>(null);
+	const [pairingRequest, setPairingRequest] = useState<{ fingerprint: string; existingNames: string[]; resolve: (name: string | null) => void } | null>(null);
 	const [passkeyConsent, setPasskeyConsent] = useState<{ request: PasskeyConsentRequest; resolve: (credentialId: string | null) => void } | null>(null);
 	const [setLoginConsent, setSetLoginConsent] = useState<{ request: SetLoginConsentRequest; resolve: (allowed: boolean) => void } | null>(null);
 	const [hardwareKeyTouchPending, setHardwareKeyTouchPending] = useState(false);
@@ -141,10 +141,11 @@ function App() {
 					saveDatabase: async () => {
 						await handleDatabaseChange(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
 					},
-					requestPairing: (fingerprint) => new Promise((resolve) => {
+					requestPairing: (fingerprint, existingNames) => new Promise((resolve) => {
 						window.electron?.focusWindow().catch(() => {});
 						setPairingRequest({
 							fingerprint,
+							existingNames,
 							resolve: (name) => {
 								setPairingRequest(null);
 								resolve(name);
@@ -331,6 +332,7 @@ function App() {
 			{pairingRequest && (
 				<BrowserPairingDialog
 					fingerprint={pairingRequest.fingerprint}
+					existingNames={pairingRequest.existingNames}
 					onSubmit={(name) => pairingRequest.resolve(name)}
 					onCancel={() => pairingRequest.resolve(null)}
 				/>
