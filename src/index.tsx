@@ -18,16 +18,16 @@ if (window.electron) {
 	});
 }
 
-// Initialize Argon2 implementation for kdbxweb
-setTimeout(() => {
-	if (!window?.electron) return;
-
+// Initialize Argon2 implementation for kdbxweb. At module load, not deferred:
+// an unlock can happen within the first second (biometrics, drag-and-drop)
+// and would hit kdbxweb's throwing stub if this were still pending
+if (window?.electron) {
 	kdbxweb.CryptoEngine.argon2 = async (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
 		const electron = window.electron as IElectronAPI;
 		const hash = await electron.argon2(password, salt, memory, iterations, length, parallelism, type, version);
 		return new Uint8Array(hash);
 	}
-}, 1000);
+}
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
 	<React.StrictMode>

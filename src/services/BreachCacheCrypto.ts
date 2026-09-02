@@ -47,7 +47,16 @@ const concat = (a: Uint8Array, b: Uint8Array): Uint8Array => {
 const toHex = (bytes: Uint8Array): string =>
     [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
 
-const toBase64 = (bytes: Uint8Array): string => btoa(String.fromCharCode(...bytes));
+// Chunked: spreading the whole array into fromCharCode overflows the call
+// stack past ~125 KB, and a large vault's cache blob is bigger than that
+const toBase64 = (bytes: Uint8Array): string => {
+    const CHUNK = 0x8000;
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
+};
 
 const fromBase64 = (text: string): Uint8Array =>
     Uint8Array.from(atob(text), c => c.charCodeAt(0));

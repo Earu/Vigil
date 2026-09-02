@@ -211,12 +211,14 @@ export async function handleDecryptedMessage(action: string, message: any, sessi
             return result;
         }
         case 'get-logins':
+            // Long enough for the renderer's access-confirmation dialog; the
+            // request only waits on it when an entry has no stored decision
             return await askVaults('get-logins', {
                 url: message.url,
                 submitUrl: message.submitUrl,
                 httpAuth: message.httpAuth,
                 keys: message.keys ?? [],
-            }, 10000);
+            }, 60000);
         case 'set-login':
             // Carries no key of its own, so the session is what vouches for
             // the caller. The renderer still asks the user to confirm the

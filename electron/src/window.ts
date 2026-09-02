@@ -198,7 +198,7 @@ export function createWindow(startupFile?: string) {
             defaultId: 1,
             cancelId: 1,
             title: 'Unsaved changes',
-            message: 'This entry has unsaved changes.',
+            message: 'There are unsaved changes.',
             detail: 'Closing the window now discards them.'
         }).then(({ response }) => {
             if (response !== 0 || win.isDestroyed()) return;

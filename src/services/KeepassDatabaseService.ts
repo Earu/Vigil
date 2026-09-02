@@ -1116,15 +1116,52 @@ export class KeepassDatabaseService {
     // baseline, so a second one starting in the middle of the first would be
     // reading half-applied state. They overlap easily: the UI saves on every
     // edit, and browser integration calls this from an IPC handler whenever
-    // the extension writes a login or registers a passkey
-    private static saveChain: Promise<unknown> = Promise.resolve();
+    // the extension writes a login or registers a passkey.
+    //
+    // Requests arriving while one is in flight collapse into a single
+    // follow-up rather than queueing one write each: a save serializes the
+    // whole in-memory state, so the newest request's state covers every
+    // request before it. Dragging five entries costs two full
+    // serialize-encrypt-write cycles, not five
+    private static saveInFlight = false;
+    private static queuedSave: {
+        database: Database;
+        kdbxDb: kdbxweb.Kdbx;
+        result: Promise<void>;
+        resolve: () => void;
+        reject: (err: unknown) => void;
+    } | null = null;
 
     static saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
-        // The chain must outlive a rejected save, so what is stored is the
-        // swallowed copy; the caller still gets the real result
-        const run = this.saveChain.then(() => this.performSave(database, kdbxDb));
-        this.saveChain = run.catch(() => {});
-        return run;
+        if (!this.saveInFlight) {
+            return this.runSave(database, kdbxDb);
+        }
+        if (this.queuedSave) {
+            // The waiting save has not started, so pointing it at the newer
+            // state serves its earlier callers too
+            this.queuedSave.database = database;
+            this.queuedSave.kdbxDb = kdbxDb;
+            return this.queuedSave.result;
+        }
+        let resolve!: () => void;
+        let reject!: (err: unknown) => void;
+        const result = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+        this.queuedSave = { database, kdbxDb, result, resolve, reject };
+        return result;
+    }
+
+    private static async runSave(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
+        this.saveInFlight = true;
+        try {
+            return await this.performSave(database, kdbxDb);
+        } finally {
+            this.saveInFlight = false;
+            const queued = this.queuedSave;
+            if (queued) {
+                this.queuedSave = null;
+                this.runSave(queued.database, queued.kdbxDb).then(queued.resolve, queued.reject);
+            }
+        }
     }
 
     private static async performSave(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
