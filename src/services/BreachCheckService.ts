@@ -242,7 +242,7 @@ export class BreachCheckService {
             ? entry.password
             : entry.password?.getText() ?? '';
         if (!passwordString) {
-            const emailBreaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username);
+            const emailBreaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username, entry.modified);
             BreachStatusStore.setEntryStatus(databasePath, entry.id, {
                 isPwned: false,
                 count: 0,
@@ -264,7 +264,7 @@ export class BreachCheckService {
         // If not in cache or expired, check the password
         try {
             const result = await this.checkPassword(entry.password);
-            const emailBreaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username);
+            const emailBreaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username, entry.modified);
             BreachStatusStore.setEntryStatus(databasePath, entry.id, {
                 isPwned: result.isPwned,
                 count: result.pwnedCount,
@@ -542,7 +542,7 @@ export class BreachCheckService {
         }
 
         // Check cache first
-        const cachedStatus = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username);
+        const cachedStatus = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username, entry.modified);
 
         if (cachedStatus !== null) {
             this.incrementEmailProgress(entry.id);
@@ -557,9 +557,10 @@ export class BreachCheckService {
             return [];
         }
 
-        const breaches = raw.filter(breach => new Date(breach.BreachDate) > entry.modified); // only keep relevant breaches
-        EmailBreachStatusStore.setEntryEmailStatus(databasePath, entry.id, entry.username, breaches);
-        return breaches;
+        // Cached unfiltered: the address's list serves every entry that
+        // carries it, each with its own last-change date
+        EmailBreachStatusStore.setEntryEmailStatus(databasePath, entry.id, entry.username, raw);
+        return EmailBreachStatusStore.relevantBreaches(raw, entry.modified);
     }
 
     public static async checkGroupEmails(databasePath: string, group: Group): Promise<boolean> {
@@ -663,7 +664,7 @@ export class BreachCheckService {
                 return;
             }
 
-            const breaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username);
+            const breaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username, entry.modified);
             hasCheckedEmails = true;
 
             if (breaches === null) {

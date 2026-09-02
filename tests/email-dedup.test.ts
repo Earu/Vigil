@@ -15,21 +15,22 @@ let failCalls = false;
 (globalThis as any).window.electron.checkEmailBreaches = async (email: string) => {
     apiCalls.push(email);
     if (failCalls) throw new Error('429');
-    return email === 'breached@example.com'
-        ? [{ Name: 'X', BreachDate: '2099-01-01' }]
-        : [];
+    if (email === 'breached@example.com') return [{ Name: 'X', BreachDate: '2099-01-01' }];
+    if (email === 'old-breach@example.com') return [{ Name: 'Old', BreachDate: '2022-06-01' }];
+    return [];
 };
 
 const { BreachCheckService } = await import('../src/services/BreachCheckService');
 const { EmailBreachStatusStore } = await import('../src/services/EmailBreachStatusStore');
 const { userSettingsService } = await import('../src/services/UserSettingsService');
+const { KeepassDatabaseService } = await import('../src/services/KeepassDatabaseService');
 
 userSettingsService.setHibpApiKey('test-key');
 (BreachCheckService as any).EMAIL_REQUEST_DELAY = 0;
 
-const entry = (id: string, username: string) => ({
+const entry = (id: string, username: string, modified = '2020-01-01') => ({
     id, username, title: id,
-    password: 'x', modified: new Date('2020-01-01'),
+    password: 'x', modified: new Date(modified),
 } as any);
 
 const rootGroup = (entries: any[]) => ({ name: 'All Entries', entries, groups: [] } as any);
@@ -60,6 +61,29 @@ describe('email breach sweep', () => {
         const group = rootGroup([entry('breach-entry', 'breached@example.com')]);
         const hasBreached = await BreachCheckService.checkGroupEmails('/db2.kdbx', group);
         expect(hasBreached).toBe(true);
+    });
+
+    it('judges each entry sharing an address by its own last change', async () => {
+        // One address, a breach in 2022, one entry changed after it and one
+        // before. The first entry checked used to cache its own narrowed
+        // list under the address, so the second read an all-clear
+        const group = rootGroup([
+            entry('recent', 'old-breach@example.com', '2025-01-01'),
+            entry('stale', 'old-breach@example.com', '2019-01-01'),
+        ]);
+        await BreachCheckService.checkGroupEmails('/db4.kdbx', group);
+        expect(apiCalls).toEqual(['old-breach@example.com']);
+
+        // The report reads the cache of the vault that is open
+        KeepassDatabaseService.setPath('/db4.kdbx');
+        const report = BreachCheckService.findBreachedEmails(group);
+        expect(report.breached.map(b => b.entry.id)).toEqual(['stale']);
+        expect(report.breached[0].count).toBe(1);
+
+        const recent = group.entries[0];
+        const stale = group.entries[1];
+        expect(EmailBreachStatusStore.getEntryEmailStatus('/db4.kdbx', recent.id, recent.username, recent.modified)).toEqual([]);
+        expect(EmailBreachStatusStore.getEntryEmailStatus('/db4.kdbx', stale.id, stale.username, stale.modified)).toHaveLength(1);
     });
 
     it('does not cache a failed lookup as all-clear', async () => {

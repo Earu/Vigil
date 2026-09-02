@@ -99,6 +99,12 @@ export class EmailBreachStatusStore {
         return Date.now() - status.timestamp > this.CACHE_DURATION;
     }
 
+    // What is cached is the address's full breach list as HIBP returned it.
+    // The list is shared by every entry with that address, and which of its
+    // breaches matter depends on the entry (those after its last change), so
+    // narrowing it here would hand one entry's view to the others: an entry
+    // edited in 2025 would hide every earlier breach from one last edited in
+    // 2019. Callers narrow at read time with `since`
     public static setEntryEmailStatus(databasePath: string, entryId: string, email: string, breaches: HibpBreach[]): void {
         const store = this.getStore();
         this.initializeDatabase(store, databasePath);
@@ -115,7 +121,14 @@ export class EmailBreachStatusStore {
         this.markChanged();
     }
 
-    public static getEntryEmailStatus(databasePath: string, entryId: string, email: string): HibpBreach[] | null {
+    public static relevantBreaches(breaches: HibpBreach[], since?: Date): HibpBreach[] {
+        if (!since) return breaches;
+        return breaches.filter(breach => new Date(breach.BreachDate) > since);
+    }
+
+    // Breaches of the address dated after `since` (an entry's last change),
+    // or null when nothing usable is cached
+    public static getEntryEmailStatus(databasePath: string, entryId: string, email: string, since?: Date): HibpBreach[] | null {
         const database = this.getStore()[databasePath];
         if (!database) return null;
 
@@ -123,7 +136,7 @@ export class EmailBreachStatusStore {
         // Read-only: this runs during render, so no write-back here.
         const emailStatus = database.emails[email];
         if (emailStatus && !this.isStatusExpired(emailStatus)) {
-            return emailStatus.breaches;
+            return this.relevantBreaches(emailStatus.breaches, since);
         }
 
         // If no email cache, check entry cache
@@ -132,7 +145,7 @@ export class EmailBreachStatusStore {
             return null;
         }
 
-        return entryStatus.breaches;
+        return this.relevantBreaches(entryStatus.breaches, since);
     }
 
     // User or lifecycle driven, so these write through immediately

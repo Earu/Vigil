@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { Background } from './components/Background';
 import { PasswordView } from './components/PasswordView';
 import * as kdbxweb from 'kdbxweb';
@@ -24,6 +24,7 @@ import { SetLoginConsentDialog } from './components/SetLoginConsentDialog';
 import { AccessConsentDialog } from './components/AccessConsentDialog';
 import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
 import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
+import { consentQueue } from './services/ConsentQueue';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -36,10 +37,9 @@ function App() {
 	const [showSettings, setShowSettings] = useState(false);
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
-	const [pairingRequest, setPairingRequest] = useState<{ fingerprint: string; existingNames: string[]; resolve: (name: string | null) => void } | null>(null);
-	const [passkeyConsent, setPasskeyConsent] = useState<{ request: PasskeyConsentRequest; resolve: (credentialId: string | null) => void } | null>(null);
-	const [setLoginConsent, setSetLoginConsent] = useState<{ request: SetLoginConsentRequest; resolve: (allowed: boolean) => void } | null>(null);
-	const [accessConsent, setAccessConsent] = useState<{ request: AccessConsentRequest; resolve: (response: AccessConsentResponse | null) => void } | null>(null);
+	// Browser integration consent dialogs, one on screen at a time; see
+	// services/ConsentQueue.ts for why they queue rather than replace
+	const consent = useSyncExternalStore(consentQueue.subscribe, consentQueue.getSnapshot);
 	const [hardwareKeyTouchPending, setHardwareKeyTouchPending] = useState(false);
 	// True while EntryDetails holds unsaved edits. PasswordView reads it to
 	// guard navigation; locking reads it so a lock the user asked for does not
@@ -158,47 +158,22 @@ function App() {
 					saveDatabase: async () => {
 						await handleDatabaseChange(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
 					},
-					requestPairing: (fingerprint, existingNames) => new Promise((resolve) => {
+					requestPairing: (fingerprint, existingNames) => {
 						window.electron?.focusWindow().catch(() => {});
-						setPairingRequest({
-							fingerprint,
-							existingNames,
-							resolve: (name) => {
-								setPairingRequest(null);
-								resolve(name);
-							},
-						});
-					}),
-					requestPasskeyConsent: (request) => new Promise((resolve) => {
+						return consentQueue.enqueue<{ fingerprint: string; existingNames: string[] }, string | null>('pairing', id, { fingerprint, existingNames }, null);
+					},
+					requestPasskeyConsent: (request) => {
 						window.electron?.focusWindow().catch(() => {});
-						setPasskeyConsent({
-							request,
-							resolve: (credentialId) => {
-								setPasskeyConsent(null);
-								resolve(credentialId);
-							},
-						});
-					}),
-					requestSetLoginConsent: (request) => new Promise((resolve) => {
+						return consentQueue.enqueue<PasskeyConsentRequest, string | null>('passkey', id, request, null);
+					},
+					requestSetLoginConsent: (request) => {
 						window.electron?.focusWindow().catch(() => {});
-						setSetLoginConsent({
-							request,
-							resolve: (allowed) => {
-								setSetLoginConsent(null);
-								resolve(allowed);
-							},
-						});
-					}),
-					requestAccessConsent: (request) => new Promise((resolve) => {
+						return consentQueue.enqueue<SetLoginConsentRequest, boolean>('set-login', id, request, false);
+					},
+					requestAccessConsent: (request) => {
 						window.electron?.focusWindow().catch(() => {});
-						setAccessConsent({
-							request,
-							resolve: (response) => {
-								setAccessConsent(null);
-								resolve(response);
-							},
-						});
-					}),
+						return consentQueue.enqueue<AccessConsentRequest, AccessConsentResponse | null>('access', id, request, null);
+					},
 				});
 				window.electron?.browserIntegrationRespond(id, result);
 				if (action === 'associate' && !result.errorCode) {
@@ -212,7 +187,15 @@ function App() {
 		};
 
 		const unsubscribe = window.electron.on('browser-integration-request', handler);
-		return () => unsubscribe();
+		// Main gave up waiting (its timeout passed and it already answered the
+		// browser with a denial): the dialog closes so a late click cannot save
+		// a login or mint a passkey the browser was told it did not get
+		const unsubscribeCancel = window.electron.on('browser-integration-cancel', ({ id }: { id: number }) => consentQueue.cancel(id));
+		return () => {
+			unsubscribe();
+			unsubscribeCancel();
+			consentQueue.clear();
+		};
 	}, [database, kdbxDb]);
 
 	const handleDatabaseOpen = async (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
@@ -377,33 +360,39 @@ function App() {
 				}}
 			/>
 			<ToastContainer />
-			{pairingRequest && (
+			{/* Keyed on the item id: a different request is a different dialog,
+			    never one that inherits the previous request's typed state */}
+			{consent?.kind === 'pairing' && (
 				<BrowserPairingDialog
-					fingerprint={pairingRequest.fingerprint}
-					existingNames={pairingRequest.existingNames}
-					onSubmit={(name) => pairingRequest.resolve(name)}
-					onCancel={() => pairingRequest.resolve(null)}
+					key={consent.id}
+					fingerprint={(consent.payload as { fingerprint: string }).fingerprint}
+					existingNames={(consent.payload as { existingNames: string[] }).existingNames}
+					onSubmit={(name) => consentQueue.settle(consent.id, name)}
+					onCancel={() => consentQueue.settle(consent.id, null)}
 				/>
 			)}
-			{passkeyConsent && (
+			{consent?.kind === 'passkey' && (
 				<PasskeyConsentDialog
-					request={passkeyConsent.request}
-					onSubmit={(credentialId) => passkeyConsent.resolve(credentialId)}
-					onCancel={() => passkeyConsent.resolve(null)}
+					key={consent.id}
+					request={consent.payload as PasskeyConsentRequest}
+					onSubmit={(credentialId) => consentQueue.settle(consent.id, credentialId)}
+					onCancel={() => consentQueue.settle(consent.id, null)}
 				/>
 			)}
-			{setLoginConsent && (
+			{consent?.kind === 'set-login' && (
 				<SetLoginConsentDialog
-					request={setLoginConsent.request}
-					onSubmit={() => setLoginConsent.resolve(true)}
-					onCancel={() => setLoginConsent.resolve(false)}
+					key={consent.id}
+					request={consent.payload as SetLoginConsentRequest}
+					onSubmit={() => consentQueue.settle(consent.id, true)}
+					onCancel={() => consentQueue.settle(consent.id, false)}
 				/>
 			)}
-			{accessConsent && (
+			{consent?.kind === 'access' && (
 				<AccessConsentDialog
-					request={accessConsent.request}
-					onSubmit={(allowedIds, remember) => accessConsent.resolve({ allowedIds, remember })}
-					onCancel={() => accessConsent.resolve(null)}
+					key={consent.id}
+					request={consent.payload as AccessConsentRequest}
+					onSubmit={(allowedIds, remember) => consentQueue.settle<AccessConsentResponse | null>(consent.id, { allowedIds, remember })}
+					onCancel={() => consentQueue.settle(consent.id, null)}
 				/>
 			)}
 			{hardwareKeyTouchPending && <HardwareKeyTouchDialog />}
