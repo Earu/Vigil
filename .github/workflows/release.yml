@@ -150,9 +150,19 @@ jobs:
         # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
         USE_HARD_LINKS: false
 
+    # Installed builds refuse an update whose metadata does not carry this
+    # signature (electron/src/update-signature.ts), so a release without it
+    # is one nobody receives. The script fails the job when the secret is
+    # missing rather than let that happen quietly
+    - name: Sign update metadata
+      run: node scripts/sign-update-metadata.mjs dist
+      env:
+        UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+
     # The latest*.yml files and .blockmap are the metadata electron-updater
     # reads from the GitHub release; they reference the installer filenames,
-    # so nothing may be renamed after this point
+    # so nothing may be renamed after this point. The .sig files are the
+    # signatures over the yml bytes, so those may not be regenerated either
     - name: Upload Windows artifacts
       if: runner.os == 'Windows'
       uses: actions/upload-artifact@v4
@@ -162,6 +172,7 @@ jobs:
           dist/*.exe
           dist/*.blockmap
           dist/latest.yml
+          dist/latest.yml.sig
         if-no-files-found: error
 
     # The zip and latest-mac.yml are what electron-updater consumes; the dmg
@@ -176,6 +187,7 @@ jobs:
           dist/*.zip
           dist/*.blockmap
           dist/latest-mac.yml
+          dist/latest-mac.yml.sig
         if-no-files-found: error
 
     - name: Upload Linux artifacts
@@ -186,6 +198,7 @@ jobs:
         path: |
           dist/*.AppImage
           dist/latest-linux*.yml
+          dist/latest-linux*.yml.sig
         if-no-files-found: error
 
   release:

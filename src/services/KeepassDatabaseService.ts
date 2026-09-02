@@ -51,6 +51,17 @@ export class KeepassDatabaseService {
     // Bumped by every setPath, so a slow stat belonging to a previous vault
     // cannot land on the current one
     private static pathGeneration = 0;
+    // Objects a merge brought in from disk that no UI model has carried yet.
+    // The save walk rebuilds every group from the model, so anything the
+    // model lacks is dropped and tombstoned as a deletion; a model built
+    // before the merge lacks exactly these, through no choice of the user.
+    // Cleared when a model is built from the file, since that model has them
+    private static unseenMergedUuids = new Set<string>();
+
+    // Whether the loaded file holds merged changes the UI has not been shown
+    static hasUnseenMergedChanges(): boolean {
+        return this.unseenMergedUuids.size > 0;
+    }
 
     private static async hashBytes(bytes: Uint8Array): Promise<string> {
         const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer);
@@ -121,6 +132,10 @@ export class KeepassDatabaseService {
     }
 
     static convertKdbxToDatabase(kdbxDb: kdbxweb.Kdbx): Database {
+        // The model built here carries everything in the file, merged
+        // objects included; from now on their absence from a model is a choice
+        this.unseenMergedUuids.clear();
+
         const convertAttachments = (entry: kdbxweb.KdbxEntry): Attachment[] =>
             [...entry.binaries].map(([name, binary]) => ({
                 name,
@@ -881,6 +896,59 @@ export class KeepassDatabaseService {
         return index;
     }
 
+    private static collectUuids(root: kdbxweb.KdbxGroup): Set<string> {
+        const uuids = new Set<string>();
+        const walk = (group: kdbxweb.KdbxGroup) => {
+            uuids.add(group.uuid.toString());
+            group.entries.forEach(e => uuids.add(e.uuid.toString()));
+            group.groups.forEach(walk);
+        };
+        walk(root);
+        return uuids;
+    }
+
+    // After the save walk the index holds what the model did not claim. Those
+    // among them that a merge brought in and no model has carried yet are put
+    // back where the file has them, instead of being written out as deleted.
+    // Without this, a save that merged and then failed (or a save queued
+    // behind the merging one) applies its pre-merge model to the merged file
+    // and tombstones every merged object; the tombstone then travels to the
+    // replica that made the change and deletes it there too
+    private static keepUnseenMerged(root: kdbxweb.KdbxGroup, index: KdbxIndex, unseen: Set<string>): void {
+        if (unseen.size === 0) return;
+
+        // Membership, not parentGroup: a dropped object still points at its
+        // old parent, it is just no longer in that parent's list
+        const inTree = (object: kdbxweb.KdbxEntry | kdbxweb.KdbxGroup): boolean => {
+            let node: kdbxweb.KdbxEntry | kdbxweb.KdbxGroup = object;
+            while (node !== root) {
+                const parent = node.parentGroup;
+                if (!parent) return false;
+                const siblings: (kdbxweb.KdbxEntry | kdbxweb.KdbxGroup)[] = node instanceof kdbxweb.KdbxGroup ? parent.groups : parent.entries;
+                if (!siblings.includes(node)) return false;
+                node = parent;
+            }
+            return true;
+        };
+        const homeFor = (object: kdbxweb.KdbxEntry | kdbxweb.KdbxGroup): kdbxweb.KdbxGroup =>
+            object.parentGroup && inTree(object.parentGroup) ? object.parentGroup : root;
+
+        // Groups first, in file order, so a merged subtree comes back whole
+        // and its entries are found inside it
+        for (const [uuid, group] of index.groups) {
+            if (!unseen.has(uuid) || inTree(group)) continue;
+            const parent = homeFor(group);
+            this.reparent(group, parent);
+            parent.groups.push(group);
+        }
+        for (const [uuid, entry] of index.entries) {
+            if (!unseen.has(uuid) || inTree(entry)) continue;
+            const parent = homeFor(entry);
+            this.reparent(entry, parent);
+            parent.entries.push(entry);
+        }
+    }
+
     // Same bookkeeping kdbxweb's own move() does. previousParentGroup is what
     // KeePass uses to restore an item out of the recycle bin, and
     // locationChanged is what a merge compares to decide which parent wins
@@ -1051,7 +1119,11 @@ export class KeepassDatabaseService {
                 HistoryNotesService.read(remoteDb)
             );
 
+            const before = this.collectUuids(kdbxDb.getDefaultGroup());
             kdbxDb.merge(remoteDb);
+            for (const uuid of this.collectUuids(kdbxDb.getDefaultGroup())) {
+                if (!before.has(uuid)) this.unseenMergedUuids.add(uuid);
+            }
 
             (window as any).showToast?.({
                 message: 'The database changed on disk; external changes were merged',
@@ -1183,7 +1255,12 @@ export class KeepassDatabaseService {
                 const uuidsBefore = new Set<string>();
                 collectUuids(root, uuidsBefore);
 
-                await this.updateGroup(database.root, root, kdbxDb, this.indexDatabase(root), true);
+                // Snapshot: a model built while this walk is in progress clears
+                // the set, but the model being applied here was built before it
+                const unseen = new Set(this.unseenMergedUuids);
+                const index = this.indexDatabase(root);
+                await this.updateGroup(database.root, root, kdbxDb, index, true);
+                this.keepUnseenMerged(root, index, unseen);
 
                 // Record permanently deleted objects so a later merge (another
                 // machine editing the same file) deletes them instead of

@@ -302,6 +302,12 @@ function App() {
 			window.electron?.setUnsavedChanges(entryDirty.current).catch(() => {});
 		} catch (err) {
 			console.error('Failed to save database:', err);
+			// A save that merged changes from disk and then failed to write
+			// leaves them in the kdbx only; show them, so the next edit
+			// starts from a model that has them
+			if (kdbxDb && KeepassDatabaseService.hasUnseenMergedChanges()) {
+				setDatabase(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+			}
 			saveFailed.current = true;
 			window.electron?.setUnsavedChanges(true).catch(() => {});
 			throw err;

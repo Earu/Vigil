@@ -64,3 +64,22 @@ describe('other platforms', () => {
         delete process.env.APPIMAGE;
     });
 });
+
+describe('update metadata key', () => {
+    it('turns updates off when the build carries no key', async () => {
+        const { updateKeyConfigured } = await import('../electron/src/updater');
+        expect(updateKeyConfigured('')).toBe(false);
+    });
+
+    it('turns updates off rather than trusting a key it cannot parse', async () => {
+        const { updateKeyConfigured } = await import('../electron/src/updater');
+        expect(updateKeyConfigured('bm90IGEga2V5')).toBe(false);
+    });
+
+    it('accepts an ed25519 public key as the generator prints it', async () => {
+        const { updateKeyConfigured } = await import('../electron/src/updater');
+        const { generateKeyPairSync } = await import('crypto');
+        const spki = generateKeyPairSync('ed25519').publicKey.export({ format: 'der', type: 'spki' }).toString('base64');
+        expect(updateKeyConfigured(spki)).toBe(true);
+    });
+});
