@@ -235,6 +235,31 @@ describe('path grant gating', () => {
         expect(target()).toHaveBeenCalledTimes(1);
         expect(target().mock.calls[0][0]).toBe(args[0]);
     });
+
+    // Read and write grants are separate capabilities: a key file is granted
+    // read-only, and neither writing to it nor persisting it as the last
+    // database (which re-grants it { write: true } on the next load, so a
+    // read grant would launder into a write grant) may pass
+    const writeGated = [
+        {
+            channel: 'save-to-file',
+            args: ['/unlock.keyx', new Uint8Array([1])],
+            denied: { success: false, error: 'Failed to save file' },
+            target: () => vi.mocked(fileOps.saveToFile),
+        },
+        {
+            channel: 'save-last-database-path',
+            args: ['/unlock.keyx'],
+            denied: false,
+            target: () => vi.mocked(fileOps.saveLastDatabasePath),
+        },
+    ];
+
+    it.each(writeGated)('$channel refuses a path granted read-only', async ({ channel, args, denied, target }) => {
+        isPathGranted.mockImplementation((_path, options) => options?.write !== true);
+        expect(await invoke(channel, ...args)).toEqual(denied);
+        expect(target()).not.toHaveBeenCalled();
+    });
 });
 
 describe('renderer-log-error', () => {

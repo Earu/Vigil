@@ -227,11 +227,13 @@ export function setupIpcHandlers(): void {
         return await loadLastDatabasePath();
     });
 
-    // Only a path already granted this session may be persisted: the stored
-    // path is re-granted on the next launch, so an ungated write here would
-    // let the renderer launder any path into a grant across a restart
+    // Only a write-granted path may be persisted: loadLastDatabasePath
+    // re-grants the stored path { write: true }, so accepting a read-only
+    // grant here (a key file) would launder it into a write grant on the
+    // next get-last-database-path call. Every vault-open route grants
+    // write, so legitimate saves always pass
     ipcMain.handle('save-last-database-path', async (_, dbPath: string) => {
-        if (!isPathGranted(dbPath)) {
+        if (!isPathGranted(dbPath, { write: true })) {
             return false;
         }
         return await saveLastDatabasePath(dbPath);
