@@ -3,7 +3,7 @@ import { CloseActionIcon, DownloadActionIcon } from '../../icons/actions/ActionI
 import { DarkThemeIcon, LightThemeIcon, SystemThemeIcon } from '../../icons/SettingsIcon';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import { ImportAuthIcon } from '../../icons/auth/AuthIcons';
-import { userSettingsService, MIN_BACKUP_KEEP, MAX_BACKUP_KEEP } from '../../services/UserSettingsService';
+import { userSettingsService, MIN_BACKUP_KEEP, MAX_BACKUP_KEEP, MIN_CLIPBOARD_CLEAR_SECONDS, MAX_CLIPBOARD_CLEAR_SECONDS, DEFAULT_CLIPBOARD_CLEAR_SECONDS } from '../../services/UserSettingsService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { ImportService } from '../../services/ImportService';
@@ -44,6 +44,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [showApiKey, setShowApiKey] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [fetchFavicons, setFetchFavicons] = useState<boolean>(userSettingsService.getFetchFavicons());
+    const [clipboardClearSeconds, setClipboardClearSeconds] = useState<number>(userSettingsService.getClipboardClearSeconds());
     const [allowPasskeysLocalhost, setAllowPasskeysLocalhost] = useState<boolean>(userSettingsService.getAllowPasskeysLocalhost());
     const [alwaysAllowBrowserAccess, setAlwaysAllowBrowserAccess] = useState<boolean>(userSettingsService.getAlwaysAllowBrowserAccess());
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
@@ -206,6 +207,37 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         } else if (result.error !== 'Save cancelled') {
             (window as any).showToast?.({
                 message: result.error || 'Failed to export',
+                type: 'error',
+                duration: 5000
+            });
+        }
+    };
+
+    const handleKdbxExport = async () => {
+        if (!kdbxDb || !window.electron) return;
+        try {
+            const bytes = await KeepassDatabaseService.exportDatabaseCopy(kdbxDb);
+            const result = await window.electron.saveAttachment(
+                ExportService.kdbxCopyFileName(kdbxDb),
+                new Uint8Array(bytes)
+            );
+            if (result.success) {
+                (window as any).showToast?.({
+                    message: `Encrypted copy saved to ${result.filePath}`,
+                    type: 'success',
+                    duration: 4000
+                });
+            } else if (result.error !== 'Save cancelled') {
+                (window as any).showToast?.({
+                    message: result.error || 'Failed to save the copy',
+                    type: 'error',
+                    duration: 5000
+                });
+            }
+        } catch (err) {
+            console.error('Failed to export database copy:', err);
+            (window as any).showToast?.({
+                message: 'Failed to export the database',
                 type: 'error',
                 duration: 5000
             });
@@ -687,6 +719,24 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </div>
                             <p className="auto-lock-help">When enabled, the database will automatically lock after the specified period of time</p>
                         </div>
+                        <div className="clipboard-clear-controls">
+                            <div className="auto-lock-duration enabled">
+                                <label htmlFor="clipboard-clear-seconds">Clear clipboard after (seconds)</label>
+                                <input
+                                    type="number"
+                                    id="clipboard-clear-seconds"
+                                    value={clipboardClearSeconds}
+                                    min={MIN_CLIPBOARD_CLEAR_SECONDS}
+                                    max={MAX_CLIPBOARD_CLEAR_SECONDS}
+                                    onChange={(e) => {
+                                        const value = Math.max(MIN_CLIPBOARD_CLEAR_SECONDS, Math.min(MAX_CLIPBOARD_CLEAR_SECONDS, parseInt(e.target.value) || DEFAULT_CLIPBOARD_CLEAR_SECONDS));
+                                        setClipboardClearSeconds(value);
+                                        userSettingsService.setClipboardClearSeconds(value);
+                                    }}
+                                />
+                            </div>
+                            <p className="auto-lock-help">A copied password or username is wiped from the clipboard after this long</p>
+                        </div>
                         <div className="backup-controls">
                             <div className="auto-lock-toggle">
                                 <label htmlFor="backups-enabled">Keep backups before saving</label>
@@ -929,6 +979,14 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         <div className="settings-section">
                             <h3>Export</h3>
                             <div className="database-controls">
+                                <button
+                                    className="import-csv-button"
+                                    onClick={handleKdbxExport}
+                                >
+                                    <DownloadActionIcon className="import-icon" />
+                                    Save encrypted copy
+                                </button>
+                                <p className="database-help">Writes the database as it is right now to a .kdbx file of your choice, encrypted with the same credentials</p>
                                 <button
                                     className="import-csv-button"
                                     onClick={handleCsvExport}

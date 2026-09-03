@@ -31,6 +31,8 @@ interface UserSettings {
     // would otherwise take the only copy with it
     backupsEnabled?: boolean;
     backupKeep?: number;
+    // How long a copied secret stays in the clipboard before it is wiped
+    clipboardClearSeconds?: number;
     // Names this installation in the history notes written into a vault; see
     // HistoryNotesService. Random and opaque on purpose: it is written into a
     // file that gets synced and shared, so it must say nothing about the
@@ -40,6 +42,10 @@ interface UserSettings {
 
 export const MIN_BACKUP_KEEP = 1;
 export const MAX_BACKUP_KEEP = 20;
+
+export const DEFAULT_CLIPBOARD_CLEAR_SECONDS = 20;
+export const MIN_CLIPBOARD_CLEAR_SECONDS = 5;
+export const MAX_CLIPBOARD_CLEAR_SECONDS = 600;
 
 const SETTINGS_KEY = 'vigil_user_settings';
 
@@ -114,6 +120,16 @@ class UserSettingsService {
 
     setBackupKeep(keep: number): void {
         this.current.backupKeep = Math.min(MAX_BACKUP_KEEP, Math.max(MIN_BACKUP_KEEP, Math.round(keep)));
+        this.saveSettings();
+    }
+
+    getClipboardClearSeconds(): number {
+        return this.current.clipboardClearSeconds ?? DEFAULT_CLIPBOARD_CLEAR_SECONDS;
+    }
+
+    setClipboardClearSeconds(seconds: number): void {
+        this.current.clipboardClearSeconds = Math.min(MAX_CLIPBOARD_CLEAR_SECONDS,
+            Math.max(MIN_CLIPBOARD_CLEAR_SECONDS, Math.round(seconds)));
         this.saveSettings();
     }
 

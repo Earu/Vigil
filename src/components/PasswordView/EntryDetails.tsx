@@ -19,7 +19,7 @@ import { FaviconService } from '../../services/FaviconService';
 import { PlaceholderService } from '../../services/PlaceholderService';
 import { ReferenceWizard, ReferenceFieldCode } from './ReferenceWizard';
 import { PasswordStrength } from '../../services/BreachStatusStore';
-import { ClipboardService, CLIPBOARD_CLEAR_SECONDS } from '../../services/ClipboardService';
+import { ClipboardService } from '../../services/ClipboardService';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -283,7 +283,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			>
 				<CopyActionIcon />
 				{clipboard.secondsLeft > 0 && clipboard.source === copySource(field) && (
-					<div className="clipboard-timer" style={{ '--progress': `${(clipboard.secondsLeft / CLIPBOARD_CLEAR_SECONDS) * 100}%` } as React.CSSProperties}>
+					<div className="clipboard-timer" style={{ '--progress': `${(clipboard.secondsLeft / clipboard.totalSeconds) * 100}%` } as React.CSSProperties}>
 						{clipboard.secondsLeft}s
 					</div>
 				)}

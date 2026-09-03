@@ -1535,18 +1535,50 @@ export class KeepassDatabaseService {
         return result;
     }
 
-    private static async runSave(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
+    // The promise of whatever currently holds the save lock, kept so an
+    // export can wait its turn; failures are the lock holder's to report
+    private static currentSave: Promise<void> | null = null;
+
+    private static runSave(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
         this.saveInFlight = true;
-        try {
-            return await this.performSave(database, kdbxDb);
-        } finally {
-            this.saveInFlight = false;
-            const queued = this.queuedSave;
-            if (queued) {
-                this.queuedSave = null;
-                this.runSave(queued.database, queued.kdbxDb).then(queued.resolve, queued.reject);
+        const run = (async () => {
+            try {
+                return await this.performSave(database, kdbxDb);
+            } finally {
+                this.releaseSaveLock();
             }
+        })();
+        this.currentSave = run.catch(() => {});
+        return run;
+    }
+
+    private static releaseSaveLock(): void {
+        this.saveInFlight = false;
+        const queued = this.queuedSave;
+        if (queued) {
+            this.queuedSave = null;
+            this.runSave(queued.database, queued.kdbxDb).then(queued.resolve, queued.reject);
         }
+    }
+
+    // A point-in-time encrypted copy of the vault, serialized with its current
+    // credentials. kdbx.save() regenerates the header salts as it runs, so two
+    // serializations of the same Kdbx must never overlap: the copy takes the
+    // same lock the saves use, and a save requested meanwhile queues behind it
+    static async exportDatabaseCopy(kdbxDb: kdbxweb.Kdbx): Promise<ArrayBuffer> {
+        while (this.saveInFlight) {
+            await this.currentSave;
+        }
+        this.saveInFlight = true;
+        const run = (async () => {
+            try {
+                return await kdbxDb.save();
+            } finally {
+                this.releaseSaveLock();
+            }
+        })();
+        this.currentSave = run.then(() => undefined, () => undefined);
+        return run;
     }
 
     private static async performSave(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {

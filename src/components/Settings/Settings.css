@@ -81,8 +81,8 @@
 }
 
 .settings-section {
-    margin-bottom: 1.5rem;
-    padding: 0 0 1.5rem 0;
+    margin-bottom: 1rem;
+    padding: 0 0 1rem 0;
     background: none;
     border: none;
     border-bottom: 1px solid var(--border-primary);
@@ -105,8 +105,8 @@
 }
 
 .settings-section > div:not(:last-child) {
-    margin-bottom: 1.5rem;
-    padding-bottom: 1.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
     border-bottom: 1px solid var(--border-primary);
 }
 
@@ -241,13 +241,16 @@
 }
 
 .cache-controls {
-    margin-top: 1rem;
     padding-top: 1rem;
     border-top: 1px solid var(--border-primary);
 }
 
 .clear-cache-button {
     padding: 0.5rem 0.7rem;
+    /* Matches the 1.25rem icon inside .import-csv-button, so the text-only
+       buttons (Clear Cache, Show Logs) come out the same height as the
+       import/export ones */
+    line-height: 1.25rem;
     background-color: var(--overlay-light);
     color: var(--text-primary);
     border: 1px solid var(--border-primary);
@@ -264,13 +267,17 @@
 }
 
 .cache-help {
-    margin-top: 0.5rem;
+    /* The zeroed bottom matters: the browser default 1em under a <p> is
+       exactly the stray space below these help lines */
+    margin: 0.5rem 0 0 0;
     font-size: 0.72rem;
     color: var(--text-muted);
 }
 
 .auto-lock-controls,
 .content-protection-controls,
+.favicon-controls,
+.clipboard-clear-controls,
 .backup-controls {
     display: flex;
     flex-direction: column;
@@ -281,7 +288,19 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.5rem;
+}
+
+/* A control's explanation belongs visibly to it: closer to its own control
+   than to the next setting. The flex gap alone spaces everything evenly, so
+   the help pulls itself back against the row above */
+.auto-lock-controls > .auto-lock-help,
+.content-protection-controls > .auto-lock-help,
+.favicon-controls > .auto-lock-help,
+.clipboard-clear-controls > .auto-lock-help,
+.backup-controls > .auto-lock-help,
+.database-controls > .database-help,
+.api-key-input > .api-key-help {
+    margin-top: -0.5rem;
 }
 
 .auto-lock-toggle label {
@@ -672,6 +691,7 @@ select.db-input {
     flex-shrink: 0;
     padding: 0.3rem 0.8rem;
     font-size: 0.8rem;
+    line-height: normal;
 }
 
 /* Vault backups. The separator above comes from
@@ -697,4 +717,5 @@ select.db-input {
     flex-shrink: 0;
     padding: 0.3rem 0.8rem;
     font-size: 0.8rem;
+    line-height: normal;
 }
