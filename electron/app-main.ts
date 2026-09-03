@@ -145,8 +145,10 @@ app.on('activate', () => {
     }
 });
 
-// Register as default handler for kdbx files
-app.setAsDefaultProtocolClient('kdbx');
+// Double-clicked vaults arrive as plain file paths via the OS file
+// association (electron-builder fileAssociations). kdbx is a file extension,
+// not a URL scheme: registering it as a protocol handler would let any web
+// page deep-link kdbx:// into the argv sniffing below
 
 // Handle file opening on Windows/Linux
 if (process.platform !== 'darwin') {
@@ -165,11 +167,3 @@ app.on('open-file', (event, filePath) => {
         global.startupFilePath = filePath;
     }
 });
-
-// Handle file opening from command line arguments on Windows
-if (process.platform === 'win32') {
-    const filePath = process.argv.find(arg => arg.endsWith('.kdbx'));
-    if (filePath) {
-        global.startupFilePath = filePath;
-    }
-}

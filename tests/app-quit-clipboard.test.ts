@@ -38,7 +38,6 @@ vi.mock('electron', () => ({
         // Never resolves: none of the window creation runs
         whenReady: () => new Promise<void>(() => {}),
         isReady: () => false,
-        setAsDefaultProtocolClient: vi.fn(),
         commandLine: { appendSwitch: vi.fn() },
     },
     BrowserWindow: { getAllWindows: () => [] },
