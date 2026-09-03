@@ -117,16 +117,23 @@ export async function backupBeforeWrite(vaultPath: string, options: BackupReques
         } catch { /* unreadable, so treat it as absent and take a fresh one */ }
     }
 
+    // Owner-only on create: the copies inside are as sensitive as the vault
     const dir = backupDir(vaultPath);
-    await fs.promises.mkdir(dir, { recursive: true });
+    await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
     const name = path.basename(vaultPath, path.extname(vaultPath));
     const target = await freeName(dir, name, timestamp(new Date()));
 
-    await fs.promises.copyFile(vaultPath, target);
     // A copy of the database must not be readable by more people than the
-    // database is, and copyFile does not promise to carry the mode over
-    if (process.platform !== 'win32') {
-        await fs.promises.chmod(target, source.mode & 0o777).catch(() => { /* best effort */ });
+    // database is, at any point: copyFile creates the target at the umask
+    // default (0644 typically) and fixes it up after, leaving a window and
+    // leaving 0644 for good if the chmod fails. Creating with the source's
+    // mode means the umask can only ever subtract permissions; the chmod
+    // then restores the exact mode
+    const mode = process.platform === 'win32' ? undefined : source.mode & 0o777;
+    const data = await fs.promises.readFile(vaultPath);
+    await fs.promises.writeFile(target, data, { mode: mode ?? 0o666, flag: 'wx' });
+    if (mode !== undefined) {
+        await fs.promises.chmod(target, mode).catch(() => { /* created no wider than mode */ });
     }
 
     await prune(vaultPath, options.keep);

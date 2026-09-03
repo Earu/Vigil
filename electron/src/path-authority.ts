@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 
@@ -57,12 +58,14 @@ function loadPersisted(): PersistedGrant[] {
 }
 
 // Temp in the same dir then rename: a crash mid-write must not truncate the
-// list. The mode only applies on create and the umask masks it, hence the
-// chmod on the temp file that survives the rename
+// list. Created exclusively ('wx') under a random name so nothing pre-planted
+// at a guessable path (a symlink) can capture the write; the mode only
+// applies on create and the umask masks it, hence the chmod on the temp file
+// that survives the rename
 function writeSidecarSync(file: string, data: string): void {
-    const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+    const tmp = `${file}.tmp-${crypto.randomBytes(8).toString('hex')}`;
     try {
-        fs.writeFileSync(tmp, data, { mode: 0o600 });
+        fs.writeFileSync(tmp, data, { mode: 0o600, flag: 'wx' });
         if (process.platform !== 'win32') fs.chmodSync(tmp, 0o600);
         fs.renameSync(tmp, file);
     } catch (error) {
