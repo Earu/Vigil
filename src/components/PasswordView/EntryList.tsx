@@ -17,6 +17,8 @@ interface EntryListProps {
 	onRemoveEntry: (entry: Entry) => void;
 	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
 	onEmptyRecycleBin?: () => void;
+	// Present only while a search is scoped to a subgroup; widens it to the root
+	onSearchEverywhere?: () => void;
 }
 
 export const EntryList = ({
@@ -29,6 +31,7 @@ export const EntryList = ({
 	onRemoveEntry,
 	onMoveEntry,
 	onEmptyRecycleBin,
+	onSearchEverywhere,
 }: EntryListProps) => {
 	// Re-render when breach statuses change so the indicators stay current
 	useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
@@ -271,6 +274,13 @@ export const EntryList = ({
 					</div>
 				))}
 				<div style={{ height: Math.max(0, (sortedEntries.length - endIndex) * rowHeight) }} aria-hidden="true" />
+				{searchQuery && onSearchEverywhere && (
+					<div className="search-scope-note">
+						<button className="search-everywhere-button" onClick={onSearchEverywhere}>
+							Search entire database
+						</button>
+					</div>
+				)}
 			</div>
 		</div>
 	);

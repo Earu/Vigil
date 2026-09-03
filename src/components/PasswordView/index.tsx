@@ -354,6 +354,9 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					onRemoveEntry={handleRemoveEntry}
 					onMoveEntry={handleMoveEntry}
 					onEmptyRecycleBin={handleEmptyRecycleBin}
+					onSearchEverywhere={selectedGroup.id !== database.root.id
+						? () => handleGroupSelect(database.root)
+						: undefined}
 				/>
 				<div
 					className={`resize-handle right ${isResizing === 'right' ? 'resizing' : ''}`}
