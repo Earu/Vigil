@@ -1,6 +1,7 @@
 import { Database, Entry, Group } from '../../types/database';
 import { useState } from 'react';
 import { BreachedEntry, BreachedEmailEntry, ReusedPasswordGroup } from '../../services/BreachCheckService';
+import { PlaceholderService } from '../../services/PlaceholderService';
 import { VirtualList } from './VirtualList';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { CloseActionIcon } from '../../icons/actions/ActionIcons';
@@ -57,6 +58,9 @@ export const BreachReport = ({
     isCheckingEmails
 }: BreachReportProps) => {
     const [activeTab, setActiveTab] = useState<TabType>('breached');
+    // Titles and usernames may hold {REF:...} and placeholders; the report
+    // shows them the way the entry list does
+    const shown = (text: string, entry: Entry) => PlaceholderService.displayField(text, entry);
     const hasWeakPasswords = weakEntries.length > 0;
     const hasBreachedPasswords = breachedEntries.length > 0;
     const hasBreachedEmails = breachedEmailEntries.length > 0;
@@ -70,8 +74,8 @@ export const BreachReport = ({
     const renderBreachedEntry = ({ entry, group, count }: BreachedEntry) => (
         <div key={entry.id} className="breached-entry">
             <div className="report-entry-info">
-                <h3>{entry.title}</h3>
-                <p className="username">{entry.username}</p>
+                <h3>{shown(entry.title, entry)}</h3>
+                <p className="username">{shown(entry.username, entry)}</p>
                 <p className="group-path">Group: {group.name}</p>
             </div>
             <div className="breach-info">
@@ -85,8 +89,8 @@ export const BreachReport = ({
     const renderWeakEntry = ({ entry, group, strength }: BreachedEntry) => (
         <div key={entry.id} className="breached-entry">
             <div className="report-entry-info">
-                <h3>{entry.title}</h3>
-                <p className="username">{entry.username}</p>
+                <h3>{shown(entry.title, entry)}</h3>
+                <p className="username">{shown(entry.username, entry)}</p>
                 <p className="group-path">Group: {group.name}</p>
             </div>
             <div className="breach-info">
@@ -105,8 +109,8 @@ export const BreachReport = ({
     const renderEmailEntry = (entry: BreachedEmailEntry) => (
         <div key={entry.entry.id} className="breached-entry">
             <div className="report-entry-info">
-                <h3>{entry.entry.title}</h3>
-                <p className="username">{entry.entry.username}</p>
+                <h3>{shown(entry.entry.title, entry.entry)}</h3>
+                <p className="username">{shown(entry.entry.username, entry.entry)}</p>
                 <p className="group-path">Group: {entry.group.name}</p>
             </div>
             <div className="breach-info">
@@ -126,8 +130,8 @@ export const BreachReport = ({
                 {cluster.entries.map(({ entry, group }) => (
                     <div key={entry.id} className="breached-entry">
                         <div className="report-entry-info">
-                            <h3>{entry.title}</h3>
-                            <p className="username">{entry.username}</p>
+                            <h3>{shown(entry.title, entry)}</h3>
+                            <p className="username">{shown(entry.username, entry)}</p>
                             <p className="group-path">Group: {group.name}</p>
                         </div>
                     </div>
@@ -139,8 +143,8 @@ export const BreachReport = ({
     const renderExpiredEntry = ({ entry, group }: { entry: Entry; group: Group }) => (
         <div key={entry.id} className="breached-entry">
             <div className="report-entry-info">
-                <h3>{entry.title}</h3>
-                <p className="username">{entry.username}</p>
+                <h3>{shown(entry.title, entry)}</h3>
+                <p className="username">{shown(entry.username, entry)}</p>
                 <p className="group-path">Group: {group.name}</p>
             </div>
             <div className="breach-info">

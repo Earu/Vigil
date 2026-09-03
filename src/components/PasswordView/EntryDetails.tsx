@@ -7,7 +7,7 @@ import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
-import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon, LinkActionIcon } from '../../icons/actions/ActionIcons';
 import { PasskeyService } from '../../services/PasskeyService';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
@@ -16,6 +16,8 @@ import { IconPicker } from './IconPicker';
 import { ItemIcon } from './ItemIcon';
 import { KeePassIcon } from '../../icons/keepass/KeePassIcons';
 import { FaviconService } from '../../services/FaviconService';
+import { PlaceholderService } from '../../services/PlaceholderService';
+import { ReferenceWizard, ReferenceFieldCode } from './ReferenceWizard';
 import { PasswordStrength } from '../../services/BreachStatusStore';
 import { ClipboardService, CLIPBOARD_CLEAR_SECONDS } from '../../services/ClipboardService';
 
@@ -29,9 +31,6 @@ interface EntryDetailsProps {
 	allTags?: string[];
 	// Clicking a tag searches for it across the vault
 	onTagClick?: (tag: string) => void;
-	// Resolves KeePass placeholders and {REF:...} references against the
-	// vault; view mode and copies show resolved values, the edit form the raw
-	resolvePlaceholders?: (text: string, entry: Entry) => string;
 }
 
 const fieldText = (value: string | kdbxweb.ProtectedValue | undefined): string =>
@@ -120,10 +119,12 @@ const PasswordStrengthIndicator = ({ score, warning, suggestions }: PasswordStre
 	);
 };
 
-export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick, resolvePlaceholders }: EntryDetailsProps) => {
+export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
 	const [showIconPicker, setShowIconPicker] = useState(false);
+	// Which field the reference wizard is inserting into; null keeps it closed
+	const [refWizardField, setRefWizardField] = useState<ReferenceFieldCode | null>(null);
 
 	// The expanded grid belongs to one editing session; a different entry or
 	// leaving edit mode folds it away
@@ -238,11 +239,37 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// View mode and copies hand out resolved values ({REF:...}, {USERNAME},
 	// ...); the edit form works on the raw text so references stay editable
 	const resolved = (text: string): string =>
-		resolvePlaceholders ? resolvePlaceholders(text, editedEntry) : text;
+		PlaceholderService.displayField(text, editedEntry);
 
 	// The one rule for field values in the JSX: raw while editing, resolved
 	// in view mode
 	const display = (text: string): string => isEditing ? text : resolved(text);
+
+	const applyReferenceToken = (token: string) => {
+		switch (refWizardField) {
+			case 'T': setEditedEntry({ ...editedEntry, title: token }); break;
+			case 'U': setEditedEntry({ ...editedEntry, username: token }); break;
+			case 'P': setEditedEntry({ ...editedEntry, password: token }); break;
+			case 'A': setEditedEntry({ ...editedEntry, url: token }); break;
+			// Notes hold prose; the reference joins it instead of replacing it
+			case 'N': {
+				const notes = editedEntry.notes ?? '';
+				setEditedEntry({ ...editedEntry, notes: notes ? `${notes}\n${token}` : token });
+				break;
+			}
+		}
+	};
+
+	const renderReferenceButton = (code: ReferenceFieldCode) => (
+		<button
+			className="generate-button"
+			onClick={() => setRefWizardField(code)}
+			title="Insert a reference to another entry's field"
+			type="button"
+		>
+			<LinkActionIcon />
+		</button>
+	);
 
 	const copyToClipboard = (text: string, field: string) =>
 		ClipboardService.copy(resolved(text), field, copySource(field));
@@ -673,6 +700,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							readOnly={!isEditing}
 							placeholder="Enter title"
 						/>
+						{isEditing && renderReferenceButton('T')}
 						{!isEditing && editedEntry.title && renderCopyButton(
 							() => copyToClipboard(editedEntry.title, 'Title'),
 							'Copy title',
@@ -744,6 +772,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							readOnly={!isEditing}
 							placeholder="Enter username"
 						/>
+						{isEditing && renderReferenceButton('U')}
 						{!isEditing && editedEntry.username && renderCopyButton(
 							() => copyToClipboard(editedEntry.username, 'Username'),
 							'Copy username',
@@ -783,6 +812,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								<GenerateActionIcon />
 							</button>
 						)}
+						{isEditing && renderReferenceButton('P')}
 						{!isEditing && editedEntry.password && renderCopyButton(
 							() => copyToClipboard(KeepassDatabaseService.getPasswordString(editedEntry.password), 'Password'),
 							'Copy password',
@@ -834,7 +864,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									TOTP configured ({totpConfig.digits} digits, {totpConfig.period}s, {totpConfig.algorithm})
 								</span>
 								<button
-									className="attachment-action-button remove"
+									className="field-remove-button"
 									onClick={handleRemoveTotp}
 									title="Remove one-time password"
 									type="button"
@@ -891,6 +921,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							readOnly={!isEditing}
 							placeholder="Enter URL"
 						/>
+						{isEditing && renderReferenceButton('A')}
 						{!isEditing && editedEntry.url && (
 							<>
 								{renderCopyButton(
@@ -969,13 +1000,16 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 
 				<div className="field-group">
 					<label>Notes</label>
-					<textarea
-						value={display(editedEntry.notes ?? '')}
-						onChange={(e) => setEditedEntry({ ...editedEntry, notes: e.target.value })}
-						className="field-value notes"
-						readOnly={!isEditing}
-						placeholder="Enter notes"
-					/>
+					<div className="field-value-container notes-container">
+						<textarea
+							value={display(editedEntry.notes ?? '')}
+							onChange={(e) => setEditedEntry({ ...editedEntry, notes: e.target.value })}
+							className="field-value notes"
+							readOnly={!isEditing}
+							placeholder="Enter notes"
+						/>
+						{isEditing && renderReferenceButton('N')}
+					</div>
 				</div>
 
 				{(isEditing || (editedEntry.tags ?? []).length > 0) && (
@@ -1092,7 +1126,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										<SecurityShieldIcon />
 									</button>
 									<button
-										className="attachment-action-button remove"
+										className="field-remove-button"
 										onClick={() => handleRemoveCustomField(index)}
 										title="Remove field"
 										type="button"
@@ -1345,6 +1379,14 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							setShowPasswordGenerator(false);
 						}}
 						currentPassword={KeepassDatabaseService.getPasswordString(editedEntry.password)}
+					/>
+				)}
+				{refWizardField && (
+					<ReferenceWizard
+						defaultField={refWizardField}
+						excludeEntryId={editedEntry.id || undefined}
+						onInsert={applyReferenceToken}
+						onClose={() => setRefWizardField(null)}
 					/>
 				)}
 			</div>

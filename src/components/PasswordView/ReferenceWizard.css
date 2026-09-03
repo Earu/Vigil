@@ -1,0 +1,127 @@
+.reference-wizard-overlay {
+	position: fixed;
+	inset: 0;
+	background-color: rgba(0, 0, 0, 0.5);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 1000;
+}
+
+.reference-wizard {
+	width: 26rem;
+	max-height: 80vh;
+	display: flex;
+	flex-direction: column;
+	background-color: var(--bg-tertiary);
+	border: 1px solid var(--border-primary);
+	border-radius: var(--radius-md);
+}
+
+.reference-wizard-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.75rem 1rem;
+	border-bottom: 1px solid var(--border-primary);
+}
+
+.reference-wizard-header h2 {
+	margin: 0;
+	font-size: 0.9rem;
+	font-weight: 600;
+	color: var(--text-secondary);
+}
+
+.reference-wizard-body {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	padding: 0.75rem 1rem;
+	min-height: 0;
+}
+
+.reference-entry-list {
+	display: flex;
+	flex-direction: column;
+	gap: 0.15rem;
+	overflow-y: auto;
+	min-height: 8rem;
+	max-height: 40vh;
+	border: 1px solid var(--border-secondary);
+	border-radius: var(--radius-sm);
+	padding: 0.25rem;
+	background-color: var(--bg-dark);
+}
+
+.reference-entry {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.3rem 0.45rem;
+	background: none;
+	border: none;
+	border-radius: var(--radius-sm);
+	color: var(--text-secondary);
+	text-align: left;
+	cursor: pointer;
+	font-size: 0.8rem;
+}
+
+.reference-entry:hover {
+	background-color: var(--overlay-light);
+	color: var(--text-primary);
+}
+
+.reference-entry.selected {
+	background-color: var(--overlay-light);
+	color: var(--text-primary);
+	outline: 1px solid var(--accent);
+}
+
+.reference-entry-icon {
+	width: 1rem;
+	height: 1rem;
+	flex-shrink: 0;
+	object-fit: contain;
+}
+
+.reference-entry-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.reference-entry-username {
+	margin-left: auto;
+	color: var(--text-tertiary);
+	font-size: 0.72rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 40%;
+}
+
+.reference-entry-empty {
+	padding: 0.75rem;
+	font-size: 0.75rem;
+	color: var(--text-tertiary);
+	text-align: center;
+}
+
+.reference-field-row {
+	display: flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+
+.reference-field-row label {
+	font-size: 0.75rem;
+	color: var(--text-tertiary);
+}
+
+.reference-wizard .field-group.actions {
+	padding: 0.75rem 1rem;
+	border-top: 1px solid var(--border-primary);
+	margin: 0;
+}

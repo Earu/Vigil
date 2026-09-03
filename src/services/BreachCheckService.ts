@@ -4,6 +4,7 @@ import { BreachStatusStore } from './BreachStatusStore';
 import { EmailBreachStatusStore } from './EmailBreachStatusStore';
 import * as kdbxweb from 'kdbxweb';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
+import { PlaceholderService } from './PlaceholderService';
 import type { PasswordStrength } from './BreachStatusStore';
 
 export interface HibpBreach {
@@ -279,7 +280,10 @@ export class BreachCheckService {
         const passwordString = typeof entry.password === 'string'
             ? entry.password
             : entry.password?.getText() ?? '';
-        if (!passwordString) {
+        // Reference-valued passwords ({REF:P@...}) are pointers: hashing or
+        // scoring the literal token says nothing, and the report hands the
+        // verdict to the entry the reference points at instead
+        if (!passwordString || PlaceholderService.hasReference(passwordString)) {
             const emailBreaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username, entry.modified);
             BreachStatusStore.setEntryStatus(databasePath, entry.id, {
                 isPwned: false,
@@ -458,15 +462,24 @@ export class BreachCheckService {
     // object simply stops being asked. Entry identity currently changes on
     // every rebuild; the cache is correct regardless and pays off more once
     // identities become stable
-    private static passwordHashCache = new WeakMap<Entry, string>();
+    private static passwordHashCache = new WeakMap<Entry, { hash: string; isReference: boolean }>();
 
-    private static passwordHash(entry: Entry): string {
+    // One decrypt yields both facts the walks need: the reuse hash and
+    // whether the password is a {REF:...} pointer
+    private static passwordInfo(entry: Entry): { hash: string; isReference: boolean } {
         const cached = this.passwordHashCache.get(entry);
         if (cached !== undefined) return cached;
         const text = entry.password ? KeepassDatabaseService.getPasswordString(entry.password) : '';
-        const hash = text ? this.cyrb53(text) : '';
-        this.passwordHashCache.set(entry, hash);
-        return hash;
+        const info = {
+            hash: text ? this.cyrb53(text) : '',
+            isReference: PlaceholderService.hasReference(text),
+        };
+        this.passwordHashCache.set(entry, info);
+        return info;
+    }
+
+    private static passwordHasReference(entry: Entry): boolean {
+        return this.passwordInfo(entry).isReference;
     }
 
     // Purely local: no network, no cached status, so this works the moment a
@@ -480,8 +493,12 @@ export class BreachCheckService {
         const walk = (group: Group) => {
             if (group.isRecycleBin) return;
             for (const entry of group.entries) {
-                const hash = this.passwordHash(entry);
-                if (!hash) continue;
+                // A reference is the sanctioned way to share one password;
+                // flagging it as reuse would tell users to stop doing the
+                // right thing. Referrers of the same target share the same
+                // literal token, so without this they would cluster
+                const { hash, isReference } = this.passwordInfo(entry);
+                if (isReference || !hash) continue;
                 const bucket = byHash.get(hash);
                 if (bucket) bucket.push({ entry, group });
                 else byHash.set(hash, [{ entry, group }]);
@@ -538,6 +555,26 @@ export class BreachCheckService {
             // Passwordless entries (passkey-only) have no password to flag,
             // whatever a stale cached status says
             if (!this.entryHasPassword(entry)) return;
+
+            // A reference-valued password inherits the verdict of the entry
+            // it points at: never scored itself, but flagged alongside its
+            // target so rotating the one real password clears both
+            if (this.passwordHasReference(entry)) {
+                const root = PlaceholderService.getModelRoot();
+                const target = root ? PlaceholderService.findPasswordTargetEntry(entry, root) : null;
+                if (target) {
+                    const targetStatus = BreachStatusStore.getEntryStatus(databasePath, target.id);
+                    const entryInfo = {
+                        entry,
+                        group: parentGroup,
+                        count: targetStatus?.count ?? 0,
+                        strength: targetStatus?.strength ?? undefined
+                    };
+                    if (targetStatus?.isPwned) breached.push(entryInfo);
+                    if (targetStatus?.strength && targetStatus.strength.score < 3) weak.push(entryInfo);
+                }
+                return;
+            }
 
             const status = BreachStatusStore.getEntryStatus(databasePath, entry.id);
             hasCheckedEntries = true;

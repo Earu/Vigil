@@ -317,3 +317,21 @@ export const PasskeyActionIcon: React.FC<ActionIconProps> = ({ className, color 
         <path d="M18 17v4l2-2" />
     </svg>
 );
+
+// Chain links, for inserting a field reference to another entry
+export const LinkActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={style}
+    >
+        <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+        <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+    </svg>
+);

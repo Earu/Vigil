@@ -134,6 +134,13 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		updateEmailBreachStatus();
 	}, [database, isCheckingBreaches, isCheckingEmails, breachStoreVersion, emailStoreVersion]);
 
+	// Placeholder resolution ({REF:...}, {USERNAME}, ...) follows the open
+	// vault: registered while this view is mounted, cleared with it on lock
+	useEffect(() => {
+		PlaceholderService.setModelRoot(database.root);
+	}, [database]);
+	useEffect(() => () => PlaceholderService.setModelRoot(null), []);
+
 	useEffect(() => {
 		const updatedGroup = KeepassDatabaseService.findGroupInDatabase(selectedGroup.id, database.root);
 		if (updatedGroup) {
@@ -402,7 +409,6 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 						onDirtyChange={handleDirtyChange}
 						allTags={allTags}
 						onTagClick={handleTagClick}
-						resolvePlaceholders={(text, entry) => PlaceholderService.resolveModel(text, entry, database.root)}
 					/>
 				)}
 			</div>
