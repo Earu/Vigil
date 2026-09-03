@@ -24,6 +24,7 @@ import {
     disableBiometrics
 } from './biometrics';
 import { checkEmailBreaches } from './hibp';
+import { fetchFavicon } from './favicon';
 import { isSupported as isContentProtectionSupported, isContentProtectionEnabled, setContentProtectionEnabled } from './content-protection';
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
 import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
@@ -271,6 +272,11 @@ export function setupIpcHandlers(): void {
     // HIBP handlers
     ipcMain.handle('check-email-breaches', async (_, email: string, apiKey: string) => {
         return await checkEmailBreaches(email, apiKey);
+    });
+
+    // Favicon download for icon promotion; host validation lives with the fetch
+    ipcMain.handle('fetch-favicon', async (_, host: unknown) => {
+        return await fetchFavicon(host);
     });
 
     // Screen capture protection

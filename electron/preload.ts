@@ -51,6 +51,7 @@ const api: IElectronAPI = {
 		return () => { ipcRenderer.off(channel, wrapper) }
 	},
 	checkEmailBreaches: (email: string, apiKey: string) => ipcRenderer.invoke('check-email-breaches', email, apiKey),
+	fetchFavicon: (host: string) => ipcRenderer.invoke('fetch-favicon', host),
 	isHardwareKeyPresent: () => ipcRenderer.invoke('hardware-key-present'),
 	listHardwareKeys: () => ipcRenderer.invoke('hardware-key-list'),
 	hardwareKeyChallenge: (serial, slot, challenge) => ipcRenderer.invoke('hardware-key-challenge', serial, slot, challenge),

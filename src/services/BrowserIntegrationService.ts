@@ -1,6 +1,7 @@
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../types/database';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
+import { PlaceholderService, uuidBase64ToHex } from './PlaceholderService';
 import { TotpService } from './TotpService';
 import { PasswordGeneratorService } from './PasswordGeneratorService';
 import { PassphraseService } from './PassphraseService';
@@ -164,8 +165,8 @@ export class BrowserIntegrationService {
     }
 
     private static uuidHex(uuid: kdbxweb.KdbxUuid): string {
-        return [...kdbxweb.ByteUtils.base64ToBytes(uuid.id)]
-            .map(b => b.toString(16).padStart(2, '0')).join('');
+        // Shared with {REF:...@I:...} matching; the two must agree byte for byte
+        return uuidBase64ToHex(uuid.id);
     }
 
     private static fieldString(value: string | kdbxweb.ProtectedValue | undefined): string {
@@ -218,11 +219,19 @@ export class BrowserIntegrationService {
         for (const child of group.groups) yield* this.allEntries(child, recycleBinUuid);
     }
 
-    private static async entryToLogin(entry: kdbxweb.KdbxEntry): Promise<any> {
+    private static async entryToLogin(entry: kdbxweb.KdbxEntry, kdbxDb: kdbxweb.Kdbx): Promise<any> {
+        // Resolved the way KeePassXC hands logins out: an entry whose
+        // username is {REF:U@I:...} must fill the referenced value, not the
+        // reference text. The recycle bin is out of scope, as it is for the
+        // UI's resolver: a deleted credential must not be autofillable
+        const root = kdbxDb.getDefaultGroup();
+        const recycleBinUuid = kdbxDb.meta.recycleBinEnabled ? kdbxDb.meta.recycleBinUuid?.id : undefined;
+        const resolve = (value: string | kdbxweb.ProtectedValue | undefined) =>
+            PlaceholderService.resolveKdbx(this.fieldString(value), entry, root, recycleBinUuid);
         const login: any = {
-            login: this.fieldString(entry.fields.get('UserName')),
-            name: this.fieldString(entry.fields.get('Title')),
-            password: this.fieldString(entry.fields.get('Password')),
+            login: resolve(entry.fields.get('UserName')),
+            name: resolve(entry.fields.get('Title')),
+            password: resolve(entry.fields.get('Password')),
             uuid: this.uuidHex(entry.uuid),
             group: entry.parentGroup?.name ?? '',
         };
@@ -333,7 +342,7 @@ export class BrowserIntegrationService {
                 if (granted.length === 0) return { errorCode: ERROR_NO_LOGINS_FOUND };
                 const entries: any[] = [];
                 for (const entry of granted) {
-                    entries.push(await this.entryToLogin(entry));
+                    entries.push(await this.entryToLogin(entry, kdbxDb));
                 }
                 return { entries };
             }
@@ -471,7 +480,7 @@ export class BrowserIntegrationService {
                 const entry = [...this.allEntries(kdbxDb.getDefaultGroup(), recycleBinUuid)]
                     .find(e => this.uuidHex(e.uuid) === payload.uuid);
                 if (!entry) return { errorCode: ERROR_NO_LOGINS_FOUND };
-                const login = await this.entryToLogin(entry);
+                const login = await this.entryToLogin(entry, kdbxDb);
                 if (!login.totp) return { errorCode: ERROR_NO_LOGINS_FOUND };
                 return { totp: login.totp };
             }

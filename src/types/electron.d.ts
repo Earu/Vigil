@@ -88,6 +88,8 @@ export interface IElectronAPI {
 	getPlatform: () => Promise<string>;
 	on: (channel: string, callback: (...args: any[]) => void) => () => void;
 	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;
+	// Favicon bytes for icon promotion; fails rather than returning placeholders
+	fetchFavicon: (host: string) => Promise<{ success: boolean; data?: Uint8Array; error?: string }>;
 	isHardwareKeyPresent: () => Promise<boolean>;
 	listHardwareKeys: () => Promise<{ keys: HardwareKeyInfo[]; blocked: boolean }>;
 	hardwareKeyChallenge: (serial: number | null, slot: 1 | 2, challenge: ArrayBuffer) => Promise<{ success: boolean; response?: Uint8Array; error?: string }>;

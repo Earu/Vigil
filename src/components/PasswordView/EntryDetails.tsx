@@ -12,6 +12,10 @@ import { PasskeyService } from '../../services/PasskeyService';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
+import { IconPicker } from './IconPicker';
+import { ItemIcon } from './ItemIcon';
+import { KeePassIcon } from '../../icons/keepass/KeePassIcons';
+import { FaviconService } from '../../services/FaviconService';
 import { PasswordStrength } from '../../services/BreachStatusStore';
 import { ClipboardService, CLIPBOARD_CLEAR_SECONDS } from '../../services/ClipboardService';
 
@@ -25,6 +29,9 @@ interface EntryDetailsProps {
 	allTags?: string[];
 	// Clicking a tag searches for it across the vault
 	onTagClick?: (tag: string) => void;
+	// Resolves KeePass placeholders and {REF:...} references against the
+	// vault; view mode and copies show resolved values, the edit form the raw
+	resolvePlaceholders?: (text: string, entry: Entry) => string;
 }
 
 const fieldText = (value: string | kdbxweb.ProtectedValue | undefined): string =>
@@ -34,6 +41,9 @@ const fieldText = (value: string | kdbxweb.ProtectedValue | undefined): string =
 const entryModified = (edited: Entry, original: Entry): boolean => {
 	if (edited.title !== original.title) return true;
 	if (edited.username !== original.username) return true;
+	if (edited.icon !== original.icon) return true;
+	if ((edited.customIcon ?? '') !== (original.customIcon ?? '')) return true;
+	if (!!edited.suppressFavicon !== !!original.suppressFavicon) return true;
 	if (fieldText(edited.password) !== fieldText(original.password)) return true;
 	if ((edited.url ?? '') !== (original.url ?? '')) return true;
 	if ((edited.notes ?? '') !== (original.notes ?? '')) return true;
@@ -110,9 +120,31 @@ const PasswordStrengthIndicator = ({ score, warning, suggestions }: PasswordStre
 	);
 };
 
-export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick }: EntryDetailsProps) => {
+export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick, resolvePlaceholders }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
+	const [showIconPicker, setShowIconPicker] = useState(false);
+
+	// The expanded grid belongs to one editing session; a different entry or
+	// leaving edit mode folds it away
+	useEffect(() => {
+		if (!isEditing) setShowIconPicker(false);
+	}, [isEditing, entry?.id]);
+
+	// Removing an icon from an entry with a URL also opts it out of website
+	// favicons: without that, the live-fetched favicon takes the cleared
+	// icon's place and the removal looks like it did nothing (and the next
+	// promotion sweep would store it right back)
+	const applyIconChange = (icon: number | undefined, customIcon: string | undefined) => {
+		const hadIcon = editedEntry.icon !== undefined || editedEntry.customIcon !== undefined;
+		const cleared = icon === undefined && customIcon === undefined && hadIcon;
+		setEditedEntry({
+			...editedEntry,
+			icon,
+			customIcon,
+			suppressFavicon: cleared && editedEntry.url ? true : editedEntry.suppressFavicon,
+		});
+	};
 	// The countdown lives in the service so it survives this panel closing
 	const clipboard = useSyncExternalStore(ClipboardService.subscribe, ClipboardService.getSnapshot);
 	const [breachStatus, setBreachStatus] = useState<{ isPwned: boolean; count: number; breachedEmail?: boolean; strength: PasswordStrength | null } | null>(null);
@@ -203,8 +235,17 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// badge would follow the user onto the next entry's field of the same name
 	const copySource = (field: string) => `entry:${editedEntry.id}:${field}`;
 
+	// View mode and copies hand out resolved values ({REF:...}, {USERNAME},
+	// ...); the edit form works on the raw text so references stay editable
+	const resolved = (text: string): string =>
+		resolvePlaceholders ? resolvePlaceholders(text, editedEntry) : text;
+
+	// The one rule for field values in the JSX: raw while editing, resolved
+	// in view mode
+	const display = (text: string): string => isEditing ? text : resolved(text);
+
 	const copyToClipboard = (text: string, field: string) =>
-		ClipboardService.copy(text, field, copySource(field));
+		ClipboardService.copy(resolved(text), field, copySource(field));
 
 	const renderCopyButton = (onClick: () => void, title: string, field: string) => (
 		<>
@@ -626,7 +667,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					<div className="field-value-container">
 						<input
 							type="text"
-							value={editedEntry.title}
+							value={display(editedEntry.title)}
 							onChange={(e) => setEditedEntry({ ...editedEntry, title: e.target.value })}
 							className="field-value"
 							readOnly={!isEditing}
@@ -640,12 +681,64 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					</div>
 				</div>
 
+				{isEditing && (
+					<div className="field-group">
+						<label>Icon</label>
+						<div className="entry-icon-row">
+							<ItemIcon
+								icon={editedEntry.icon}
+								customIcon={editedEntry.customIcon}
+								className="entry-icon-preview"
+								fallback={<KeePassIcon index={0} className="entry-icon-preview" />}
+							/>
+							<button
+								className="icon-picker-file-button"
+								onClick={() => setShowIconPicker(v => !v)}
+								type="button"
+							>
+								{showIconPicker ? 'Hide icons' : 'Change...'}
+							</button>
+							{!showIconPicker && (editedEntry.customIcon !== undefined || !!editedEntry.icon) && (
+								<button
+									className="icon-picker-file-button"
+									onClick={() => applyIconChange(undefined, undefined)}
+									title="Back to the default key icon"
+									type="button"
+								>
+									Remove icon
+								</button>
+							)}
+							{editedEntry.customIcon === undefined && !editedEntry.icon && editedEntry.suppressFavicon && editedEntry.url && (
+								<button
+									className="icon-picker-file-button"
+									onClick={() => {
+										FaviconService.forget(editedEntry.url!);
+										setEditedEntry({ ...editedEntry, suppressFavicon: undefined });
+									}}
+									title="Fetch and store this site's favicon again"
+									type="button"
+								>
+									Use website favicon
+								</button>
+							)}
+						</div>
+						{showIconPicker && (
+							<IconPicker
+								defaultIndex={0}
+								icon={editedEntry.icon}
+								customIcon={editedEntry.customIcon}
+								onChange={applyIconChange}
+							/>
+						)}
+					</div>
+				)}
+
 				<div className="field-group">
 					<label>Username</label>
 					<div className="field-value-container">
 						<input
 							type="text"
-							value={editedEntry.username}
+							value={display(editedEntry.username)}
 							onChange={(e) => setEditedEntry({ ...editedEntry, username: e.target.value })}
 							className="field-value monospace"
 							readOnly={!isEditing}
@@ -664,7 +757,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					<div className="field-value-container">
 						<input
 							type={showPassword ? 'text' : 'password'}
-							value={KeepassDatabaseService.getPasswordString(editedEntry.password)}
+							value={display(KeepassDatabaseService.getPasswordString(editedEntry.password))}
 							onChange={handlePasswordChange}
 							className="field-value monospace"
 							readOnly={!isEditing}
@@ -792,7 +885,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					<div className="field-value-container">
 						<input
 							type="text"
-							value={editedEntry.url ?? ''}
+							value={display(editedEntry.url ?? '')}
 							onChange={(e) => setEditedEntry({ ...editedEntry, url: e.target.value })}
 							className="field-value"
 							readOnly={!isEditing}
@@ -809,7 +902,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									onClick={async () => {
 										// Non-web schemes are refused in the main process; say so
 										// rather than leaving the button looking broken
-										const result = await window.electron?.openExternal(editedEntry.url!);
+										const result = await window.electron?.openExternal(resolved(editedEntry.url!));
 										if (result && !result.success) {
 											(window as any).showToast?.({
 												message: result.error ?? 'Failed to open the link',
@@ -877,7 +970,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				<div className="field-group">
 					<label>Notes</label>
 					<textarea
-						value={editedEntry.notes ?? ''}
+						value={display(editedEntry.notes ?? '')}
 						onChange={(e) => setEditedEntry({ ...editedEntry, notes: e.target.value })}
 						className="field-value notes"
 						readOnly={!isEditing}
@@ -948,7 +1041,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 						<div className="field-value-container">
 							<input
 								type={field.protected && !revealedCustomFields.has(index) ? 'password' : 'text'}
-								value={KeepassDatabaseService.getFieldString(field.value)}
+								value={resolved(KeepassDatabaseService.getFieldString(field.value))}
 								className={`field-value ${field.protected ? 'monospace' : ''}`}
 								readOnly
 							/>

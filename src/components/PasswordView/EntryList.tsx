@@ -4,7 +4,10 @@ import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
 import { AddActionIcon, KeyActionIcon, CloseActionIcon, TrashActionIcon, RestoreActionIcon, PasskeyActionIcon } from '../../icons/actions/ActionIcons';
+import { ItemIcon } from './ItemIcon';
+import { BrowserIntegrationService } from '../../services/BrowserIntegrationService';
 import { PasskeyService } from '../../services/PasskeyService';
+import { PlaceholderService } from '../../services/PlaceholderService';
 import { userSettingsService } from '../../services/UserSettingsService';
 
 interface EntryListProps {
@@ -135,6 +138,11 @@ export const EntryList = ({
 		e.dataTransfer.dropEffect = 'move';
 	};
 
+	// Titles and usernames may hold KeePass placeholders and {REF:...}
+	// references; the list shows them resolved, the model keeps the raw text
+	const displayText = (text: string, entry: Entry) =>
+		database ? PlaceholderService.resolveModel(text, entry, database.root) : text;
+
 	const getEntryStatus = (entry: Entry) => {
 		const path = KeepassDatabaseService.getPath();
 		if (!path) return null;
@@ -196,23 +204,31 @@ export const EntryList = ({
 					>
 						<div className="entry-content">
 							<div className="entry-icon">
-								{entry.url && showFavicons ? (
-									<img
-										src={`https://www.google.com/s2/favicons?domain=${KeepassDatabaseService.getUrlHostname(entry.url)}&sz=32`}
-										alt={entry.title}
-										className="favicon"
-										onError={(e) => {
-											e.preventDefault();
-											(e.target as HTMLImageElement).style.display = 'none';
-										}}
-									/>
-								) : (
-									<KeyActionIcon className="key-icon" />
-								)}
+								<ItemIcon
+									icon={entry.icon}
+									customIcon={entry.customIcon}
+									className={entry.customIcon ? 'favicon' : 'key-icon'}
+									fallback={entry.url && showFavicons && !entry.suppressFavicon ? (
+										// Stand-in until promotion stores the icon; the
+										// host must match the one promotion fetches, or
+										// the icon visibly changes once stored
+										<img
+											src={`https://www.google.com/s2/favicons?domain=${BrowserIntegrationService.hostOf(entry.url)}&sz=32`}
+											alt={entry.title}
+											className="favicon"
+											onError={(e) => {
+												e.preventDefault();
+												(e.target as HTMLImageElement).style.display = 'none';
+											}}
+										/>
+									) : (
+										<KeyActionIcon className="key-icon" />
+									)}
+								/>
 							</div>
 							<div className="entry-info">
 								<div className="entry-title">
-									{entry.title}
+									{displayText(entry.title, entry)}
 									{KeepassDatabaseService.isEntryExpired(entry) && (
 										<span className="expired-indicator" title={`Expired ${entry.expiryTime?.toLocaleString()}`}>
 											<ExpiredClockIcon className="expired-icon" />
@@ -244,7 +260,7 @@ export const EntryList = ({
 										);
 									})()}
 								</div>
-								<div className="entry-username">{entry.username}</div>
+								<div className="entry-username">{displayText(entry.username, entry)}</div>
 							</div>
 							{entry.url && (
 								<div className="entry-url" title={entry.url}>

@@ -26,6 +26,7 @@ import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
 import { SaveConflictDialog } from './components/SaveConflictDialog';
 import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
 import { consentQueue } from './services/ConsentQueue';
+import { FaviconService } from './services/FaviconService';
 
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
@@ -284,6 +285,7 @@ function App() {
 		setDatabase(null);
 		setKdbxDb(null);
 		setShowInitialBreachReport(false);
+		FaviconService.reset();
 		KeepassDatabaseService.setPath(undefined);
 		BreachCheckService.cancelChecks();
 		// Flush whatever the sweep produced, then drop the key so nothing can
@@ -300,13 +302,15 @@ function App() {
 	// the save path has already toasted, and the flags set here keep the close
 	// and lock guards honest about the unpersisted state
 	const handleDatabaseChange = async (updatedDatabase: Database) => {
+		// Before setDatabase: a stale caller (a background task finishing
+		// after a lock) must not put a model back on screen
+		if (!kdbxDb) {
+			throw new Error('Database not loaded');
+		}
 		setDatabase(updatedDatabase);
 
 		savesInFlight.current++;
 		try {
-			if (!kdbxDb) {
-				throw new Error('Database not loaded');
-			}
 
 			await KeepassDatabaseService.saveDatabase(updatedDatabase, kdbxDb);
 			// Re-read the model from the kdbx so state produced during the save
@@ -335,6 +339,32 @@ function App() {
 	const handleDatabaseChangeFromUi = (updatedDatabase: Database) => {
 		handleDatabaseChange(updatedDatabase).catch(() => {});
 	};
+
+	// Favicon promotion: fetched favicons become custom icons stored in the
+	// vault, after which the network fetch for that entry stops. Debounced
+	// behind the latest model; the blocked gate re-checks the edit and save
+	// state before every write the sweep makes, and the ref comparison keeps
+	// a sweep that outlived its vault (lock, different vault opened) from
+	// saving or re-displaying the old session through this callback
+	const kdbxDbRef = useRef<kdbxweb.Kdbx | null>(null);
+	useEffect(() => { kdbxDbRef.current = kdbxDb; }, [kdbxDb]);
+
+	useEffect(() => {
+		if (!kdbxDb || !database) return;
+		const timer = setTimeout(() => {
+			if (entryDirty.current || savesInFlight.current > 0) return;
+			FaviconService.sweep(
+				kdbxDb,
+				database,
+				async () => {
+					if (kdbxDbRef.current !== kdbxDb) return;
+					await handleDatabaseChange(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+				},
+				() => entryDirty.current || savesInFlight.current > 0 || kdbxDbRef.current !== kdbxDb
+			).catch(() => {});
+		}, 2500);
+		return () => clearTimeout(timer);
+	}, [kdbxDb, database]);
 
 	const content = database ? (
 		<>
