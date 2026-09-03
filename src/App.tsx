@@ -261,8 +261,18 @@ function App() {
 
 		setDatabase(database);
 		setKdbxDb(kdbxDb);
+		kdbxDbRef.current = kdbxDb;
+		// The settings modal open over the unlock screen would otherwise sit
+		// on top of the vault that just opened
+		setShowSettings(false);
 		setShowInitialBreachReport(!!showBreachReport);
 	};
+
+	// The vault whose session is current, for callbacks that resume after an
+	// await and must not act on a vault that was locked meanwhile (a save
+	// finishing, the favicon sweep). Set where the state is, not from an
+	// effect, so a lock is visible to a promise resolving in the same tick
+	const kdbxDbRef = useRef<kdbxweb.Kdbx | null>(null);
 
 	// force skips the unsaved-edits prompt, for locks that have to happen
 	// whatever the answer would be (idle timeout, suspend, screen lock)
@@ -284,6 +294,9 @@ function App() {
 		ClipboardService.clearNow();
 		setDatabase(null);
 		setKdbxDb(null);
+		kdbxDbRef.current = null;
+		// Whatever the settings modal was showing belonged to this session
+		setShowSettings(false);
 		setShowInitialBreachReport(false);
 		FaviconService.reset();
 		KeepassDatabaseService.setPath(undefined);
@@ -313,6 +326,11 @@ function App() {
 		try {
 
 			await KeepassDatabaseService.saveDatabase(updatedDatabase, kdbxDb);
+			// The vault was locked (or another opened) while this save ran.
+			// The file was still written, to the path the save started with;
+			// the decrypted model must not come back on screen, and the
+			// flags below belong to the session that is open now
+			if (kdbxDbRef.current !== kdbxDb) return;
 			// Re-read the model from the kdbx so state produced during the save
 			// (history revisions, retention trims) reaches the UI
 			setDatabase(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
@@ -322,6 +340,9 @@ function App() {
 			window.electron?.setUnsavedChanges(entryDirty.current || savesInFlight.current > 1).catch(() => {});
 		} catch (err) {
 			console.error('Failed to save database:', err);
+			// Same as above: the toast has said what failed, and nothing
+			// else from a closed session may reach the UI or its flags
+			if (kdbxDbRef.current !== kdbxDb) throw err;
 			// A save that merged changes from disk and then failed to write
 			// leaves them in the kdbx only; show them, so the next edit
 			// starts from a model that has them
@@ -346,9 +367,6 @@ function App() {
 	// state before every write the sweep makes, and the ref comparison keeps
 	// a sweep that outlived its vault (lock, different vault opened) from
 	// saving or re-displaying the old session through this callback
-	const kdbxDbRef = useRef<kdbxweb.Kdbx | null>(null);
-	useEffect(() => { kdbxDbRef.current = kdbxDb; }, [kdbxDb]);
-
 	useEffect(() => {
 		if (!kdbxDb || !database) return;
 		const timer = setTimeout(() => {

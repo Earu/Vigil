@@ -1,5 +1,15 @@
-import { shell } from 'electron';
+import { app, shell } from 'electron';
 import path from 'path';
+
+// Whether this is a development checkout: the renderer served by Vite on
+// localhost under a relaxed CSP, dev tools open, native modules resolved
+// from the working tree. Keyed on isPackaged as well as the environment
+// variable: an installed build must never take these branches, since setting
+// NODE_ENV on it would point the signed bundle's preload bridge at a page
+// served from localhost, with every gated IPC channel behind it
+export function isDevBuild(): boolean {
+    return !app.isPackaged && process.env.NODE_ENV === 'development';
+}
 
 // shell.openExternal hands whatever it is given to the OS handler for that
 // scheme, and entry URLs are untrusted: they arrive from imported vaults and
@@ -45,8 +55,7 @@ export function getPlatform(): string {
 
 export function getAppIconPath(): string {
     const platform = process.platform;
-    const isDev = process.env.NODE_ENV === 'development';
-    const baseDir = isDev ? process.cwd() : path.dirname(process.execPath);
+    const baseDir = isDevBuild() ? process.cwd() : path.dirname(process.execPath);
 
     if (platform === 'win32') {
         return path.join(baseDir, 'build', 'icons', 'icon.ico');

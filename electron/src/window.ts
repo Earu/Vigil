@@ -133,7 +133,7 @@ export function createWindow(startupFile?: string) {
             responseHeaders: {
                 ...details.responseHeaders,
                 'Content-Security-Policy': [
-                    process.env.NODE_ENV === 'development'
+                    isDevBuild()
                         ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
                           "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
                           "style-src 'self' 'unsafe-inline'; " +
@@ -159,12 +159,13 @@ export function createWindow(startupFile?: string) {
 
     // Prevent navigation and new window creation
     win.webContents.on('will-navigate', (event, navigationUrl) => {
-        const parsedUrl = new URL(navigationUrl);
-        if (process.env.NODE_ENV === 'development') {
-            if (parsedUrl.origin !== 'http://localhost:5173') {
-                event.preventDefault();
-            }
-        } else {
+        if (!isDevBuild()) {
+            // Before anything that could throw: a URL the parser rejects
+            // must not slip past as an unhandled event
+            event.preventDefault();
+            return;
+        }
+        if (new URL(navigationUrl).origin !== 'http://localhost:5173') {
             event.preventDefault();
         }
     });
@@ -234,7 +235,7 @@ export function createWindow(startupFile?: string) {
         win.webContents.send('fullscreen-change', false);
     });
 
-    if (process.env.NODE_ENV === 'development') {
+    if (isDevBuild()) {
         win.loadURL('http://localhost:5173');
         win.webContents.openDevTools();
     } else {
