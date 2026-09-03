@@ -26,11 +26,39 @@ function currentUsername(): string {
     }
 }
 
-export function getSocketPath(): string {
+// null means there is nowhere private to put the socket: on Linux without
+// XDG_RUNTIME_DIR the old fallback was world-writable /tmp, where another
+// local user can pre-bind the fixed name and impersonate Vigil to the
+// browser (the proxy authenticates the server, but a squatted name is still
+// a denial of service and /tmp squatting is free). Refusing is better than
+// listening there. macOS keeps os.tmpdir(): it is per-user 0700
+export function getSocketPath(): string | null {
     // Windows named pipes live in their own namespace, not the filesystem
     if (process.platform === 'win32') return pipeNameFor(currentUsername());
+    if (process.platform === 'linux' && !process.env.XDG_RUNTIME_DIR) return null;
     const runtimeDir = process.env.XDG_RUNTIME_DIR || os.tmpdir();
     return path.join(runtimeDir, 'vigil.BrowserServer');
+}
+
+// The proxy authenticates the server before forwarding a byte: pipe and
+// socket names are first-come-first-served, so whoever holds the name gets
+// the browser's connection, and the extension's association key plus every
+// saved password would flow to it. The server proves itself by HMACing the
+// proxy's challenge with a token kept in a file only this user can read
+// (profile ACL on Windows, 0600 in a 0700 directory elsewhere), which a
+// cross-user squatter cannot obtain. Same-user malware can read it, but
+// same-user could already replace the proxy via the manifest registration.
+export const PROXY_AUTH_ACTION = 'vigil-proxy-auth';
+
+export function getProxyTokenPath(): string | null {
+    if (process.platform === 'win32') {
+        const localAppData = process.env.LOCALAPPDATA
+            || path.join(os.homedir(), 'AppData', 'Local');
+        return path.join(localAppData, 'Vigil', 'browser-proxy-token');
+    }
+    const socketPath = getSocketPath();
+    if (!socketPath) return null;
+    return path.join(path.dirname(socketPath), 'vigil.BrowserToken');
 }
 
 // Native messaging caps a message at 1 MB. Shared with the server, which drops
