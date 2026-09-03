@@ -36,6 +36,15 @@ export interface KdfInfo {
     parallelism?: number;
 }
 
+// See KeepassDatabaseService.saveContext
+interface SaveContext {
+    path: string | undefined;
+    generation: number;
+    unseen: Map<string, number | undefined>;
+    unmodeledEdits: Map<string, number | undefined>;
+    stagedIcons: Map<string, Uint8Array>;
+}
+
 export class KeepassDatabaseService {
     // Fields with dedicated UI; everything else on a kdbx entry is a custom field
     static readonly STANDARD_FIELDS = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
@@ -121,11 +130,14 @@ export class KeepassDatabaseService {
         this.currentPath = path;
         this.lastKnownMtimeMs = undefined;
         this.lastKnownHash = undefined;
-        // Closing the vault: the unmodeled-object ledgers belong to it
+        // Closing the vault: the unmodeled-object ledgers belong to it. New
+        // maps rather than clear(): a save still in flight for the vault
+        // being closed holds the old ones (see SaveContext) and finishes
+        // on them
         if (path === undefined) {
-            this.unseenUuids.clear();
-            this.unmodeledEditUuids.clear();
-            this.stagedCustomIcons.clear();
+            this.unseenUuids = new Map();
+            this.unmodeledEditUuids = new Map();
+            this.stagedCustomIcons = new Map();
         }
         if (!path || !window.electron) return;
 
@@ -376,8 +388,8 @@ export class KeepassDatabaseService {
 
     // Staged icons the model references are written into meta; the rest stay
     // staged (a picked image whose edit was cancelled writes nothing)
-    private static applyStagedCustomIcons(database: Database, kdbxDb: kdbxweb.Kdbx): void {
-        if (this.stagedCustomIcons.size === 0) return;
+    private static applyStagedCustomIcons(database: Database, kdbxDb: kdbxweb.Kdbx, staged: Map<string, Uint8Array>): void {
+        if (staged.size === 0) return;
         const referenced = new Set<string>();
         const walk = (group: Group) => {
             if (group.customIcon) referenced.add(group.customIcon);
@@ -385,10 +397,10 @@ export class KeepassDatabaseService {
             group.groups.forEach(walk);
         };
         walk(database.root);
-        for (const [id, bytes] of this.stagedCustomIcons) {
+        for (const [id, bytes] of staged) {
             if (!referenced.has(id)) continue;
             kdbxDb.meta.customIcons.set(id, { data: bytes.slice().buffer, lastModified: new Date() });
-            this.stagedCustomIcons.delete(id);
+            staged.delete(id);
         }
     }
 
@@ -878,9 +890,10 @@ export class KeepassDatabaseService {
 
         // An update whose entry is gone from the tree: a merge from another
         // replica deleted it while the editor was open. The open editor is
-        // the newer intent, so the edit is re-added (same id: KDBX merge
-        // rules keep it, its modification time is newer than the tombstone's
-        // deletion time) instead of being silently dropped
+        // the newer intent, so the edit is re-added under its old id instead
+        // of being silently dropped. Its modification time is newer than the
+        // tombstone's deletion time, which is what makes the save drop the
+        // tombstone (reconcileTombstones) rather than the entry
         const resurrected = !root && !isCreatingNew;
         if (resurrected) {
             root = rebuild(database.root, group => group.id === selectedGroup.id, addEntry);
@@ -1408,19 +1421,86 @@ export class KeepassDatabaseService {
     // compare the bytes against what we last wrote before believing the
     // contents actually changed, so a touch alone never triggers a merge or
     // the notice that goes with it
-    private static async readIfChanged(filePath: string): Promise<{ changed: boolean; data?: Uint8Array }> {
+    private static async readIfChanged(filePath: string, knownHash: string | undefined): Promise<{ changed: boolean; data?: Uint8Array }> {
         const result = await window.electron!.readFile(filePath);
         // Unreadable: assume the worst and let the merge path handle it
         if (!result.success || !result.data) return { changed: true };
 
         const bytes = new Uint8Array(result.data);
-        if (this.lastKnownHash !== undefined && await this.hashBytes(bytes) === this.lastKnownHash) {
+        if (knownHash !== undefined && await this.hashBytes(bytes) === knownHash) {
             return { changed: false };
         }
         return { changed: true, data: bytes };
     }
 
-    private static async mergeExternalChanges(kdbxDb: kdbxweb.Kdbx, data: Uint8Array | undefined): Promise<boolean> {
+    // A tombstone against an object modified after the deletion loses: the
+    // edit was made on purpose, on a replica that had not seen the deletion,
+    // and it survives with the tombstone dropped. KeePass and KeePassXC merge
+    // by this rule; kdbxweb's merge has none and drops every object whose
+    // uuid carries a tombstone, from either side, however recent its edit.
+    // A synced folder has no master copy to arbitrate, so the tie-break has
+    // to be symmetric, and a timestamp is: whichever replica wrote later
+    // wins, the same way conflicting edits to one entry are settled.
+    //
+    // Groups count their contents: a group survives its tombstone when it or
+    // anything inside it was modified after the deletion, so a deleted group
+    // holding a later edit is kept for that edit rather than taking it down
+    private static reconcileTombstones(...dbs: kdbxweb.Kdbx[]): void {
+        const modified = new Map<string, number>();
+        const note = (uuid: kdbxweb.KdbxUuid, time: number) => {
+            modified.set(uuid.id, Math.max(modified.get(uuid.id) ?? 0, time));
+        };
+        const walk = (group: kdbxweb.KdbxGroup): number => {
+            let newest = group.times.lastModTime?.getTime() ?? 0;
+            for (const entry of group.entries) {
+                const time = entry.times.lastModTime?.getTime() ?? 0;
+                note(entry.uuid, time);
+                newest = Math.max(newest, time);
+            }
+            for (const sub of group.groups) newest = Math.max(newest, walk(sub));
+            note(group.uuid, newest);
+            return newest;
+        };
+        for (const db of dbs) {
+            const root = db.getDefaultGroup();
+            if (root) walk(root);
+        }
+        const outlived = (tomb: kdbxweb.KdbxDeletedObject): boolean => {
+            if (!tomb.uuid || !tomb.deletionTime) return false;
+            const time = modified.get(tomb.uuid.id);
+            return time !== undefined && time > tomb.deletionTime.getTime();
+        };
+        for (const db of dbs) {
+            db.deletedObjects = db.deletedObjects.filter(tomb => !outlived(tomb));
+        }
+    }
+
+    // kdbxweb applies tombstones while merging a group's collections and
+    // never enters a group the other file lacks. A group kept on this side
+    // (deleted there, holding a later edit here) still has the rest of its
+    // contents to answer for: whatever inside it a surviving tombstone names
+    // goes, so the other replica's deletion is honoured for everything the
+    // later edit does not vouch for
+    private static applyTombstones(kdbxDb: kdbxweb.Kdbx): void {
+        const deleted = new Set<string>();
+        for (const tomb of kdbxDb.deletedObjects) {
+            if (tomb.uuid) deleted.add(tomb.uuid.id);
+        }
+        if (deleted.size === 0) return;
+        const walk = (group: kdbxweb.KdbxGroup) => {
+            group.entries = group.entries.filter(e => !deleted.has(e.uuid.id));
+            group.groups = group.groups.filter(g => !deleted.has(g.uuid.id));
+            group.groups.forEach(walk);
+        };
+        const root = kdbxDb.getDefaultGroup();
+        if (root) walk(root);
+    }
+
+    private static async mergeExternalChanges(
+        kdbxDb: kdbxweb.Kdbx,
+        data: Uint8Array | undefined,
+        unseen: Map<string, number | undefined>
+    ): Promise<boolean> {
         if (!data) return false;
 
         let before: Set<string> | undefined;
@@ -1442,7 +1522,11 @@ export class KeepassDatabaseService {
             );
 
             before = this.collectUuids(kdbxDb.getDefaultGroup());
+            // Over both files' tombstones and both trees, ahead of the merge
+            // that would apply them
+            this.reconcileTombstones(kdbxDb, remoteDb);
             kdbxDb.merge(remoteDb);
+            this.applyTombstones(kdbxDb);
 
             (window as any).showToast?.({
                 message: 'The database changed on disk; external changes were merged',
@@ -1459,8 +1543,8 @@ export class KeepassDatabaseService {
             // them, deleting them on the machine that made them
             if (before) {
                 for (const uuid of this.collectUuids(kdbxDb.getDefaultGroup())) {
-                    if (!before.has(uuid) && !this.unseenUuids.has(uuid)) {
-                        this.unseenUuids.set(uuid, undefined);
+                    if (!before.has(uuid) && !unseen.has(uuid)) {
+                        unseen.set(uuid, undefined);
                     }
                 }
             }
@@ -1530,26 +1614,49 @@ export class KeepassDatabaseService {
     private static queuedSave: {
         database: Database;
         kdbxDb: kdbxweb.Kdbx;
+        context: SaveContext;
         result: Promise<void>;
         resolve: () => void;
         reject: (err: unknown) => void;
     } | null = null;
 
+    // What a save was asked to write, and for which vault session, taken
+    // when it is requested rather than read back when it runs. A save
+    // outlives its session easily: an auto-lock, a suspend or the browser
+    // extension's lock-database can close the vault while the KDF and the
+    // write are still running, and the next vault can be open before they
+    // finish. Reading the path back at that point used to send a locked
+    // vault's bytes to the save dialog, or over the file of whichever vault
+    // was opened next. The ledgers ride along for the same reason: closing
+    // the vault replaces them, and this save still has to honour the ones
+    // its model was built against
+    private static saveContext(): SaveContext {
+        return {
+            path: this.currentPath,
+            generation: this.pathGeneration,
+            unseen: this.unseenUuids,
+            unmodeledEdits: this.unmodeledEditUuids,
+            stagedIcons: this.stagedCustomIcons
+        };
+    }
+
     static saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
+        const context = this.saveContext();
         if (!this.saveInFlight) {
-            return this.runSave(database, kdbxDb);
+            return this.runSave(database, kdbxDb, context);
         }
         if (this.queuedSave) {
             // The waiting save has not started, so pointing it at the newer
             // state serves its earlier callers too
             this.queuedSave.database = database;
             this.queuedSave.kdbxDb = kdbxDb;
+            this.queuedSave.context = context;
             return this.queuedSave.result;
         }
         let resolve!: () => void;
         let reject!: (err: unknown) => void;
         const result = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
-        this.queuedSave = { database, kdbxDb, result, resolve, reject };
+        this.queuedSave = { database, kdbxDb, context, result, resolve, reject };
         return result;
     }
 
@@ -1557,11 +1664,11 @@ export class KeepassDatabaseService {
     // export can wait its turn; failures are the lock holder's to report
     private static currentSave: Promise<void> | null = null;
 
-    private static runSave(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
+    private static runSave(database: Database, kdbxDb: kdbxweb.Kdbx, context: SaveContext): Promise<void> {
         this.saveInFlight = true;
         const run = (async () => {
             try {
-                return await this.performSave(database, kdbxDb);
+                return await this.performSave(database, kdbxDb, context);
             } finally {
                 this.releaseSaveLock();
             }
@@ -1575,7 +1682,7 @@ export class KeepassDatabaseService {
         const queued = this.queuedSave;
         if (queued) {
             this.queuedSave = null;
-            this.runSave(queued.database, queued.kdbxDb).then(queued.resolve, queued.reject);
+            this.runSave(queued.database, queued.kdbxDb, queued.context).then(queued.resolve, queued.reject);
         }
     }
 
@@ -1599,7 +1706,16 @@ export class KeepassDatabaseService {
         return run;
     }
 
-    private static async performSave(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
+    private static async performSave(database: Database, kdbxDb: kdbxweb.Kdbx, ctx: SaveContext): Promise<void> {
+        // Whether the vault this save belongs to is still the open one. Read
+        // wherever the answer matters, since it can change at any await
+        const live = () => this.pathGeneration === ctx.generation;
+        // The conflict baseline as of now, for a save that outlives its
+        // session: setPath resets the live one, and the next vault's must not
+        // be read in its place. Meaningless if the session is already gone
+        const baseline = live()
+            ? { mtimeMs: this.lastKnownMtimeMs, hash: this.lastKnownHash }
+            : { mtimeMs: undefined, hash: undefined };
         try {
             if (!kdbxDb) {
                 throw new Error('Database not loaded');
@@ -1623,19 +1739,19 @@ export class KeepassDatabaseService {
                 // a model newer than the one being applied
                 const modelGeneration = database.generation ?? 0;
                 const unseen = new Set<string>();
-                for (const [uuid, seenAt] of this.unseenUuids) {
+                for (const [uuid, seenAt] of ctx.unseen) {
                     if (seenAt === undefined || modelGeneration < seenAt) unseen.add(uuid);
                 }
                 // Entries whose values this model is too old to overwrite
                 const frozen = new Set<string>();
-                for (const [uuid, seenAt] of this.unmodeledEditUuids) {
+                for (const [uuid, seenAt] of ctx.unmodeledEdits) {
                     if (seenAt === undefined || modelGeneration < seenAt) frozen.add(uuid);
                     // An up-to-date model is authoritative again; the entry
                     // closes out of the ledger
-                    else this.unmodeledEditUuids.delete(uuid);
+                    else ctx.unmodeledEdits.delete(uuid);
                 }
                 const index = this.indexDatabase(root);
-                this.applyStagedCustomIcons(database, kdbxDb);
+                this.applyStagedCustomIcons(database, kdbxDb, ctx.stagedIcons);
                 await this.updateGroup(database.root, root, kdbxDb, index, true, frozen);
                 this.keepUnseenMerged(root, index, unseen);
 
@@ -1651,9 +1767,14 @@ export class KeepassDatabaseService {
                         deleted.deletionTime = new Date();
                         kdbxDb.deletedObjects.push(deleted);
                         // A deletion the user chose closes the ledger entry
-                        this.unseenUuids.delete(uuid);
+                        ctx.unseen.delete(uuid);
                     }
                 }
+                // An entry the model re-created under its old uuid (saveEntry
+                // resurrecting an edit whose entry a merge deleted) would be
+                // deleted again by the next merge on the tombstone still on
+                // file; its newer modification time retires the tombstone
+                this.reconcileTombstones(kdbxDb);
             }
 
             // The file changed on disk since we read or wrote it (another
@@ -1662,21 +1783,25 @@ export class KeepassDatabaseService {
             // Vigil did not write, which decides whether the backup below can
             // be skipped for being too recent
             let replacingExternalChanges = false;
-            const pathBeforeSave = this.getPath();
+            // The live baseline while the session lasts, since setPath's
+            // late stat and read can fill it in under a running save; the
+            // snapshot once it is gone
+            const knownMtimeMs = live() ? this.lastKnownMtimeMs : baseline.mtimeMs;
+            const knownHash = live() ? this.lastKnownHash : baseline.hash;
             // Either half of the baseline is enough to check with; requiring
             // the mtime alone meant a single failed stat at open silently
             // disabled conflict detection for every save until the first one
             // landed and refreshed it
-            if (pathBeforeSave && window.electron &&
-                (this.lastKnownMtimeMs !== undefined || this.lastKnownHash !== undefined)) {
-                const stat = await window.electron.statFile(pathBeforeSave);
+            if (ctx.path && window.electron &&
+                (knownMtimeMs !== undefined || knownHash !== undefined)) {
+                const stat = await window.electron.statFile(ctx.path);
                 // mtime is the cheap filter; the bytes are what decide. With
                 // no mtime baseline the filter cannot clear anything, so any
                 // stat result sends the save on to the byte comparison
                 const touched = stat.success && stat.mtimeMs !== undefined &&
-                    (this.lastKnownMtimeMs === undefined || stat.mtimeMs !== this.lastKnownMtimeMs);
-                const external = touched ? await this.readIfChanged(pathBeforeSave) : { changed: false };
-                if (touched && !external.changed) {
+                    (knownMtimeMs === undefined || stat.mtimeMs !== knownMtimeMs);
+                const external = touched ? await this.readIfChanged(ctx.path, knownHash) : { changed: false };
+                if (touched && !external.changed && live()) {
                     // Same bytes under a new timestamp: nothing to merge, just
                     // stop re-reading the file on every save from here on
                     this.lastKnownMtimeMs = stat.mtimeMs;
@@ -1685,7 +1810,7 @@ export class KeepassDatabaseService {
                     // True whether the merge succeeds or the user overwrites:
                     // either way the version on disk is about to be gone
                     replacingExternalChanges = true;
-                    const merged = await this.mergeExternalChanges(kdbxDb, external.data);
+                    const merged = await this.mergeExternalChanges(kdbxDb, external.data, ctx.unseen);
                     if (!merged) {
                         // Asked through the resolver App registers, never
                         // window.confirm: a synchronous prompt blocked the
@@ -1693,8 +1818,9 @@ export class KeepassDatabaseService {
                         // invisible to headless callers (browser IPC,
                         // import), and Chromium answers it false during
                         // unload, silently discarding the edit. With nobody
-                        // to ask, the safe answer is no
-                        const overwrite = this.conflictResolver
+                        // to ask, the safe answer is no; a vault already
+                        // locked has nobody to ask either
+                        const overwrite = this.conflictResolver && live()
                             ? await this.conflictResolver(
                                 'The database file was modified outside Vigil and the changes could not be merged. Overwrite them with your version?'
                             )
@@ -1723,9 +1849,8 @@ export class KeepassDatabaseService {
             let result: SaveResult | undefined;
             // Copies kept before the file is overwritten; see electron/src/backups.ts
             const backup = { ...userSettingsService.getBackupOptions(), replacingExternalChanges };
-            const currentPath = this.getPath();
-            if (currentPath) {
-                result = await window.electron?.saveToFile(currentPath, new Uint8Array(arrayBuffer), backup);
+            if (ctx.path) {
+                result = await window.electron?.saveToFile(ctx.path, new Uint8Array(arrayBuffer), backup);
                 if (!result?.success) {
                     // One retry after a beat: sync clients and virus scanners
                     // hold the file briefly and let go. This used to fall
@@ -1733,14 +1858,22 @@ export class KeepassDatabaseService {
                     // vault at whatever path was picked under pressure and
                     // left the original file behind, silently forked
                     await new Promise(resolve => setTimeout(resolve, 300));
-                    result = await window.electron?.saveToFile(currentPath, new Uint8Array(arrayBuffer), backup);
+                    result = await window.electron?.saveToFile(ctx.path, new Uint8Array(arrayBuffer), backup);
                 }
+            } else if (!live()) {
+                // A database that never had a path, closed before its first
+                // save could ask for one: there is no vault left to name
+                throw new Error('The vault was closed before it was saved anywhere');
             } else {
                 // No path yet (a newly created database): the dialog is the
                 // only way to get one
                 result = await window.electron?.saveFile(new Uint8Array(arrayBuffer), backup);
                 if (result?.success && result.filePath) {
                     this.setPath(result.filePath, new Uint8Array(arrayBuffer));
+                    // The session this save belongs to continues under the
+                    // path it just chose
+                    ctx.path = result.filePath;
+                    ctx.generation = this.pathGeneration;
                 }
             }
 
@@ -1760,12 +1893,14 @@ export class KeepassDatabaseService {
 
             // Refresh the conflict-detection baseline to the file we just
             // wrote. The hash comes from the bytes rather than from re-reading
-            // the file, so it is exactly what landed
-            this.lastKnownHash = await this.hashBytes(new Uint8Array(arrayBuffer));
-            const savedPath = this.getPath();
-            if (savedPath && window.electron) {
-                const stat = await window.electron.statFile(savedPath);
-                if (stat.success) {
+            // the file, so it is exactly what landed. Only while the session
+            // lasts: past a lock the baseline belongs to whatever vault is
+            // open now, if any
+            const hash = await this.hashBytes(new Uint8Array(arrayBuffer));
+            if (live()) this.lastKnownHash = hash;
+            if (ctx.path && window.electron) {
+                const stat = await window.electron.statFile(ctx.path);
+                if (stat.success && live()) {
                     this.lastKnownMtimeMs = stat.mtimeMs;
                 }
             }

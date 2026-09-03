@@ -39,7 +39,8 @@ const holder: {
     auth: any;
     passwordView: any;
     titleBar: any;
-} = { auth: null, passwordView: null, titleBar: null };
+    settings: any;
+} = { auth: null, passwordView: null, titleBar: null, settings: null };
 
 vi.mock('../src/components/Authentication/AuthenticationView', () => ({
     AuthenticationView: (props: any) => { holder.auth = props; return <div data-testid="auth-view" />; },
@@ -50,7 +51,9 @@ vi.mock('../src/components/PasswordView', () => ({
 vi.mock('../src/components/TitleBar', () => ({
     TitleBar: (props: any) => { holder.titleBar = props; return null; },
 }));
-vi.mock('../src/components/Settings/Settings', () => ({ Settings: () => null }));
+vi.mock('../src/components/Settings/Settings', () => ({
+    Settings: (props: any) => { holder.settings = props; return null; },
+}));
 vi.mock('../src/components/Background', () => ({ Background: () => null }));
 vi.mock('../src/components/Toast/Toast', () => ({ ToastContainer: () => null }));
 vi.mock('../src/components/HardwareKeyTouchDialog', () => ({ HardwareKeyTouchDialog: () => null }));
@@ -157,6 +160,46 @@ describe('locking', () => {
         expect(electronMock.clearClipboard).toHaveBeenCalled();
     });
 
+    it('does not put the vault back on screen when a save finishes after the lock', async () => {
+        // Give the vault a file, so the save writes rather than asks
+        KeepassDatabaseService.setPath('/fake.kdbx');
+        await flush();
+        const { kdbxDb } = await openVault();
+
+        let finishWrite!: () => void;
+        electronMock.saveToFile.mockImplementationOnce(() => new Promise(resolve => {
+            finishWrite = () => resolve({ success: true });
+        }));
+        act(() => {
+            holder.passwordView.onDatabaseChange(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+        });
+        await waitFor(() => expect(electronMock.saveToFile).toHaveBeenCalled(), { timeout: 5000 });
+
+        await act(async () => { fire('trigger-lock'); });
+        expect(screen.getByTestId('auth-view')).toBeTruthy();
+        electronMock.setUnsavedChanges.mockClear();
+
+        await act(async () => { finishWrite(); });
+        await flush();
+
+        // Written where it was started, and the lock stands
+        expect(electronMock.saveToFile.mock.calls[0][0]).toBe('/fake.kdbx');
+        expect(electronMock.saveFile).not.toHaveBeenCalled();
+        expect(screen.getByTestId('auth-view')).toBeTruthy();
+        expect(screen.queryByTestId('password-view')).toBeNull();
+        // The finished save reports nothing about a session that is over
+        expect(electronMock.setUnsavedChanges).not.toHaveBeenCalled();
+    });
+
+    it('closes the settings modal', async () => {
+        await openVault();
+        act(() => { holder.titleBar.onOpenSettings(); });
+        expect(holder.settings.isOpen).toBe(true);
+
+        await act(async () => { fire('trigger-lock'); });
+        expect(holder.settings.isOpen).toBe(false);
+    });
+
     it('drops a pending consent dialog: nobody is there to answer it', async () => {
         const { kdbxDb } = await openVault();
         void kdbxDb;
@@ -172,6 +215,22 @@ describe('locking', () => {
         await flush();
         expect(settled).toBe(false);
         expect(screen.queryByTestId('dialog-set-login')).toBeNull();
+    });
+});
+
+describe('unlocking', () => {
+    it('closes a settings modal left open over the unlock screen', async () => {
+        render(<App />);
+        act(() => { holder.titleBar.onOpenSettings(); });
+        expect(holder.settings.isOpen).toBe(true);
+
+        const kdbxDb = await makeDb();
+        const database = KeepassDatabaseService.convertKdbxToDatabase(kdbxDb);
+        await act(async () => {
+            await holder.auth.onDatabaseOpen(database, kdbxDb);
+        });
+        expect(screen.getByTestId('password-view')).toBeTruthy();
+        expect(holder.settings.isOpen).toBe(false);
     });
 });
 
