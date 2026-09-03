@@ -1,5 +1,6 @@
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../types/database';
+import { KeepassDatabaseService } from './KeepassDatabaseService';
 import { TotpService } from './TotpService';
 import { PasswordGeneratorService } from './PasswordGeneratorService';
 import { PasskeyService, PasskeyEntryInfo, PASSKEY_ERRORS } from './PasskeyService';
@@ -361,8 +362,14 @@ export class BrowserIntegrationService {
                     entry.pushHistory();
                 } else {
                     let group = root.groups.find(g => g.name === BROWSER_GROUP_NAME);
-                    if (!group) group = kdbxDb.createGroup(root, BROWSER_GROUP_NAME);
+                    if (!group) {
+                        group = kdbxDb.createGroup(root, BROWSER_GROUP_NAME);
+                        KeepassDatabaseService.registerUnmodeledUuids([group.uuid.toString()]);
+                    }
                     entry = kdbxDb.createEntry(group);
+                    // Created outside any UI model: without this a save from
+                    // a model built before this write would tombstone it
+                    KeepassDatabaseService.registerUnmodeledUuids([entry.uuid.toString()]);
                     entry.fields.set('Title', this.hostOf(payload.url) || 'New entry');
                     entry.fields.set('URL', payload.url ?? '');
                 }
