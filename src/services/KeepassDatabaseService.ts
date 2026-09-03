@@ -2,6 +2,7 @@ import * as kdbxweb from 'kdbxweb';
 import { Database, Group, Entry, EntryVersion, Attachment, CustomField } from '../types/database';
 import { userSettingsService } from './UserSettingsService';
 import { HistoryNotesService } from './HistoryNotesService';
+import { BreachStatusStore } from './BreachStatusStore';
 
 interface SaveResult {
     success: boolean;
@@ -1105,15 +1106,7 @@ export class KeepassDatabaseService {
         if (wasProtected.length !== nowProtected.length) return true;
         if (wasProtected.some(name => !nowProtected.includes(name))) return true;
 
-        const existingPassword = kdbxEntry.fields.get('Password');
-        // The model's ProtectedValue is the very object read out of the kdbx
-        // unless the entry was edited (prepareEntryForSave wraps a fresh one),
-        // so identity equality is an unchanged password with no decrypt. This
-        // is what keeps a full-vault save from decrypting every password
-        if (existingPassword !== entry.password) {
-            const oldPassword = existingPassword ? this.getPasswordString(existingPassword as string | kdbxweb.ProtectedValue) : '';
-            if (oldPassword !== this.getPasswordString(entry.password)) return true;
-        }
+        if (this.passwordChanged(kdbxEntry, entry)) return true;
 
         if (!!kdbxEntry.times.expires !== !!entry.expires) return true;
         if ((kdbxEntry.times.expiryTime?.getTime() ?? 0) !== (entry.expiryTime?.getTime() ?? 0)) return true;
@@ -1129,6 +1122,17 @@ export class KeepassDatabaseService {
         if (kdbxEntry.tags.some((tag, i) => tag !== tags[i])) return true;
 
         return this.attachmentsChanged(kdbxEntry, entry.attachments ?? []);
+    }
+
+    private static passwordChanged(kdbxEntry: kdbxweb.KdbxEntry, entry: Entry): boolean {
+        const existingPassword = kdbxEntry.fields.get('Password');
+        // The model's ProtectedValue is the very object read out of the kdbx
+        // unless the entry was edited (prepareEntryForSave wraps a fresh one),
+        // so identity equality is an unchanged password with no decrypt. This
+        // is what keeps a full-vault save from decrypting every password
+        if (existingPassword === entry.password) return false;
+        const oldPassword = existingPassword ? this.getPasswordString(existingPassword as string | kdbxweb.ProtectedValue) : '';
+        return oldPassword !== this.getPasswordString(entry.password);
     }
 
     private static customFieldsChanged(kdbxEntry: kdbxweb.KdbxEntry, customFields: CustomField[]): boolean {
@@ -1283,6 +1287,14 @@ export class KeepassDatabaseService {
                 if (!this.entryChanged(kdbxEntry, entry)) {
                     updatedEntries.push(kdbxEntry);
                     continue;
+                }
+                // A rotated password invalidates the cached breach/strength
+                // verdict, or the old one (up to its 24h TTL) keeps flagging
+                // a fixed entry as breached, and vice versa. The email flag
+                // is rebuilt from its own store at the next check
+                if (this.passwordChanged(kdbxEntry, entry)) {
+                    const databasePath = this.getPath();
+                    if (databasePath) BreachStatusStore.clearStatus(databasePath, entry.id);
                 }
                 kdbxEntry.pushHistory();
                 // Same reasoning as in reparent: a rewrite inside the same

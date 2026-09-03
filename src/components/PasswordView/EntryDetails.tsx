@@ -178,6 +178,9 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	});
 
 	useEffect(() => {
+		// A reveal belongs to the entry it was clicked on: switching entries
+		// must not carry it over and render the next password in plaintext
+		setShowPassword(false);
 		setExpandedVersion(null);
 		setShowVersionPassword(false);
 		setRevealedCustomFields(new Set());

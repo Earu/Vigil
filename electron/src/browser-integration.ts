@@ -93,7 +93,15 @@ function broadcastSignal(action: 'database-locked' | 'database-unlocked'): void 
 }
 
 let requestCounter = 0;
-const pendingRendererRequests = new Map<number, (result: any) => void>();
+// The webContents that was asked is recorded with each pending request:
+// preload exposes browserIntegrationRespond to every window, so without the
+// sender check any renderer could answer (or race-answer) a consent prompt
+// belonging to another vault's window
+interface PendingRendererRequest {
+    senderId: number;
+    resolve: (result: any) => void;
+}
+const pendingRendererRequests = new Map<number, PendingRendererRequest>();
 
 // Defined in browser-socket.ts, which the proxy can import without electron
 export { getSocketPath };
@@ -139,9 +147,12 @@ function askRenderer(win: BrowserWindow, action: string, payload: any, timeoutMs
             if (!win.isDestroyed()) win.webContents.send('browser-integration-cancel', { id });
             resolve({ errorCode: ERROR_DENIED });
         }, timeoutMs);
-        pendingRendererRequests.set(id, (result) => {
-            clearTimeout(timer);
-            resolve(result);
+        pendingRendererRequests.set(id, {
+            senderId: win.webContents.id,
+            resolve: (result) => {
+                clearTimeout(timer);
+                resolve(result);
+            },
         });
         win.webContents.send('browser-integration-request', { id, action, payload });
     });
@@ -618,12 +629,14 @@ export function setupBrowserIntegration(): void {
         vaultCount = count;
     });
 
-    ipcMain.on('browser-integration-response', (_event, { id, result }: { id: number; result: any }) => {
-        const resolve = pendingRendererRequests.get(id);
-        if (resolve) {
-            pendingRendererRequests.delete(id);
-            resolve(result ?? {});
-        }
+    ipcMain.on('browser-integration-response', (event, { id, result }: { id: number; result: any }) => {
+        const pending = pendingRendererRequests.get(id);
+        // Only the window that was asked may answer; a response from any
+        // other renderer is dropped and the request keeps waiting for the
+        // real dialog (or its timeout)
+        if (!pending || pending.senderId !== event.sender.id) return;
+        pendingRendererRequests.delete(id);
+        pending.resolve(result ?? {});
     });
 
     ipcMain.handle('browser-integration-status', () => ({
