@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { installMockWindow } from './helpers';
 
 const store = new Map<string, string>();
@@ -22,6 +22,8 @@ let failCalls = false;
 
 const { BreachCheckService } = await import('../src/services/BreachCheckService');
 const { EmailBreachStatusStore } = await import('../src/services/EmailBreachStatusStore');
+const { BreachStatusStore } = await import('../src/services/BreachStatusStore');
+const { HaveIBeenPwnedService } = await import('../src/services/HaveIBeenPwnedService');
 const { userSettingsService } = await import('../src/services/UserSettingsService');
 const { KeepassDatabaseService } = await import('../src/services/KeepassDatabaseService');
 
@@ -84,6 +86,40 @@ describe('email breach sweep', () => {
         const stale = group.entries[1];
         expect(EmailBreachStatusStore.getEntryEmailStatus('/db4.kdbx', recent.id, recent.username, recent.modified)).toEqual([]);
         expect(EmailBreachStatusStore.getEntryEmailStatus('/db4.kdbx', stale.id, stale.username, stale.modified)).toHaveLength(1);
+    });
+
+    it('does not fabricate a password verdict for an unchecked entry', async () => {
+        // An email hit landing before the password sweep used to write
+        // {isPwned: false, score: 0}; checkEntry then took it as a cache
+        // hit and skipped the real HIBP check for the whole TTL
+        const group = rootGroup([entry('e1', 'breached@example.com')]);
+        await BreachCheckService.checkGroupEmails('/db5.kdbx', group);
+        expect(BreachStatusStore.getEntryStatus('/db5.kdbx', 'e1')).toBeNull();
+
+        // the password check still runs and picks up the email flag itself
+        const spy = vi.spyOn(HaveIBeenPwnedService, 'checkPassword').mockResolvedValue({
+            isPwned: true, pwnedCount: 3,
+            strength: { score: 4, feedback: { warning: '', suggestions: [] } },
+        });
+        expect(await BreachCheckService.checkEntry('/db5.kdbx', group.entries[0])).toBe(true);
+        expect(spy).toHaveBeenCalledTimes(1);
+        const status = BreachStatusStore.getEntryStatus('/db5.kdbx', 'e1');
+        expect(status?.isPwned).toBe(true);
+        expect(status?.strength?.score).toBe(4);
+        expect(status?.breachedEmail).toBe(true);
+        spy.mockRestore();
+    });
+
+    it('merges the email flag into an existing password verdict', async () => {
+        BreachStatusStore.setEntryStatus('/db6.kdbx', 'e1', {
+            isPwned: false, count: 0,
+            strength: { score: 3, feedback: { warning: '', suggestions: [] } },
+        });
+        const group = rootGroup([entry('e1', 'breached@example.com')]);
+        await BreachCheckService.checkGroupEmails('/db6.kdbx', group);
+        const status = BreachStatusStore.getEntryStatus('/db6.kdbx', 'e1');
+        expect(status?.breachedEmail).toBe(true);
+        expect(status?.strength?.score).toBe(3);
     });
 
     it('does not cache a failed lookup as all-clear', async () => {
