@@ -235,7 +235,14 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	};
 
 	const handleSaveEntry = (entry: Entry) => {
-		const [updatedDatabase, savedEntry] = KeepassDatabaseService.saveEntry(database, entry, selectedGroup, isCreatingNew);
+		const [updatedDatabase, savedEntry, resurrected] = KeepassDatabaseService.saveEntry(database, entry, selectedGroup, isCreatingNew);
+		if (resurrected) {
+			(window as any).showToast?.({
+				message: 'This entry had been deleted elsewhere; your save re-created it',
+				type: 'success',
+				duration: 5000
+			});
+		}
 		setSelectedEntry(savedEntry);
 		setIsCreatingNew(false);
 		onDatabaseChange?.(updatedDatabase);
