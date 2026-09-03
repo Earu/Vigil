@@ -360,6 +360,9 @@ export class BrowserIntegrationService {
 
                 if (entry) {
                     entry.pushHistory();
+                    // Values rewritten outside any UI model: a save from a
+                    // model built before this write must not push them back
+                    KeepassDatabaseService.registerUnmodeledEdits([entry.uuid.toString()]);
                 } else {
                     let group = root.groups.find(g => g.name === BROWSER_GROUP_NAME);
                     if (!group) {

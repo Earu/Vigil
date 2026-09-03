@@ -23,6 +23,7 @@ import { PasskeyConsentDialog } from './components/PasskeyConsentDialog';
 import { SetLoginConsentDialog } from './components/SetLoginConsentDialog';
 import { AccessConsentDialog } from './components/AccessConsentDialog';
 import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
+import { SaveConflictDialog } from './components/SaveConflictDialog';
 import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
 import { consentQueue } from './services/ConsentQueue';
 
@@ -49,6 +50,11 @@ function App() {
 	// not. Locking or closing while set loses them, so both prompt first, and
 	// the next successful save clears it
 	const saveFailed = useRef(false);
+	// Saves currently running. The edit form drops its dirty flag the moment
+	// it hands an entry over, but the write takes an Argon2-sized pause; the
+	// main process must keep treating the window as unsaved until it lands,
+	// or a close in that gap loses the edit without a prompt
+	const savesInFlight = useRef(0);
 
 	// The strength estimator (zxcvbn, roughly half the bundle) is split out
 	// and fetched after first paint, so it is ready by the time a password
@@ -58,6 +64,18 @@ function App() {
 			HaveIBeenPwnedService.preloadStrengthEstimator().catch(() => {});
 		}, 1500);
 		return () => clearTimeout(timer);
+	}, []);
+
+	// The save path asks about unmergeable external changes through this
+	// resolver; the dialog rides the consent queue like the browser prompts.
+	// requestId 0: no main-process request stands behind it, so no timeout
+	// can cancel it
+	useEffect(() => {
+		KeepassDatabaseService.conflictResolver = (message) => {
+			window.electron?.focusWindow().catch(() => {});
+			return consentQueue.enqueue<{ message: string }, boolean>('save-conflict', 0, { message }, false);
+		};
+		return () => { KeepassDatabaseService.conflictResolver = undefined; };
 	}, []);
 
 	useEffect(() => {
@@ -284,6 +302,7 @@ function App() {
 	const handleDatabaseChange = async (updatedDatabase: Database) => {
 		setDatabase(updatedDatabase);
 
+		savesInFlight.current++;
 		try {
 			if (!kdbxDb) {
 				throw new Error('Database not loaded');
@@ -294,7 +313,9 @@ function App() {
 			// (history revisions, retention trims) reaches the UI
 			setDatabase(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
 			saveFailed.current = false;
-			window.electron?.setUnsavedChanges(entryDirty.current).catch(() => {});
+			// This save is still counted; anything beyond it is another one
+			// still running
+			window.electron?.setUnsavedChanges(entryDirty.current || savesInFlight.current > 1).catch(() => {});
 		} catch (err) {
 			console.error('Failed to save database:', err);
 			// A save that merged changes from disk and then failed to write
@@ -306,6 +327,8 @@ function App() {
 			saveFailed.current = true;
 			window.electron?.setUnsavedChanges(true).catch(() => {});
 			throw err;
+		} finally {
+			savesInFlight.current--;
 		}
 	};
 
@@ -331,6 +354,7 @@ function App() {
 				securityReportRequestId={securityReportRequestId}
 				entryDirty={entryDirty}
 				saveFailed={saveFailed}
+				savesInFlight={savesInFlight}
 				onSearch={setSearchQuery}
 			/>
 		</>
@@ -405,6 +429,14 @@ function App() {
 					request={consent.payload as AccessConsentRequest}
 					onSubmit={(allowedIds, remember) => consentQueue.settle<AccessConsentResponse | null>(consent.id, { allowedIds, remember })}
 					onCancel={() => consentQueue.settle(consent.id, null)}
+				/>
+			)}
+			{consent?.kind === 'save-conflict' && (
+				<SaveConflictDialog
+					key={consent.id}
+					message={(consent.payload as { message: string }).message}
+					onOverwrite={() => consentQueue.settle(consent.id, true)}
+					onCancel={() => consentQueue.settle(consent.id, false)}
 				/>
 			)}
 			{hardwareKeyTouchPending && <HardwareKeyTouchDialog />}

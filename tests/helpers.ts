@@ -49,6 +49,19 @@ export function installMockWindow(): MockEnv {
     return env;
 }
 
+// The save path asks about unmergeable external changes through a resolver
+// App registers (window.confirm is gone from it); tests answer with
+// env.confirm so their dialog-driving surface stays the same
+export const wireConflictResolver = (
+    Svc: { conflictResolver?: (message: string) => Promise<boolean> },
+    env: MockEnv
+): void => {
+    Svc.conflictResolver = async () => {
+        env.confirm.calls++;
+        return env.confirm.answer;
+    };
+};
+
 export const cred = () => new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('test'));
 
 // Copy a string into a fresh, exactly-sized ArrayBuffer (Buffer.from(str).buffer
