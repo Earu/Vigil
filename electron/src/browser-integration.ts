@@ -6,7 +6,7 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import nacl from 'tweetnacl';
-import { getSocketPath, MAX_MESSAGE_BYTES } from './browser-socket';
+import { getSocketPath, getProxyTokenPath, PROXY_AUTH_ACTION, MAX_MESSAGE_BYTES } from './browser-socket';
 import { getVaultWindows, onVaultWindowsChanged } from './window';
 import {
     HOST_NAME,
@@ -109,14 +109,44 @@ export { getSocketPath };
 // Stale socket files only exist on unix; pipes vanish with their server
 function removeSocketFile(): void {
     if (process.platform !== 'win32') {
+        const socketPath = getSocketPath();
+        if (!socketPath) return;
         try {
-            fs.rmSync(getSocketPath(), { force: true });
+            fs.rmSync(socketPath, { force: true });
         } catch (err) {
             // force only covers a missing file; one owned by someone else in a
             // sticky /tmp is EPERM, and listen will say so in its own words
             console.error('Failed to remove a stale browser socket:', err);
         }
     }
+}
+
+// The secret the proxy uses to verify it reached Vigil and not a name
+// squatter; regenerated on every server start. See PROXY_AUTH_ACTION in
+// browser-socket.ts for the trust model
+let proxyToken: string | null = null;
+
+function writeProxyToken(): boolean {
+    const tokenPath = getProxyTokenPath();
+    if (!tokenPath) return false;
+    try {
+        proxyToken = crypto.randomBytes(32).toString('hex');
+        fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
+        fs.writeFileSync(tokenPath, proxyToken, { mode: 0o600 });
+        if (process.platform !== 'win32') fs.chmodSync(tokenPath, 0o600);
+        return true;
+    } catch (err) {
+        console.error('Failed to write the browser proxy token:', err);
+        proxyToken = null;
+        return false;
+    }
+}
+
+function proxyAuthResponse(envelope: any): string | null {
+    if (!proxyToken) return null;
+    const challenge = envelope?.challenge;
+    if (typeof challenge !== 'string' || challenge.length === 0 || challenge.length > 256) return null;
+    return crypto.createHmac('sha256', proxyToken).update(challenge).digest('hex');
 }
 
 const configFile = () => path.join(app.getPath('userData'), 'browser-integration.json');
@@ -379,6 +409,15 @@ export async function handleEnvelope(envelope: any, sessions: Map<string, Sessio
 export function startServer(): Promise<{ success: boolean; error?: string }> {
     if (server) return Promise.resolve({ success: true });
     const socketPath = getSocketPath();
+    if (!socketPath) {
+        return Promise.resolve({
+            success: false,
+            error: 'XDG_RUNTIME_DIR is not set; refusing to place the browser socket in a world-writable directory',
+        });
+    }
+    if (!writeProxyToken()) {
+        return Promise.resolve({ success: false, error: 'Failed to write the browser proxy token' });
+    }
     return new Promise((resolve) => {
     try {
         removeSocketFile();
@@ -419,6 +458,15 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
                         } catch {
                             return;
                         }
+                        // The proxy's server-verification handshake; never a
+                        // protocol message, so it does not reach the sessions
+                        if (envelope?.action === PROXY_AUTH_ACTION) {
+                            const response = proxyAuthResponse(envelope);
+                            if (response !== null && !socket.destroyed) {
+                                socket.write(JSON.stringify({ action: PROXY_AUTH_ACTION, response }) + '\n');
+                            }
+                            return;
+                        }
                         const response = await handleEnvelope(envelope, sessions);
                         if (!socket.destroyed) {
                             socket.write(JSON.stringify(response) + '\n');
@@ -455,10 +503,19 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
         });
         server.on('error', (err) => {
             console.error('Browser integration server error:', err);
-            // A listen failure (the name is taken) leaves nothing to keep
+            // A listen failure (the name is taken) leaves nothing to keep.
+            // The name being held is either a second Vigil or something
+            // impersonating one; say so instead of a bare errno
+            const taken = (err as NodeJS.ErrnoException).code === 'EADDRINUSE'
+                || (err as NodeJS.ErrnoException).code === 'EACCES';
             server?.close();
             server = null;
-            resolve({ success: false, error: err.message });
+            resolve({
+                success: false,
+                error: taken
+                    ? 'Another process is holding the browser integration socket. If no other Vigil instance is running, another program may be impersonating it.'
+                    : err.message,
+            });
         });
     } catch (error) {
         server = null;
@@ -479,14 +536,34 @@ export function stopServer(): void {
 
 // ---- native messaging manifests ----
 
-function proxyScript(): string {
+// Mirrors electron/browser-proxy.ts run(), including the server-verification
+// handshake; a behavior change there must land here too. Exported so the
+// handshake tests can exercise the generated script end to end
+export function proxyScript(): string {
     return `#!/usr/bin/env node
-// Native messaging proxy for Vigil: browser stdio <-> Vigil unix socket
+// Native messaging proxy for Vigil: browser stdio <-> Vigil pipe/socket.
+// The server must HMAC our challenge with the user-only token before any
+// traffic flows: the pipe name is first-come-first-served and proves nothing
 const net = require('net');
+const fs = require('fs');
+const crypto = require('crypto');
 const socketPath = ${JSON.stringify(getSocketPath())};
-const client = net.connect(socketPath);
+const tokenPath = ${JSON.stringify(getProxyTokenPath())};
+const AUTH_ACTION = ${JSON.stringify(PROXY_AUTH_ACTION)};
+if (!socketPath || !tokenPath) process.exit(1);
+let token;
+try { token = fs.readFileSync(tokenPath, 'utf8').trim(); } catch { process.exit(1); }
+const challenge = crypto.randomBytes(32).toString('base64');
+const expected = crypto.createHmac('sha256', token).update(challenge).digest();
+let authed = false;
+const heldMessages = [];
+const authTimer = setTimeout(() => process.exit(1), 5000);
 let stdinBuffer = Buffer.alloc(0);
 let socketBuffer = '';
+
+const client = net.connect(socketPath, () => {
+    client.write(JSON.stringify({ action: AUTH_ACTION, challenge }) + '\\n');
+});
 
 process.stdin.on('data', (chunk) => {
     stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
@@ -498,7 +575,8 @@ process.stdin.on('data', (chunk) => {
         if (stdinBuffer.length < 4 + length) break;
         const message = stdinBuffer.slice(4, 4 + length).toString('utf8');
         stdinBuffer = stdinBuffer.slice(4 + length);
-        client.write(message + '\\n');
+        if (authed) client.write(message + '\\n');
+        else heldMessages.push(message);
     }
 });
 client.on('data', (chunk) => {
@@ -508,6 +586,19 @@ client.on('data', (chunk) => {
         const line = socketBuffer.slice(0, newline);
         socketBuffer = socketBuffer.slice(newline + 1);
         if (!line.trim()) continue;
+        if (!authed) {
+            let parsed;
+            try { parsed = JSON.parse(line); } catch { continue; }
+            if (!parsed || parsed.action !== AUTH_ACTION) continue;
+            let answer;
+            try { answer = Buffer.from(String(parsed.response || ''), 'hex'); } catch { process.exit(1); }
+            if (answer.length !== expected.length || !crypto.timingSafeEqual(answer, expected)) process.exit(1);
+            authed = true;
+            clearTimeout(authTimer);
+            for (const message of heldMessages) client.write(message + '\\n');
+            heldMessages.length = 0;
+            continue;
+        }
         const payload = Buffer.from(line, 'utf8');
         const header = Buffer.alloc(4);
         header.writeUInt32LE(payload.length, 0);
