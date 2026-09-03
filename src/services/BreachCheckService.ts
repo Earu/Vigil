@@ -281,50 +281,22 @@ export class BreachCheckService {
         }
     }
 
+    // The group handed in is the sweep's root, whatever it is called. Root
+    // setup and teardown live here rather than keying on the name 'All
+    // Entries' (the synthetic label of the root model group): a real group
+    // the user named that must not reset a running sweep's progress and
+    // caches when the walk reaches it
     public static async checkGroup(databasePath: string, group: Group): Promise<boolean> {
-        let hasBreached = false;
-        const isRootGroup = group.name === 'All Entries';
-
-        // Start checking status if this is the root call
-        if (isRootGroup) {
-            this.resetCancellation();
-            const totalEntries = this.countTotalEntries(group);
-            this.countedEntries.clear();
-            this.progress = { checked: 0, total: totalEntries };
-            this.updateProgressToast();
-        }
+        this.resetCancellation();
+        const totalEntries = this.countTotalEntries(group);
+        this.countedEntries.clear();
+        this.progress = { checked: 0, total: totalEntries };
+        this.updateProgressToast();
 
         try {
-            // Check entries with a small pool; the range API tolerates it
-            await this.runPool(group.entries, async (entry) => {
-                try {
-                    const isBreached = await this.checkEntry(databasePath, entry);
-                    hasBreached = hasBreached || isBreached;
-                } catch (error) {
-                    // Continue checking other entries even if one fails
-                    console.error('Error checking entry:', error);
-                }
-            });
-            if (this.isCancelled) {
-                return false;
-            }
+            const hasBreached = await this.walkGroup(databasePath, group);
 
-            // Check subgroups one at a time
-            for (const subgroup of group.groups) {
-                if (this.isCancelled) {
-                    return false;
-                }
-                try {
-                    const isBreached = await this.checkGroup(databasePath, subgroup);
-                    hasBreached = hasBreached || isBreached;
-                } catch (error) {
-                    // Continue checking other groups even if one fails
-                    console.error('Error checking group:', error);
-                }
-            }
-
-            // Stop checking status if this is the root call
-            if (isRootGroup && !this.isCancelled) {
+            if (!this.isCancelled) {
                 this.countedEntries.clear();
                 this.progress = { checked: 0, total: 0 };
                 this.updateProgressToast();
@@ -333,17 +305,47 @@ export class BreachCheckService {
             return hasBreached;
         } catch (error) {
             // Make sure we stop the status if there's an error
-            if (isRootGroup) {
-                this.clearProgress();
-            }
+            this.clearProgress();
             throw error;
         } finally {
             // The sweep wrote one status per entry through the coalescing
             // timer; settle them however it ended
-            if (isRootGroup) {
-                BreachStatusStore.flush();
+            BreachStatusStore.flush();
+        }
+    }
+
+    private static async walkGroup(databasePath: string, group: Group): Promise<boolean> {
+        let hasBreached = false;
+
+        // Check entries with a small pool; the range API tolerates it
+        await this.runPool(group.entries, async (entry) => {
+            try {
+                const isBreached = await this.checkEntry(databasePath, entry);
+                hasBreached = hasBreached || isBreached;
+            } catch (error) {
+                // Continue checking other entries even if one fails
+                console.error('Error checking entry:', error);
+            }
+        });
+        if (this.isCancelled) {
+            return false;
+        }
+
+        // Check subgroups one at a time
+        for (const subgroup of group.groups) {
+            if (this.isCancelled) {
+                return false;
+            }
+            try {
+                const isBreached = await this.walkGroup(databasePath, subgroup);
+                hasBreached = hasBreached || isBreached;
+            } catch (error) {
+                // Continue checking other groups even if one fails
+                console.error('Error checking group:', error);
             }
         }
+
+        return hasBreached;
     }
 
     public static getEntryBreachStatus(databasePath: string, entryId: string): { isPwned: boolean; count: number; strength: PasswordStrength | null; breachedEmail?: boolean } | null {
@@ -563,67 +565,19 @@ export class BreachCheckService {
         return EmailBreachStatusStore.relevantBreaches(raw, entry.modified);
     }
 
+    // Root setup and teardown, like checkGroup's: never keyed on the group's
+    // name, the group handed in IS the root of this sweep
     public static async checkGroupEmails(databasePath: string, group: Group): Promise<boolean> {
-        let hasBreached = false;
-        const isRootGroup = group.name === 'All Entries';
-
-        // Start checking status if this is the root call
-        if (isRootGroup) {
-            this.resetCancellation();
-            const totalEntries = this.countTotalEntries(group);
-            this.countedEmails.clear();
-            this.emailProgress = { checked: 0, total: totalEntries };
-            this.updateProgressToast();
-        }
+        this.resetCancellation();
+        const totalEntries = this.countTotalEntries(group);
+        this.countedEmails.clear();
+        this.emailProgress = { checked: 0, total: totalEntries };
+        this.updateProgressToast();
 
         try {
-            // Check entries one at a time to respect rate limits
-            for (const entry of group.entries) {
-                if (this.isCancelled) {
-                    return false;
-                }
-                if (this.isValidEmail(entry.username)) {
-                    try {
-                        const breaches = await this.checkEmailEntry(databasePath, entry);
-                        if (breaches.length > 0) {
-                            // Update the breach status to include breachedEmail
-                            const currentStatus = BreachStatusStore.getEntryStatus(databasePath, entry.id) || {
-                                isPwned: false,
-                                count: 0,
-                                strength: { score: 0, feedback: { warning: '', suggestions: [] } }
-                            };
-                            BreachStatusStore.setEntryStatus(databasePath, entry.id, {
-                                ...currentStatus,
-                                breachedEmail: true
-                            });
-                        }
-                        hasBreached = hasBreached || breaches.length > 0;
-                    } catch (error) {
-                        // Continue checking other entries even if one fails
-                        console.error('Error checking email entry:', error);
-                    }
-                } else {
-                    // Skip non-email entries but still count them for progress
-                    this.incrementEmailProgress(entry.id);
-                }
-            }
+            const hasBreached = await this.walkGroupEmails(databasePath, group);
 
-            // Check subgroups one at a time
-            for (const subgroup of group.groups) {
-                if (this.isCancelled) {
-                    return false;
-                }
-                try {
-                    const isBreached = await this.checkGroupEmails(databasePath, subgroup);
-                    hasBreached = hasBreached || isBreached;
-                } catch (error) {
-                    // Continue checking other groups even if one fails
-                    console.error('Error checking group:', error);
-                }
-            }
-
-            // Stop checking status if this is the root call
-            if (isRootGroup && !this.isCancelled) {
+            if (!this.isCancelled) {
                 this.countedEmails.clear();
                 this.emailProgress = { checked: 0, total: 0 };
                 this.updateProgressToast();
@@ -632,18 +586,65 @@ export class BreachCheckService {
             return hasBreached;
         } catch (error) {
             // Make sure we stop the status if there's an error
-            if (isRootGroup) {
-                this.clearProgress();
-            }
+            this.clearProgress();
             throw error;
         } finally {
             // This sweep writes to both stores: breach statuses pick up the
             // breachedEmail flag as email results land
-            if (isRootGroup) {
-                EmailBreachStatusStore.flush();
-                BreachStatusStore.flush();
+            EmailBreachStatusStore.flush();
+            BreachStatusStore.flush();
+        }
+    }
+
+    private static async walkGroupEmails(databasePath: string, group: Group): Promise<boolean> {
+        let hasBreached = false;
+
+        // Check entries one at a time to respect rate limits
+        for (const entry of group.entries) {
+            if (this.isCancelled) {
+                return false;
+            }
+            if (this.isValidEmail(entry.username)) {
+                try {
+                    const breaches = await this.checkEmailEntry(databasePath, entry);
+                    if (breaches.length > 0) {
+                        // Update the breach status to include breachedEmail
+                        const currentStatus = BreachStatusStore.getEntryStatus(databasePath, entry.id) || {
+                            isPwned: false,
+                            count: 0,
+                            strength: { score: 0, feedback: { warning: '', suggestions: [] } }
+                        };
+                        BreachStatusStore.setEntryStatus(databasePath, entry.id, {
+                            ...currentStatus,
+                            breachedEmail: true
+                        });
+                    }
+                    hasBreached = hasBreached || breaches.length > 0;
+                } catch (error) {
+                    // Continue checking other entries even if one fails
+                    console.error('Error checking email entry:', error);
+                }
+            } else {
+                // Skip non-email entries but still count them for progress
+                this.incrementEmailProgress(entry.id);
             }
         }
+
+        // Check subgroups one at a time
+        for (const subgroup of group.groups) {
+            if (this.isCancelled) {
+                return false;
+            }
+            try {
+                const isBreached = await this.walkGroupEmails(databasePath, subgroup);
+                hasBreached = hasBreached || isBreached;
+            } catch (error) {
+                // Continue checking other groups even if one fails
+                console.error('Error checking group:', error);
+            }
+        }
+
+        return hasBreached;
     }
 
     public static findBreachedEmails(group: Group, parentGroup: Group = group): EmailBreachCheckResult {

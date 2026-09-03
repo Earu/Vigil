@@ -146,11 +146,23 @@ function App() {
 	}, [database, autoLockEnabled, autoLockDuration]);
 
 	// Answer credential/pairing requests forwarded by the browser
-	// integration socket server in the main process
+	// integration socket server in the main process.
+	//
+	// The model is read through a ref and the effect is keyed on kdbxDb
+	// alone: a save replaces the database object (twice), and re-running
+	// this effect on that would clear the consent queue mid-save, silently
+	// answering any dialog on screen with its cancel value. kdbxDb only
+	// changes on unlock and lock, which are exactly the moments the
+	// subscription and the queue should reset
+	const databaseRef = useRef<Database | null>(null);
+	useEffect(() => { databaseRef.current = database; }, [database]);
+
 	useEffect(() => {
-		if (!database || !kdbxDb || !window.electron) return;
+		if (!kdbxDb || !window.electron) return;
 
 		const handler = async ({ id, action, payload }: { id: number; action: string; payload: any }) => {
+			const database = databaseRef.current;
+			if (!database) return;
 			try {
 				const result = await BrowserIntegrationService.handleRequest(action, payload, {
 					database,
@@ -196,7 +208,7 @@ function App() {
 			unsubscribeCancel();
 			consentQueue.clear();
 		};
-	}, [database, kdbxDb]);
+	}, [kdbxDb]);
 
 	const handleDatabaseOpen = async (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
 		// Ahead of the await below, not after it. The caller starts the breach

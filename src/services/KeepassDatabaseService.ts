@@ -51,16 +51,37 @@ export class KeepassDatabaseService {
     // Bumped by every setPath, so a slow stat belonging to a previous vault
     // cannot land on the current one
     private static pathGeneration = 0;
-    // Objects a merge brought in from disk that no UI model has carried yet.
+    // Objects in the kdbx that no applied UI model may delete yet: brought in
+    // by a merge from disk, or written directly by the browser integration.
     // The save walk rebuilds every group from the model, so anything the
     // model lacks is dropped and tombstoned as a deletion; a model built
-    // before the merge lacks exactly these, through no choice of the user.
-    // Cleared when a model is built from the file, since that model has them
-    private static unseenMergedUuids = new Set<string>();
+    // before the object existed lacks it through no choice of the user.
+    //
+    // The value is the generation of the first model built after the object
+    // appeared (undefined while no model has been built since). Every model
+    // carries the generation it was built at, so a save can tell "this model
+    // predates the object" (protect it) from "this model knew the object and
+    // the user removed it" (a deletion to honour). Submission order cannot
+    // stand in for this: a save queued from stale React state arrives after
+    // a fresher one
+    private static unseenUuids = new Map<string, number | undefined>();
+    private static modelGeneration = 0;
 
-    // Whether the loaded file holds merged changes the UI has not been shown
+    // Whether the loaded file holds changes no UI model has been built from
     static hasUnseenMergedChanges(): boolean {
-        return this.unseenMergedUuids.size > 0;
+        for (const seenAt of this.unseenUuids.values()) {
+            if (seenAt === undefined) return true;
+        }
+        return false;
+    }
+
+    // Called by writers that put objects into the kdbx without going through
+    // a UI model (browser integration set-login, passkey registration), so a
+    // save applying an older model does not tombstone what they created
+    static registerUnmodeledUuids(uuids: string[]): void {
+        for (const uuid of uuids) {
+            if (!this.unseenUuids.has(uuid)) this.unseenUuids.set(uuid, undefined);
+        }
     }
 
     private static async hashBytes(bytes: Uint8Array): Promise<string> {
@@ -68,12 +89,24 @@ export class KeepassDatabaseService {
         return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
     }
 
-    static setPath(path: string | undefined) {
+    static setPath(path: string | undefined, loadedBytes?: Uint8Array) {
         const generation = ++this.pathGeneration;
         this.currentPath = path;
         this.lastKnownMtimeMs = undefined;
         this.lastKnownHash = undefined;
+        // Closing the vault: the unmodeled-object ledger belongs to it
+        if (path === undefined) this.unseenUuids.clear();
         if (!path || !window.electron) return;
+
+        // The bytes the vault was opened from are the content baseline; when
+        // the caller hands them over there is no second read to race or fail
+        if (loadedBytes) {
+            this.hashBytes(loadedBytes).then(hash => {
+                if (this.pathGeneration === generation && this.lastKnownHash === undefined) {
+                    this.lastKnownHash = hash;
+                }
+            }).catch(() => {});
+        }
 
         // A save can complete before these land. When it does its baseline is
         // the newer one, so these only ever fill in a blank, never overwrite
@@ -83,6 +116,7 @@ export class KeepassDatabaseService {
             }
         }).catch(() => {});
 
+        if (loadedBytes) return;
         window.electron.readFile(path).then(async result => {
             if (!result.success || !result.data) return;
             const hash = await this.hashBytes(new Uint8Array(result.data));
@@ -132,9 +166,14 @@ export class KeepassDatabaseService {
     }
 
     static convertKdbxToDatabase(kdbxDb: kdbxweb.Kdbx): Database {
-        // The model built here carries everything in the file, merged
-        // objects included; from now on their absence from a model is a choice
-        this.unseenMergedUuids.clear();
+        // The model built here carries everything in the file, merged and
+        // browser-written objects included; from this generation onward their
+        // absence from a model is a choice. Models still in flight from
+        // before this generation keep protecting them
+        const generation = ++this.modelGeneration;
+        for (const [uuid, seenAt] of this.unseenUuids) {
+            if (seenAt === undefined) this.unseenUuids.set(uuid, generation);
+        }
 
         const convertAttachments = (entry: kdbxweb.KdbxEntry): Attachment[] =>
             [...entry.binaries].map(([name, binary]) => ({
@@ -193,6 +232,7 @@ export class KeepassDatabaseService {
                 ...root,
                 name: 'All Entries'
             },
+            generation,
         };
     }
 
@@ -1100,9 +1140,10 @@ export class KeepassDatabaseService {
     }
 
     private static async mergeExternalChanges(kdbxDb: kdbxweb.Kdbx, data: Uint8Array | undefined): Promise<boolean> {
-        try {
-            if (!data) return false;
+        if (!data) return false;
 
+        let before: Set<string> | undefined;
+        try {
             const remoteDb = await kdbxweb.Kdbx.load(
                 data.slice().buffer,
                 kdbxDb.credentials
@@ -1119,11 +1160,8 @@ export class KeepassDatabaseService {
                 HistoryNotesService.read(remoteDb)
             );
 
-            const before = this.collectUuids(kdbxDb.getDefaultGroup());
+            before = this.collectUuids(kdbxDb.getDefaultGroup());
             kdbxDb.merge(remoteDb);
-            for (const uuid of this.collectUuids(kdbxDb.getDefaultGroup())) {
-                if (!before.has(uuid)) this.unseenMergedUuids.add(uuid);
-            }
 
             (window as any).showToast?.({
                 message: 'The database changed on disk; external changes were merged',
@@ -1133,6 +1171,18 @@ export class KeepassDatabaseService {
         } catch (err) {
             console.error('Failed to merge external changes:', err);
             return false;
+        } finally {
+            // In the finally, not the success path: a merge that throws
+            // part-way has still grafted objects into the live kdbx, and
+            // leaving them unregistered would let the next save tombstone
+            // them, deleting them on the machine that made them
+            if (before) {
+                for (const uuid of this.collectUuids(kdbxDb.getDefaultGroup())) {
+                    if (!before.has(uuid) && !this.unseenUuids.has(uuid)) {
+                        this.unseenUuids.set(uuid, undefined);
+                    }
+                }
+            }
         }
     }
 
@@ -1255,9 +1305,14 @@ export class KeepassDatabaseService {
                 const uuidsBefore = new Set<string>();
                 collectUuids(root, uuidsBefore);
 
-                // Snapshot: a model built while this walk is in progress clears
-                // the set, but the model being applied here was built before it
-                const unseen = new Set(this.unseenMergedUuids);
+                // Protect objects this model is not entitled to delete: ones
+                // no model has been built from yet, and ones first carried by
+                // a model newer than the one being applied
+                const modelGeneration = database.generation ?? 0;
+                const unseen = new Set<string>();
+                for (const [uuid, seenAt] of this.unseenUuids) {
+                    if (seenAt === undefined || modelGeneration < seenAt) unseen.add(uuid);
+                }
                 const index = this.indexDatabase(root);
                 await this.updateGroup(database.root, root, kdbxDb, index, true);
                 this.keepUnseenMerged(root, index, unseen);
@@ -1273,6 +1328,8 @@ export class KeepassDatabaseService {
                         deleted.uuid = new kdbxweb.KdbxUuid(uuid);
                         deleted.deletionTime = new Date();
                         kdbxDb.deletedObjects.push(deleted);
+                        // A deletion the user chose closes the ledger entry
+                        this.unseenUuids.delete(uuid);
                     }
                 }
             }
@@ -1284,10 +1341,18 @@ export class KeepassDatabaseService {
             // be skipped for being too recent
             let replacingExternalChanges = false;
             const pathBeforeSave = this.getPath();
-            if (pathBeforeSave && window.electron && this.lastKnownMtimeMs !== undefined) {
+            // Either half of the baseline is enough to check with; requiring
+            // the mtime alone meant a single failed stat at open silently
+            // disabled conflict detection for every save until the first one
+            // landed and refreshed it
+            if (pathBeforeSave && window.electron &&
+                (this.lastKnownMtimeMs !== undefined || this.lastKnownHash !== undefined)) {
                 const stat = await window.electron.statFile(pathBeforeSave);
-                // mtime is the cheap filter; the bytes are what decide
-                const touched = stat.success && stat.mtimeMs !== undefined && stat.mtimeMs !== this.lastKnownMtimeMs;
+                // mtime is the cheap filter; the bytes are what decide. With
+                // no mtime baseline the filter cannot clear anything, so any
+                // stat result sends the save on to the byte comparison
+                const touched = stat.success && stat.mtimeMs !== undefined &&
+                    (this.lastKnownMtimeMs === undefined || stat.mtimeMs !== this.lastKnownMtimeMs);
                 const external = touched ? await this.readIfChanged(pathBeforeSave) : { changed: false };
                 if (touched && !external.changed) {
                     // Same bytes under a new timestamp: nothing to merge, just
@@ -1344,7 +1409,7 @@ export class KeepassDatabaseService {
                 // only way to get one
                 result = await window.electron?.saveFile(new Uint8Array(arrayBuffer), backup);
                 if (result?.success && result.filePath) {
-                    this.setPath(result.filePath);
+                    this.setPath(result.filePath, new Uint8Array(arrayBuffer));
                 }
             }
 

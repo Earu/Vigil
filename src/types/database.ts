@@ -70,4 +70,9 @@ export interface Database {
 	name: string;
 	groups: Group[];
 	root: Group;
+	// Which convertKdbxToDatabase call built this model (copies made from it
+	// inherit the value). The save path compares it against when an object
+	// first became visible to models, to tell a deliberate deletion from a
+	// model that simply predates the object
+	generation?: number;
 }

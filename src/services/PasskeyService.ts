@@ -1,4 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
+import { KeepassDatabaseService } from './KeepassDatabaseService';
 
 // WebAuthn authenticator for the KeePassXC-Browser passkeys protocol
 // (passkeys-register / passkeys-get). Response shapes, entry attributes and
@@ -436,8 +437,14 @@ export class PasskeyService {
                 const root = kdbxDb.getDefaultGroup();
                 const name = groupName || PASSKEYS_GROUP_NAME;
                 let group = root.groups.find(g => g.name === name);
-                if (!group) group = kdbxDb.createGroup(root, name);
+                if (!group) {
+                    group = kdbxDb.createGroup(root, name);
+                    KeepassDatabaseService.registerUnmodeledUuids([group.uuid.toString()]);
+                }
                 entry = kdbxDb.createEntry(group);
+                // Created outside any UI model: without this a save from a
+                // model built before this write would tombstone the passkey
+                KeepassDatabaseService.registerUnmodeledUuids([entry.uuid.toString()]);
                 entry.fields.set('Title', `${rpName} (Passkey)`);
                 entry.fields.set('UserName', username);
                 entry.fields.set('URL', origin);

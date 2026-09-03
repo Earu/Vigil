@@ -335,7 +335,7 @@ export const PasswordForm = ({
             );
 
             const database = KeepassDatabaseService.convertKdbxToDatabase(db);
-            KeepassDatabaseService.setPath(databasePath);
+            KeepassDatabaseService.setPath(databasePath, new Uint8Array(result.data));
             rememberKeyFile(databasePath);
             onDatabaseOpen(database, db);
 
@@ -439,7 +439,7 @@ export const PasswordForm = ({
                 }
                 fileBuffer = result.data.buffer;
                 await window.electron.saveLastDatabasePath(databasePath);
-                KeepassDatabaseService.setPath(databasePath);
+                KeepassDatabaseService.setPath(databasePath, new Uint8Array(result.data));
             } else {
                 fileBuffer = await selectedFile.arrayBuffer();
                 credentials = await buildCredentials(password);
@@ -516,7 +516,7 @@ export const PasswordForm = ({
 
             if (result.filePath) {
                 await window.electron?.saveLastDatabasePath(result.filePath);
-                KeepassDatabaseService.setPath(result.filePath);
+                KeepassDatabaseService.setPath(result.filePath, new Uint8Array(arrayBuffer));
                 rememberKeyFile(result.filePath);
             }
 

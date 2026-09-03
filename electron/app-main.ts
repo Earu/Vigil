@@ -5,7 +5,7 @@ import { setupAutoUpdater } from './src/updater';
 import { setupBrowserIntegration } from './src/browser-integration';
 import { applyApplicationMenu } from './src/menu';
 import { handleFileOpen } from './src/file-operations';
-import { clearOnQuit } from './src/clipboard';
+import { clearOnQuit, getPendingSecret } from './src/clipboard';
 import { setupLogging } from './src/logger';
 import path from 'path';
 
@@ -119,17 +119,18 @@ app.whenReady().then(() => {
 // A secret copied out of the vault is cleared when its countdown ends, but the
 // countdown lives in a renderer that quitting destroys, so the last clear has
 // to happen here. before-quit is synchronous, so the quit is held back for the
-// one async clear and then re-issued
-let clipboardClearedOnQuit = false;
+// one async clear and then re-issued.
+//
+// Keyed on clipboard ownership rather than a one-shot latch: clearOnQuit
+// releases ownership, so the re-issued quit passes straight through, and a
+// quit cancelled later (an unsaved-changes prompt) leaves the next quit able
+// to clear whatever the vault copied since
 app.on('before-quit', (event) => {
-    if (clipboardClearedOnQuit) return;
+    if (getPendingSecret() === null) return;
     event.preventDefault();
     clearOnQuit()
         .catch(error => console.error('Failed to clear the clipboard on quit:', error))
-        .finally(() => {
-            clipboardClearedOnQuit = true;
-            app.quit();
-        });
+        .finally(() => app.quit());
 });
 
 app.on('window-all-closed', () => {
