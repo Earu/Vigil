@@ -124,6 +124,7 @@ export class KeepassDatabaseService {
         if (path === undefined) {
             this.unseenUuids.clear();
             this.unmodeledEditUuids.clear();
+            this.stagedCustomIcons.clear();
         }
         if (!path || !window.electron) return;
 
@@ -249,7 +250,7 @@ export class KeepassDatabaseService {
         // in place, which the model-mutating helpers already honour by
         // copying
         const entryCacheKey = (entry: kdbxweb.KdbxEntry): string =>
-            `${entry.times.lastModTime?.getTime() ?? 0}:${entry.history.length}:${entry.times.locationChanged?.getTime() ?? 0}:${entry.previousParentGroup ?? ''}`;
+            `${entry.times.lastModTime?.getTime() ?? 0}:${entry.history.length}:${entry.times.locationChanged?.getTime() ?? 0}:${entry.previousParentGroup ?? ''}:${entry.icon ?? ''}:${entry.customIcon?.id ?? ''}:${KeepassDatabaseService.readSuppressFavicon(entry) ? 1 : 0}`;
 
         const convertEntry = (entry: kdbxweb.KdbxEntry): Entry => {
             const key = entryCacheKey(entry);
@@ -258,6 +259,12 @@ export class KeepassDatabaseService {
             const model: Entry = {
                 ...convertVersion(entry),
                 id: entry.uuid.toString(),
+                // The file stores the default key icon as an explicit index 0;
+                // the model's canonical form for "no choice made" is undefined,
+                // so every consumer has one representation to test
+                icon: entry.icon || undefined,
+                customIcon: entry.customIcon?.toString(),
+                suppressFavicon: KeepassDatabaseService.readSuppressFavicon(entry) || undefined,
                 previousParentGroup: entry.previousParentGroup?.toString(),
                 created: entry.times.creationTime as Date,
                 history: entry.history.map(convertVersion),
@@ -271,10 +278,16 @@ export class KeepassDatabaseService {
                 id: group.uuid.toString(),
                 isRecycleBin: !!recycleBinId && group.uuid.toString() === recycleBinId,
                 name: group.name as string,
+                // Same normalization as entries: the folder default reads as
+                // "no choice made"
+                icon: group.icon === kdbxweb.Consts.Icons.Folder ? undefined : group.icon,
+                customIcon: group.customIcon?.toString(),
                 groups: group.groups.map(g => convertGroup(g)),
                 entries: group.entries.map(convertEntry),
             };
         };
+
+        this.rebuildCustomIconUrls(kdbxDb);
 
         const root = convertGroup(kdbxDb.getDefaultGroup());
         return {
@@ -286,6 +299,133 @@ export class KeepassDatabaseService {
             },
             generation,
         };
+    }
+
+    // Custom icon bitmaps as data URLs, keyed the way kdbxweb keys
+    // meta.customIcons (base64 uuid). Rebuilt on every convert so the UI can
+    // look icons up without holding the kdbx; URLs for unchanged icons are
+    // reused so <img> elements keep stable srcs across saves
+    private static customIconUrls = new Map<string, string>();
+
+    // Custom icons added in the UI (an image picked for an entry or group)
+    // but not yet written to any kdbx. Components reference them by uuid
+    // right away; the next save writes the ones the model references into
+    // meta.customIcons
+    private static stagedCustomIcons = new Map<string, Uint8Array>();
+
+    private static rebuildCustomIconUrls(kdbxDb: kdbxweb.Kdbx): void {
+        // Always from the bytes, never reused by id: a merge can replace the
+        // bitmap stored under an existing uuid (kdbx4.1 tracks per-icon
+        // lastModified for exactly that), and a stale URL would both render
+        // the old image and mislead the byte dedup below. Icons are small
+        // and few; re-encoding per convert is noise
+        const next = new Map<string, string>();
+        for (const [id, icon] of kdbxDb.meta.customIcons) {
+            next.set(id, this.iconDataUrl(new Uint8Array(icon.data)));
+        }
+        // Staged icons stay renderable until a save carries them into meta
+        for (const [id, bytes] of this.stagedCustomIcons) {
+            next.set(id, this.iconDataUrl(bytes));
+        }
+        this.customIconUrls = next;
+    }
+
+    private static iconDataUrl(bytes: Uint8Array): string {
+        return `data:${this.sniffImageMime(bytes)};base64,${kdbxweb.ByteUtils.bytesToBase64(bytes)}`;
+    }
+
+    // Registers image bytes as a custom icon and returns its id; the bytes
+    // reach the file with the next save whose model references the id.
+    // Byte-identical icons collapse onto the id they already have
+    static stageCustomIcon(bytes: Uint8Array): string {
+        const url = this.iconDataUrl(bytes);
+        for (const [id, existing] of this.customIconUrls) {
+            if (existing === url) return id;
+        }
+        const id = kdbxweb.KdbxUuid.random().toString();
+        this.stagedCustomIcons.set(id, bytes);
+        this.customIconUrls.set(id, url);
+        return id;
+    }
+
+    static listCustomIcons(): Array<{ id: string; url: string }> {
+        return [...this.customIconUrls].map(([id, url]) => ({ id, url }));
+    }
+
+    // The one dedup for image bytes becoming a custom icon, shared by the
+    // picker's staging and favicon promotion. Unlike stageCustomIcon, the
+    // icon lands in meta right away, for writers (the promotion sweep) whose
+    // model does not reference the id yet and so cannot ride the staged path
+    static ensureCustomIcon(kdbxDb: kdbxweb.Kdbx, bytes: Uint8Array): string {
+        const url = this.iconDataUrl(bytes);
+        for (const [id, existing] of this.customIconUrls) {
+            if (existing !== url) continue;
+            // A staged match graduates to meta now; both callers end up
+            // sharing one id whichever registered the bytes first
+            if (this.stagedCustomIcons.delete(id)) {
+                kdbxDb.meta.customIcons.set(id, { data: bytes.slice().buffer, lastModified: new Date() });
+            }
+            return id;
+        }
+        const id = kdbxweb.KdbxUuid.random().toString();
+        kdbxDb.meta.customIcons.set(id, { data: bytes.slice().buffer, lastModified: new Date() });
+        this.customIconUrls.set(id, url);
+        return id;
+    }
+
+    // Staged icons the model references are written into meta; the rest stay
+    // staged (a picked image whose edit was cancelled writes nothing)
+    private static applyStagedCustomIcons(database: Database, kdbxDb: kdbxweb.Kdbx): void {
+        if (this.stagedCustomIcons.size === 0) return;
+        const referenced = new Set<string>();
+        const walk = (group: Group) => {
+            if (group.customIcon) referenced.add(group.customIcon);
+            group.entries.forEach(e => { if (e.customIcon) referenced.add(e.customIcon); });
+            group.groups.forEach(walk);
+        };
+        walk(database.root);
+        for (const [id, bytes] of this.stagedCustomIcons) {
+            if (!referenced.has(id)) continue;
+            kdbxDb.meta.customIcons.set(id, { data: bytes.slice().buffer, lastModified: new Date() });
+            this.stagedCustomIcons.delete(id);
+        }
+    }
+
+    // Data URLs get no content sniffing, so the declared type has to be right
+    private static sniffImageMime(bytes: Uint8Array): string {
+        if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png';
+        if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return 'image/jpeg';
+        if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return 'image/gif';
+        if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+            && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp';
+        if (bytes.length >= 2 && bytes[0] === 0x42 && bytes[1] === 0x4d) return 'image/bmp';
+        if (bytes.length >= 4 && bytes[0] === 0x00 && bytes[1] === 0x00 && bytes[2] === 0x01 && bytes[3] === 0x00) return 'image/x-icon';
+        if (bytes.length >= 1 && (bytes[0] === 0x3c || bytes[0] === 0xef)) return 'image/svg+xml';
+        return 'image/png';
+    }
+
+    static getCustomIconUrl(id: string | undefined): string | undefined {
+        return id ? this.customIconUrls.get(id) : undefined;
+    }
+
+    // "The user removed a favicon-derived icon here": no website favicon is
+    // shown for the entry and promotion leaves it alone. Lives in entry
+    // customData so it rides along with syncs; kdbxweb writes it for kdbx3
+    // files too, though other apps may strip nonstandard elements there
+    private static readonly SUPPRESS_FAVICON_KEY = 'Vigil_NoFavicon';
+
+    private static readSuppressFavicon(entry: kdbxweb.KdbxEntry): boolean {
+        return entry.customData?.get(this.SUPPRESS_FAVICON_KEY)?.value === 'true';
+    }
+
+    private static writeSuppressFavicon(entry: kdbxweb.KdbxEntry, suppress: boolean): void {
+        if (suppress === this.readSuppressFavicon(entry)) return;
+        if (suppress) {
+            if (!entry.customData) entry.customData = new Map();
+            entry.customData.set(this.SUPPRESS_FAVICON_KEY, { value: 'true', lastModified: new Date() });
+        } else {
+            entry.customData?.delete(this.SUPPRESS_FAVICON_KEY);
+        }
     }
 
     static createNewEntry(): Entry {
@@ -570,21 +710,26 @@ export class KeepassDatabaseService {
         return entry ? [entry, group] : [null, null];
     }
 
-    static updateGroupName(database: Database, group: Group, newName: string): Database {
+    // Key presence decides what changes: { icon: undefined } clears the icon
+    // back to the default, an absent key leaves the field alone
+    static updateGroupMeta(database: Database, group: Group, changes: { name?: string; icon?: number; customIcon?: string }): Database {
         const updatedDatabase: Database = this.deepCopyWithDates(database);
-        const updateGroupNameInner = (searchGroup: Group): boolean => {
+        const apply = (searchGroup: Group): boolean => {
             if (searchGroup.id === group.id) {
-                searchGroup.name = newName;
+                if (changes.name !== undefined) searchGroup.name = changes.name;
+                if ('icon' in changes) searchGroup.icon = changes.icon;
+                if ('customIcon' in changes) searchGroup.customIcon = changes.customIcon;
                 return true;
             }
-            for (const subgroup of searchGroup.groups) {
-                if (updateGroupNameInner(subgroup)) return true;
-            }
-            return false;
+            return searchGroup.groups.some(apply);
         };
 
-        updateGroupNameInner(updatedDatabase.root);
+        apply(updatedDatabase.root);
         return updatedDatabase;
+    }
+
+    static updateGroupName(database: Database, group: Group, newName: string): Database {
+        return this.updateGroupMeta(database, group, { name: newName });
     }
 
     static addNewGroup(database: Database, parentGroup: Group): Database {
@@ -959,6 +1104,10 @@ export class KeepassDatabaseService {
         if (!!kdbxEntry.times.expires !== !!entry.expires) return true;
         if ((kdbxEntry.times.expiryTime?.getTime() ?? 0) !== (entry.expiryTime?.getTime() ?? 0)) return true;
 
+        if ((kdbxEntry.icon ?? kdbxweb.Consts.Icons.Key) !== (entry.icon ?? kdbxweb.Consts.Icons.Key)) return true;
+        if ((kdbxEntry.customIcon?.toString() ?? '') !== (entry.customIcon ?? '')) return true;
+        if (this.readSuppressFavicon(kdbxEntry) !== !!entry.suppressFavicon) return true;
+
         if (this.customFieldsChanged(kdbxEntry, entry.customFields ?? [])) return true;
 
         const tags = this.normalizeTags(entry.tags ?? []);
@@ -1084,6 +1233,16 @@ export class KeepassDatabaseService {
             kdbxGroup.times.lastModTime = new Date();
         }
 
+        // Group icons follow the same only-on-change rule as the name
+        const groupIconChanged =
+            (kdbxGroup.icon ?? kdbxweb.Consts.Icons.Folder) !== (group.icon ?? kdbxweb.Consts.Icons.Folder)
+            || (kdbxGroup.customIcon?.toString() ?? '') !== (group.customIcon ?? '');
+        if (groupIconChanged) {
+            kdbxGroup.icon = group.icon ?? kdbxweb.Consts.Icons.Folder;
+            kdbxGroup.customIcon = group.customIcon ? new kdbxweb.KdbxUuid(group.customIcon) : undefined;
+            kdbxGroup.times.lastModTime = new Date();
+        }
+
         // Process all entries in one pass
         const updatedEntries: kdbxweb.KdbxEntry[] = [];
         for (const entry of group.entries) {
@@ -1160,6 +1319,11 @@ export class KeepassDatabaseService {
                 );
             }
             kdbxEntry.tags = this.normalizeTags(entry.tags ?? []);
+            // A UI-created entry carries no icon and keeps createEntry's
+            // default; entries read from the file carry the file's values
+            kdbxEntry.icon = entry.icon ?? kdbxweb.Consts.Icons.Key;
+            kdbxEntry.customIcon = entry.customIcon ? new kdbxweb.KdbxUuid(entry.customIcon) : undefined;
+            this.writeSuppressFavicon(kdbxEntry, !!entry.suppressFavicon);
             kdbxEntry.times.creationTime = entry.created;
             kdbxEntry.times.lastModTime = entry.modified;
             kdbxEntry.times.expires = !!entry.expires;
@@ -1193,6 +1357,9 @@ export class KeepassDatabaseService {
                 subgroup.id = kdbxSubgroup.uuid.toString();
                 if (subgroup.isRecycleBin) {
                     kdbxSubgroup.icon = kdbxweb.Consts.Icons.TrashBin;
+                    // Into the model too, or the icon sync below would read
+                    // the model's blank icon as a change back to the default
+                    subgroup.icon = kdbxweb.Consts.Icons.TrashBin;
                     kdbxDb.meta.recycleBinUuid = kdbxSubgroup.uuid;
                     kdbxDb.meta.recycleBinEnabled = true;
                 }
@@ -1404,6 +1571,7 @@ export class KeepassDatabaseService {
                     else this.unmodeledEditUuids.delete(uuid);
                 }
                 const index = this.indexDatabase(root);
+                this.applyStagedCustomIcons(database, kdbxDb);
                 await this.updateGroup(database.root, root, kdbxDb, index, true, frozen);
                 this.keepUnseenMerged(root, index, unseen);
 

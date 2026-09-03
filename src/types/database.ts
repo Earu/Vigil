@@ -34,6 +34,15 @@ export interface EntryVersion {
 
 export interface Entry {
 	id: string;
+	// KeePass standard icon index (kdbxweb.Consts.Icons); undefined reads as
+	// the default key icon
+	icon?: number;
+	// UUID (base64, as kdbxweb keys meta.customIcons) of a custom icon stored
+	// in the database; wins over the standard icon when set
+	customIcon?: string;
+	// The user removed a favicon-derived icon: show no website favicon for
+	// this entry and keep promotion away. Persisted in entry customData
+	suppressFavicon?: boolean;
 	// Group this entry sat in before it was moved, as kdbx records it. Set on
 	// the way into the recycle bin, which is what makes restoring put an entry
 	// back where it came from instead of dropping it at the root
@@ -60,7 +69,9 @@ export interface Entry {
 export interface Group {
 	id: string;
 	name: string;
-	icon?: string;
+	// Same pair as Entry: standard icon index and custom icon UUID
+	icon?: number;
+	customIcon?: string;
 	groups: Group[];
 	entries: Entry[];
 	isRecycleBin?: boolean;

@@ -4,6 +4,7 @@ import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { GroupSummary } from '../../services/BreachCheckService';
 import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
 import { ChevronActionIcon, AddActionIcon, EditActionIcon, CloseActionIcon } from '../../icons/actions/ActionIcons';
+import { ItemIcon } from './ItemIcon';
 
 interface SidebarProps {
 	database: Database;
@@ -14,7 +15,8 @@ interface SidebarProps {
 	onGroupSelect: (group: Group) => void;
 	onNewGroup: (parentGroup: Group) => void;
 	onRemoveGroup: (group: Group) => void;
-	onGroupNameChange?: (group: Group, newName: string) => void;
+	// Opens the group editing panel (name, icon); see GroupDetails
+	onEditGroup?: (group: Group) => void;
 	onMoveGroup?: (group: Group, newParent: Group) => void;
 	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
 	onDatabaseChange?: (database: Database) => void;
@@ -28,7 +30,8 @@ interface GroupItemProps {
 	onGroupSelect: (group: Group) => void;
 	onNewGroup: (parentGroup: Group) => void;
 	onRemoveGroup: (group: Group) => void;
-	onGroupNameChange?: (group: Group, newName: string) => void;
+	// Opens the group editing panel (name, icon); see GroupDetails
+	onEditGroup?: (group: Group) => void;
 	onMoveGroup?: (group: Group, newParent: Group) => void;
 	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
 	database: Database;
@@ -36,44 +39,15 @@ interface GroupItemProps {
 
 const EMPTY_SUMMARY: GroupSummary = { breached: false, weak: false, breachedEmail: false, entryCount: 0 };
 
-const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry, database }: GroupItemProps) => {
+const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onEditGroup, onMoveGroup, onMoveEntry, database }: GroupItemProps) => {
 	const [isExpanded, setIsExpanded] = useState(true);
-	const [isEditing, setIsEditing] = useState(false);
-	const [editedName, setEditedName] = useState(group.name);
 	const [isDragging, setIsDragging] = useState(false);
 	const [isDragOver, setIsDragOver] = useState(false);
-	const inputRef = useRef<HTMLInputElement>(null);
 	const hasSubgroups = group.groups.length > 0;
 
 	// A group created in the UI has no id until the save assigns one, so a
 	// missing summary is normal for one render
 	const summary = groupSummaries.get(group.id) ?? EMPTY_SUMMARY;
-
-	useEffect(() => {
-		if (isEditing && inputRef.current) {
-			inputRef.current.focus();
-			inputRef.current.select();
-		}
-	}, [isEditing]);
-
-	const handleNameSubmit = () => {
-		if (editedName.trim() && editedName !== group.name) {
-			onGroupNameChange?.(group, editedName.trim());
-		} else {
-			setEditedName(group.name);
-		}
-		setIsEditing(false);
-	};
-
-	const handleKeyDown = (e: React.KeyboardEvent) => {
-		if (e.key === 'Enter') {
-			handleNameSubmit();
-		} else if (e.key === 'Escape') {
-			setEditedName(group.name);
-			setIsEditing(false);
-		}
-		e.stopPropagation();
-	};
 
 	const handleDragStart = (e: React.DragEvent) => {
 		e.stopPropagation();
@@ -147,8 +121,8 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 			<div
 				className={`group-header ${selectedGroup.id === group.id ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragging ? 'dragging' : ''}`}
 				style={{ '--level': level } as React.CSSProperties}
-				onClick={() => !isEditing && onGroupSelect(group)}
-				draggable={!isEditing && group.id !== database.root.id}
+				onClick={() => onGroupSelect(group)}
+				draggable={group.id !== database.root.id}
 				onDragStart={handleDragStart}
 				onDragEnd={handleDragEnd}
 				onDragOver={handleDragOver}
@@ -167,24 +141,22 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 					</button>
 				)}
 				<div className="content-wrapper">
-					{isEditing ? (
-						<input
-							ref={inputRef}
-							className="group-name-input"
-							value={editedName}
-							onChange={(e) => setEditedName(e.target.value)}
-							onBlur={handleNameSubmit}
-							onKeyDown={handleKeyDown}
-							onClick={(e) => e.stopPropagation()}
-						/>
-					) : (
-						<span
-							className="group-name"
-							onDoubleClick={(e) => {
-								e.stopPropagation();
-								setIsEditing(true);
-							}}
-						>
+					<span
+						className="group-name"
+						onDoubleClick={(e) => {
+							e.stopPropagation();
+							if (group.id !== database.root.id) onEditGroup?.(group);
+						}}
+					>
+							{group.id !== database.root.id && (
+								// Only an icon that says something: the folder
+								// defaults would just repeat what a group already is
+								<ItemIcon
+									icon={group.icon === 49 ? undefined : group.icon}
+									customIcon={group.customIcon}
+									className="group-icon"
+								/>
+							)}
 							{group.name}
 							{summary.breached && (
 								<span className="group-breach-indicator" title="Contains breached passwords">
@@ -197,7 +169,6 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 								</span>
 							)}
 						</span>
-					)}
 					<span className="entry-count">
 						{summary.entryCount}
 					</span>
@@ -209,11 +180,11 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 						>
 							<AddActionIcon />
 						</button>
-						{!isEditing && (
+						{group.id !== database.root.id && (
 							<button
 								className="group-action-button"
-								onClick={() => setIsEditing(true)}
-								title="Edit group name"
+								onClick={() => onEditGroup?.(group)}
+								title="Edit group"
 							>
 								<EditActionIcon />
 							</button>
@@ -242,7 +213,7 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 							onGroupSelect={onGroupSelect}
 							onNewGroup={onNewGroup}
 							onRemoveGroup={onRemoveGroup}
-							onGroupNameChange={onGroupNameChange}
+							onEditGroup={onEditGroup}
 							onMoveGroup={onMoveGroup}
 							onMoveEntry={onMoveEntry}
 							database={database}
@@ -254,7 +225,7 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 	);
 };
 
-export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onGroupNameChange, onMoveGroup, onMoveEntry, onDatabaseChange }: SidebarProps) => {
+export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onEditGroup, onMoveGroup, onMoveEntry, onDatabaseChange }: SidebarProps) => {
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
 	const [editedTitle, setEditedTitle] = useState(database.name);
 	const titleInputRef = useRef<HTMLInputElement>(null);
@@ -328,7 +299,7 @@ export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect
 					onGroupSelect={onGroupSelect}
 					onNewGroup={onNewGroup}
 					onRemoveGroup={onRemoveGroup}
-					onGroupNameChange={onGroupNameChange}
+					onEditGroup={onEditGroup}
 					onMoveGroup={onMoveGroup}
 					onMoveEntry={onMoveEntry}
 					database={database}

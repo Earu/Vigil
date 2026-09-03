@@ -3,11 +3,13 @@ import { Database, Entry, Group } from '../../types/database';
 import { Sidebar } from './Sidebar';
 import { EntryList } from './EntryList';
 import { EntryDetails } from './EntryDetails';
+import { GroupDetails, GroupChanges } from './GroupDetails';
 import { BreachReport } from './BreachReport';
 import { BreachCheckService, BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { PlaceholderService } from '../../services/PlaceholderService';
 import './PasswordView.css';
 import { userSettingsService } from '../../services/UserSettingsService';
 
@@ -35,6 +37,9 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
+	// Group being edited in the details slot; mutually exclusive with an
+	// open entry
+	const [editingGroup, setEditingGroup] = useState<Group | null>(null);
 	const [breachedEntries, setBreachedEntries] = useState<BreachedEntry[]>([]);
 	const [weakEntries, setWeakEntries] = useState<BreachedEntry[]>([]);
 	const [breachedEmailEntries, setBreachedEmailEntries] = useState<BreachedEmailEntry[]>([]);
@@ -145,6 +150,11 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 				setSelectedEntry(updatedEntry);
 			}
 		}
+
+		// Same for a group open in the editor; gone from the model closes it
+		if (editingGroup) {
+			setEditingGroup(KeepassDatabaseService.findGroupInDatabase(editingGroup.id, database.root));
+		}
 	}, [database]);
 
 	useEffect(() => {
@@ -175,6 +185,10 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 
 	const handleGroupSelect = (group: Group) => {
 		if (group.id !== selectedGroup.id && !confirmDiscardEdits()) return;
+		// Moving the selection closes an editor left open on another group;
+		// keeping it would let a rename typed "here" land on a group the
+		// list no longer shows
+		if (editingGroup && editingGroup.id !== group.id) setEditingGroup(null);
 		const currentGroup = KeepassDatabaseService.findGroupInDatabase(group.id, database.root);
 		setSelectedGroup(currentGroup || database.root);
 	};
@@ -182,11 +196,20 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const handleEntrySelect = (entry: Entry | null) => {
 		if (entry?.id === selectedEntry?.id) return;
 		if (!confirmDiscardEdits()) return;
+		setEditingGroup(null);
 		setSelectedEntry(entry);
 	};
 
-	const handleGroupNameChange = (group: Group, newName: string) => {
-		const updatedDatabase = KeepassDatabaseService.updateGroupName(database, group, newName);
+	const handleEditGroup = (group: Group) => {
+		if (!confirmDiscardEdits()) return;
+		setSelectedEntry(null);
+		setIsCreatingNew(false);
+		setEditingGroup(group);
+	};
+
+	const handleGroupSave = (group: Group, changes: GroupChanges) => {
+		const updatedDatabase = KeepassDatabaseService.updateGroupMeta(database, group, changes);
+		setEditingGroup(null);
 		onDatabaseChange?.(updatedDatabase);
 	};
 
@@ -208,6 +231,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 
 	const handleNewEntry = () => {
 		if (!confirmDiscardEdits()) return;
+		setEditingGroup(null);
 		setIsCreatingNew(true);
 		setSelectedEntry(null);
 	};
@@ -335,7 +359,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					onGroupSelect={handleGroupSelect}
 					onNewGroup={handleNewGroup}
 					onRemoveGroup={handleRemoveGroup}
-					onGroupNameChange={handleGroupNameChange}
+					onEditGroup={handleEditGroup}
 					onMoveGroup={handleMoveGroup}
 					onMoveEntry={handleMoveEntry}
 					onDatabaseChange={onDatabaseChange}
@@ -362,7 +386,14 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					className={`resize-handle right ${isResizing === 'right' ? 'resizing' : ''}`}
 					onMouseDown={handleResizeStart('right')}
 				/>
-				{(selectedEntry || isCreatingNew) && (
+				{editingGroup && (
+					<GroupDetails
+						group={editingGroup}
+						onClose={() => setEditingGroup(null)}
+						onSave={handleGroupSave}
+					/>
+				)}
+				{!editingGroup && (selectedEntry || isCreatingNew) && (
 					<EntryDetails
 						entry={selectedEntry}
 						onClose={handleCloseEntry}
@@ -371,6 +402,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 						onDirtyChange={handleDirtyChange}
 						allTags={allTags}
 						onTagClick={handleTagClick}
+						resolvePlaceholders={(text, entry) => PlaceholderService.resolveModel(text, entry, database.root)}
 					/>
 				)}
 			</div>
