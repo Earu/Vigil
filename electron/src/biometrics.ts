@@ -1,18 +1,17 @@
-import { systemPreferences } from 'electron';
-import { execSync } from 'child_process';
-import { createDecipheriv, pbkdf2Sync, randomBytes } from 'crypto';
+import { systemPreferences, safeStorage } from 'electron';
+import { randomBytes } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { app } from 'electron';
 import keytar from './get-keytar';
 import {
-    isV2Blob,
     isV3Blob,
+    isV4Blob,
     makeChallenge,
-    deriveKeyFromSignature,
-    sealPassword,
-    challengeFromBlob,
-    openPassword,
+    deriveKeyWithEntropy,
+    sealPasswordV4,
+    challengeFromV4Blob,
+    openPasswordV4,
     sealWithKeychainKey,
     openWithKeychainKey
 } from './biometrics-crypto';
@@ -21,11 +20,7 @@ import {
 // when the binary is missing, so the import is safe on every platform
 import * as touchid from '../native/touchid';
 
-let Passport: any;
-if (process.platform === 'win32') {
-    const { Passport: WindowsPassport } = require('passport-desktop');
-    Passport = WindowsPassport;
-}
+import { Passport, VerificationResult as PassportVerification } from './get-passport';
 
 const SERVICE_NAME = 'Vigil Password Manager';
 const SALT_PATH = path.join(app.getPath('userData'), '.salt');
@@ -39,6 +34,95 @@ let biometricsAvailableCache: boolean | null = null;
 export function resetForTests(): void {
     biometricsAvailableCache = null;
     macBackendProbe = null;
+    biometricsConfigCache = null;
+    sessionPasswords.clear();
+}
+
+// ---- Windows: persistent-blob entropy and the session-scoped mode ----
+
+// v4 blobs mix a DPAPI-protected random value into the key derivation as the
+// HKDF salt. See biometrics-crypto.ts for what that does and does not defend
+const ENTROPY_PATH = () => path.join(app.getPath('userData'), 'biometric-entropy.bin');
+
+function loadEntropy(): Buffer | null {
+    try {
+        const wrapped = fs.readFileSync(ENTROPY_PATH());
+        const entropy = Buffer.from(safeStorage.decryptString(wrapped), 'hex');
+        return entropy.length === 32 ? entropy : null;
+    } catch {
+        return null;
+    }
+}
+
+function loadOrCreateEntropy(): Buffer | null {
+    const existing = loadEntropy();
+    if (existing) return existing;
+    try {
+        if (!safeStorage.isEncryptionAvailable()) return null;
+        const entropy = randomBytes(32);
+        fs.writeFileSync(ENTROPY_PATH(), safeStorage.encryptString(entropy.toString('hex')), { mode: 0o600 });
+        return entropy;
+    } catch (error) {
+        console.error('Failed to store biometric entropy:', error);
+        return null;
+    }
+}
+
+// The session-scoped mode ("require master password after restart"): the
+// keytar record is only the marker below, saying biometric unlock is wanted;
+// the password itself lives in this process's memory and dies with it, so
+// nothing on disk can release it and a phished Hello prompt from another
+// process yields nothing. This is KeePassXC's quick-unlock model. The
+// per-vault entries hold the dbPath too, so turning the setting off can
+// re-seal each armed vault persistently without a restart
+const SESSION_MARKER = 'v4-session:';
+const sessionPasswords = new Map<string, { dbPath: string; password: string }>();
+
+interface BiometricsConfig { requirePasswordAfterRestart: boolean }
+const CONFIG_PATH = () => path.join(app.getPath('userData'), 'biometrics-config.json');
+let biometricsConfigCache: BiometricsConfig | null = null;
+
+export function getBiometricsConfig(): BiometricsConfig {
+    if (biometricsConfigCache) return biometricsConfigCache;
+    try {
+        const parsed = JSON.parse(fs.readFileSync(CONFIG_PATH(), 'utf8'));
+        biometricsConfigCache = { requirePasswordAfterRestart: parsed.requirePasswordAfterRestart === true };
+    } catch {
+        biometricsConfigCache = { requirePasswordAfterRestart: false };
+    }
+    return biometricsConfigCache;
+}
+
+export async function setBiometricsConfig(config: BiometricsConfig): Promise<{ success: boolean; error?: string }> {
+    try {
+        fs.writeFileSync(CONFIG_PATH(), JSON.stringify({ requirePasswordAfterRestart: config.requirePasswordAfterRestart === true }), { mode: 0o600 });
+        biometricsConfigCache = { requirePasswordAfterRestart: config.requirePasswordAfterRestart === true };
+    } catch (error) {
+        console.error('Failed to store the biometrics config:', error);
+        return { success: false, error: 'Failed to store the setting' };
+    }
+
+    // Turning the requirement off while session entries are armed: the
+    // passwords are in hand, so re-seal each one persistently now (one Hello
+    // prompt per vault, which is the consent to store it) instead of asking
+    // for the master password again after the next restart. A vault whose
+    // prompt is refused simply stays session-scoped
+    if (!config.requirePasswordAfterRestart && process.platform === 'win32') {
+        for (const [key, entry] of [...sessionPasswords]) {
+            try {
+                const entropy = loadOrCreateEntropy();
+                if (!entropy) break;
+                const challenge = makeChallenge();
+                const signature = await getWindowsHelloSignature(entry.dbPath, challenge);
+                const helloKey = deriveKeyWithEntropy(signature, entropy);
+                await keytar?.setPassword(SERVICE_NAME, key, sealPasswordV4(entry.password, challenge, helloKey));
+                sessionPasswords.delete(key);
+            } catch (error) {
+                console.error('Keeping a vault session-scoped, the re-seal was refused:', error);
+            }
+        }
+    }
+    return { success: true };
 }
 
 function generateNewSalt(): string {
@@ -91,25 +175,6 @@ export async function isBiometricsAvailable(): Promise<boolean> {
     }
 
     return biometricsAvailableCache || false;
-}
-
-// macOS Touch ID prompt on its own. This is a UI gate, not a cryptographic
-// one: nothing about the stored password depends on it passing. It survives
-// only to front the one-time upgrade of a legacy blob (see
-// getBiometricPassword); the scheme that relied on it is no longer written.
-// Windows does not use this: there the Hello prompt itself produces the key
-// (getWindowsHelloKey)
-async function authenticateWithBiometrics(data: { dbPath: string, dbName: string }): Promise<boolean> {
-    if (process.platform === 'darwin') {
-        try {
-            await systemPreferences.promptTouchID(`unlock ${data.dbName} with biometrics`);
-            return true;
-        } catch (error) {
-            console.error('TouchID authentication failed:', error);
-            return false;
-        }
-    }
-    return false;
 }
 
 // macOS with the native addon: the master password is sealed under a random
@@ -186,57 +251,42 @@ async function enableSecureMac(account: string, dbName: string):
     return { wrappingKey };
 }
 
-// Windows: derive the sealing key from a Windows Hello signature over the
-// stored challenge. Signing requires a live Hello verification and the
-// RSA PKCS#1 v1.5 signature is deterministic, so the same challenge always
-// re-derives the same key, but only after the user passes Hello. Replaces
-// the old hardware-id derivation (which also depended on wmic, removed in
-// Windows 11 24H2)
-async function getWindowsHelloKey(dbPath: string, challenge: Buffer): Promise<Buffer> {
+// Windows: a Hello signature over a challenge. Signing requires a live Hello
+// verification and the RSA PKCS#1 v1.5 signature is deterministic, so the
+// same challenge always re-derives the same signature, but only after the
+// user passes Hello. Replaces the old hardware-id derivation (which also
+// depended on wmic, removed in Windows 11 24H2)
+async function getWindowsHelloSignature(dbPath: string, challenge: Buffer): Promise<Buffer> {
     const passport = new Passport(dbPath);
     if (!passport.accountExists) {
         await passport.createAccount();
     }
-    const signature: Buffer = await passport.sign(challenge);
-    return deriveKeyFromSignature(signature);
+    return await passport.sign(challenge);
 }
 
-// Legacy macOS scheme, read side only. Blobs written by earlier versions are
-// sealed under PBKDF2(hardware UUID, on-disk salt): a key any process running
-// as the user can rebuild, so the Touch ID prompt in front of it protected
-// nothing. Nothing writes this format any more; it is opened exactly once, to
-// re-seal the password under the keychain, and only by a build that can.
-// There is no fallback identifier: the old one (user name plus host name) was
-// public, and a blob this cannot open is one to discard, not to guess at
-async function getHardwareId(): Promise<string> {
-    const output = execSync('system_profiler SPHardwareDataType | grep "Hardware UUID"').toString();
-    const hardwareUUID = output.split(':')[1]?.trim();
-    if (!hardwareUUID) throw new Error('Hardware UUID not reported');
-    return hardwareUUID;
+// The Hello check for releasing a session-scoped password: an access-control
+// decision rather than key derivation, since the password never leaves this
+// process's memory either way
+async function verifyWindowsHello(message: string): Promise<boolean> {
+    const result = await Passport.requestVerification(message);
+    return result === PassportVerification.Verified;
 }
 
-async function deriveEncryptionKey(hardwareId: string, salt: string): Promise<Buffer> {
-    return pbkdf2Sync(hardwareId, salt, 100000, 32, 'sha512');
+const REARM_MESSAGE = 'Enter the master password once after a restart to re-arm Windows Hello unlock';
+
+function windowsDbName(dbPath: string): string {
+    return dbPath.split(/[\\/]/).pop() || dbPath;
 }
 
-async function decryptPassword(encryptedData: string): Promise<string> {
-    const hardwareId = await getHardwareId();
-    const salt = await getInstallationSalt();
-    const key = await deriveEncryptionKey(hardwareId, salt);
-    const data = Buffer.from(encryptedData, 'base64');
-    const iv = data.subarray(0, 16);
-    const authTag = data.subarray(16, 32);
-    const encrypted = data.subarray(32);
-    const decipher = createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(authTag);
-    return decipher.update(encrypted) + decipher.final('utf8');
-}
+// A blob in any outdated format is a convenience secret the current code
+// no longer reads: it is discarded and the user re-enables, per the policy
+// in biometrics-crypto.ts
+const OUTDATED_BLOB = 'Biometric unlock was upgraded, please enable it again in settings';
 
-// A macOS blob in the legacy format is a stored master password that a
-// Touch ID prompt only pretends to guard. Whether it may stay depends on the
-// build: one that can reach the biometry-gated keychain re-seals it at the
-// next unlock; one that cannot has nothing better to offer, so the blob goes
-const LEGACY_MAC_UNSUPPORTED = 'Biometric unlock was turned off: this build cannot protect the saved password. Enable it again on a signed build of Vigil';
+async function discardOutdatedBlob(key: string): Promise<void> {
+    console.warn('Discarding a biometric blob in an outdated format');
+    await keytar?.deletePassword(SERVICE_NAME, key);
+}
 
 // Why a Mac with a working sensor still gets no biometric unlock: the
 // biometry-gated keychain only accepts writes from a build signed with the
@@ -244,14 +294,11 @@ const LEGACY_MAC_UNSUPPORTED = 'Biometric unlock was turned off: this build cann
 // from where they sit the sensor works and the option is simply missing
 const MAC_UNSIGNED_BUILD = 'Biometric unlock needs a signed build of Vigil: this build cannot keep the key in the biometry-gated keychain';
 
-async function discardLegacyMacBlob(key: string): Promise<void> {
-    console.warn('Discarding a legacy biometric blob this build cannot protect');
-    await keytar?.deletePassword(SERVICE_NAME, key);
-}
-
-// `hardwareBacked` says what protects the stored password right now, so the
-// UI can show the state of the blob rather than the capability of the build
-export async function hasBiometricsEnabled(dbPath: string): Promise<{ success: boolean, error?: string, enabled?: boolean, hardwareBacked?: boolean }> {
+// `armed` says whether an unlock attempt could release a password right
+// now: false for a session-scoped vault after a restart (and for a
+// persistent blob frozen by the require-password-after-restart setting),
+// where the next password unlock re-arms it
+export async function hasBiometricsEnabled(dbPath: string): Promise<{ success: boolean, error?: string, enabled?: boolean, armed?: boolean }> {
     try {
         if (!await isBiometricsAvailable()) {
             return { success: false, error: 'Biometric authentication is not available on this device' };
@@ -262,17 +309,22 @@ export async function hasBiometricsEnabled(dbPath: string): Promise<{ success: b
         if (!stored) return { success: true, enabled: false };
 
         if (process.platform === 'darwin') {
-            if (isV3Blob(stored)) return { success: true, enabled: true, hardwareBacked: true };
-            if (await getMacBackend() !== 'secure') {
-                await discardLegacyMacBlob(key);
-                return { success: true, enabled: false };
-            }
-            return { success: true, enabled: true, hardwareBacked: false };
+            if (isV3Blob(stored)) return { success: true, enabled: true, armed: true };
+            await discardOutdatedBlob(key);
+            return { success: true, enabled: false };
         }
         if (process.platform === 'win32') {
-            return { success: true, enabled: true, hardwareBacked: isV2Blob(stored) };
+            const strict = getBiometricsConfig().requirePasswordAfterRestart;
+            if (stored === SESSION_MARKER) {
+                return { success: true, enabled: true, armed: sessionPasswords.has(key) };
+            }
+            if (isV4Blob(stored)) {
+                return { success: true, enabled: true, armed: !strict };
+            }
+            await discardOutdatedBlob(key);
+            return { success: true, enabled: false };
         }
-        return { success: true, enabled: true };
+        return { success: true, enabled: true, armed: true };
     } catch (error) {
         console.error('Failed to check biometrics status:', error);
         return { success: false, error: 'Failed to check biometrics status' };
@@ -288,11 +340,33 @@ export async function enableBiometrics(dbPath: string, password: string): Promis
         const key = await generateUniqueKey(dbPath);
 
         if (process.platform === 'win32') {
-            // The sign call is the Hello verification; a cancelled prompt
-            // throws and nothing is stored
+            if (getBiometricsConfig().requirePasswordAfterRestart) {
+                // Session-scoped: the password stays in this process's memory
+                // and keytar holds only the intent marker. The first enable
+                // proves the user can pass Hello; a re-arm after a restart
+                // just proved it better, by typing the master password
+                const existing = await keytar?.getPassword(SERVICE_NAME, key);
+                if (existing !== SESSION_MARKER) {
+                    if (!await verifyWindowsHello(`Enable Windows Hello unlock for ${windowsDbName(dbPath)}`)) {
+                        return { success: false, error: 'Windows Hello verification failed' };
+                    }
+                }
+                sessionPasswords.set(key, { dbPath, password });
+                await keytar?.setPassword(SERVICE_NAME, key, SESSION_MARKER);
+                return { success: true };
+            }
+
+            // Persistent: the sign call is the Hello verification; a
+            // cancelled prompt throws and nothing is stored
+            const entropy = loadOrCreateEntropy();
+            if (!entropy) {
+                return { success: false, error: 'Could not set up biometric unlock: the entropy store is unavailable' };
+            }
             const challenge = makeChallenge();
-            const helloKey = await getWindowsHelloKey(dbPath, challenge);
-            await keytar?.setPassword(SERVICE_NAME, key, sealPassword(password, challenge, helloKey));
+            const signature = await getWindowsHelloSignature(dbPath, challenge);
+            const helloKey = deriveKeyWithEntropy(signature, entropy);
+            sessionPasswords.delete(key);
+            await keytar?.setPassword(SERVICE_NAME, key, sealPasswordV4(password, challenge, helloKey));
             return { success: true };
         }
 
@@ -344,29 +418,59 @@ export async function getBiometricPassword(dbPath: string):
         }
 
         if (process.platform === 'win32') {
-            if (!isV2Blob(stored)) {
-                // Sealed under the old hardware-id scheme, whose key material
-                // this version no longer derives. Drop it so the UI falls back
-                // to password; the user re-enables in settings
-                await keytar?.deletePassword(SERVICE_NAME, key);
-                return { success: false, error: 'Biometric unlock was upgraded, please enable it again in settings' };
+            const strict = getBiometricsConfig().requirePasswordAfterRestart;
+
+            if (stored === SESSION_MARKER) {
+                const entry = sessionPasswords.get(key);
+                if (!entry) {
+                    // Post-restart: nothing on disk can release the password,
+                    // by design. The password unlock re-arms this session
+                    return { success: false, retry: true, error: REARM_MESSAGE };
+                }
+                if (!await verifyWindowsHello(`Unlock ${windowsDbName(dbPath)} in Vigil`)) {
+                    return { success: false, retry: true, error: 'Biometric authentication failed' };
+                }
+                return { success: true, password: entry.password };
             }
-            let helloKey: Buffer;
-            try {
-                helloKey = await getWindowsHelloKey(dbPath, challengeFromBlob(stored));
-            } catch (error) {
-                // Cancelled or failed Hello prompt; the stored blob stays
-                console.error('Windows Hello authentication failed:', error);
-                return { success: false, error: 'Biometric authentication failed', retry: true };
+
+            if (strict && isV4Blob(stored)) {
+                // The setting says nothing on disk may release the password,
+                // so a persistent blob written before the switch stays
+                // sealed; the next password unlock converts it to session
+                // scope (the re-arm path overwrites it with the marker)
+                return { success: false, retry: true, error: REARM_MESSAGE };
             }
-            try {
-                return { success: true, password: openPassword(stored, helloKey) };
-            } catch {
-                // Decryption failure means the Hello key changed (e.g. Hello
-                // was reset); the blob is unrecoverable
-                await keytar?.deletePassword(SERVICE_NAME, key);
-                return { success: false, error: 'Biometric data is stale, please enable biometric unlock again' };
+
+            if (isV4Blob(stored)) {
+                const entropy = loadEntropy();
+                if (!entropy) {
+                    // The DPAPI-wrapped half of the key material is gone (new
+                    // OS user profile, deleted file); the blob cannot open
+                    await keytar?.deletePassword(SERVICE_NAME, key);
+                    return { success: false, error: 'Biometric data is stale, please enable biometric unlock again' };
+                }
+                let signature: Buffer;
+                try {
+                    signature = await getWindowsHelloSignature(dbPath, challengeFromV4Blob(stored));
+                } catch (error) {
+                    // Cancelled or failed Hello prompt; the stored blob stays
+                    console.error('Windows Hello authentication failed:', error);
+                    return { success: false, error: 'Biometric authentication failed', retry: true };
+                }
+                try {
+                    return { success: true, password: openPasswordV4(stored, deriveKeyWithEntropy(signature, entropy)) };
+                } catch {
+                    // Decryption failure means the Hello key changed (e.g.
+                    // Hello was reset); the blob is unrecoverable
+                    await keytar?.deletePassword(SERVICE_NAME, key);
+                    return { success: false, error: 'Biometric data is stale, please enable biometric unlock again' };
+                }
             }
+
+            // v2 (Hello signature without the entropy salt) or the ancient
+            // hardware-id scheme: outdated either way, discard and re-enable
+            await discardOutdatedBlob(key);
+            return { success: false, error: OUTDATED_BLOB };
         }
 
         const dbName = dbPath.split('/').pop() as string;
@@ -404,43 +508,8 @@ export async function getBiometricPassword(dbPath: string):
             return { success: false, error: 'Biometric authentication is not available on this platform' };
         }
 
-        // Legacy blob. Only a build that can re-seal it under the keychain
-        // may open it, and then only to do that; any other build discards it
-        if (await getMacBackend() !== 'secure') {
-            await discardLegacyMacBlob(key);
-            return { success: false, error: LEGACY_MAC_UNSUPPORTED };
-        }
-
-        if (!await authenticateWithBiometrics({ dbPath, dbName })) {
-            return { success: false, error: 'Biometric authentication failed', retry: true };
-        }
-
-        let password: string;
-        try {
-            password = await decryptPassword(stored);
-        } catch (error) {
-            // The hardware identifier is gone or the blob does not open under
-            // it; there is no other key to try
-            console.error('Legacy biometric blob could not be opened:', error);
-            await keytar?.deletePassword(SERVICE_NAME, key);
-            return { success: false, error: 'Biometric data is stale, please enable biometric unlock again' };
-        }
-
-        // Re-seal under the keychain so the next unlock is enforced by the OS.
-        // The unlock itself goes ahead either way, but the legacy blob does
-        // not survive it: if the upgrade fails the user re-enables, rather
-        // than keep a copy of the password that nothing protects
-        try {
-            const wrappingKey = randomBytes(32);
-            const written = await touchid.setSecret(key, wrappingKey);
-            if (!written.ok) throw new Error(`keychain write failed: ${written.code}`);
-            await keytar?.setPassword(SERVICE_NAME, key, sealWithKeychainKey(password, wrappingKey));
-        } catch (error) {
-            console.error('Failed to upgrade biometric storage, discarding the legacy blob:', error);
-            await keytar?.deletePassword(SERVICE_NAME, key);
-        }
-
-        return { success: true, password };
+        await discardOutdatedBlob(key);
+        return { success: false, error: OUTDATED_BLOB };
     } catch (error) {
         console.error('Failed to get password with biometrics:', error);
         return { success: false, error: 'Failed to authenticate with biometrics', retry: true };
@@ -450,6 +519,7 @@ export async function getBiometricPassword(dbPath: string):
 export async function disableBiometrics(dbPath: string): Promise<{ success: boolean, error?: string }> {
     try {
         const key = await generateUniqueKey(dbPath);
+        sessionPasswords.delete(key);
         await keytar?.deletePassword(SERVICE_NAME, key);
         if (process.platform === 'darwin') {
             // Best effort: drop the keychain item too so no biometry-gated
