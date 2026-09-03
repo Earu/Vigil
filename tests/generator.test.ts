@@ -1,10 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import {
     PasswordGeneratorService as Gen,
     DEFAULT_PASSWORD_OPTIONS,
     DEFAULT_PASSPHRASE_OPTIONS,
 } from '../src/services/PasswordGeneratorService';
+import { PassphraseService } from '../src/services/PassphraseService';
 import { BrowserIntegrationService } from '../src/services/BrowserIntegrationService';
+
+// The wordlist is a lazy chunk in the app; words mode needs it loaded
+beforeAll(() => PassphraseService.preload());
 
 const store = new Map<string, string>();
 (globalThis as any).localStorage = {

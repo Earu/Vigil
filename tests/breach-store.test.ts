@@ -26,6 +26,7 @@ const backing = new FakeStorage();
 
 const { BreachCacheCrypto } = await import('../src/services/BreachCacheCrypto');
 const { BreachStatusStore } = await import('../src/services/BreachStatusStore');
+const { EmailBreachStatusStore } = await import('../src/services/EmailBreachStatusStore');
 
 // The store is sealed under a key derived from the open vault, so the
 // coalescing under test only happens with one unlocked
@@ -124,5 +125,88 @@ describe('breach status store write coalescing', () => {
         vi.advanceTimersByTime(1000);
         expect(writes.set).toBe(0);
         expect(BreachStatusStore.getEntryStatus('/db.kdbx', 'entry-1')).toBeNull();
+    });
+});
+
+// The coalesce interval scales with the last persist's serialized size:
+// re-encrypting a 1MB blob once a second on the renderer thread is the cost
+// the adaptation removes. Small stores keep the 1s window (the tests above
+// pin that); a 1MB+ store stretches to the 5s cap
+describe('adaptive coalesce interval', () => {
+    beforeEach(() => {
+        BreachStatusStore.clearAll();
+        EmailBreachStatusStore.clearAll();
+        writes.set = 0;
+        writes.remove = 0;
+    });
+
+    // ~1100 bytes serialized per entry, 1200 entries: comfortably past 1MB
+    const bigStatus = {
+        isPwned: false,
+        count: 0,
+        strength: { score: 4, feedback: { warning: 'w'.repeat(1000), suggestions: [] } },
+    };
+
+    const growPastCap = () => {
+        for (let i = 0; i < 1200; i++) {
+            BreachStatusStore.setEntryStatus('/db.kdbx', `entry-${i}`, bigStatus);
+        }
+        BreachStatusStore.flush();
+    };
+
+    it('stretches the window to the 5s cap once the store passes 1MB', () => {
+        growPastCap();
+        expect(writes.set).toBe(1);
+
+        BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-more', bigStatus);
+        vi.advanceTimersByTime(4999);
+        expect(writes.set).toBe(1);
+
+        vi.advanceTimersByTime(1);
+        expect(writes.set).toBe(2);
+    });
+
+    it('still flushes a large store immediately', () => {
+        growPastCap();
+        expect(writes.set).toBe(1);
+
+        BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-more', bigStatus);
+        BreachStatusStore.flush();
+        expect(writes.set).toBe(2);
+
+        // the stretched timer must not fire a second write for the same batch
+        vi.advanceTimersByTime(5000);
+        expect(writes.set).toBe(2);
+    });
+
+    it('keeps the 1s window while the store is small', () => {
+        BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-0', bigStatus);
+        BreachStatusStore.flush();
+        expect(writes.set).toBe(1);
+
+        BreachStatusStore.setEntryStatus('/db.kdbx', 'entry-1', bigStatus);
+        vi.advanceTimersByTime(1000);
+        expect(writes.set).toBe(2);
+    });
+
+    it('email store: a 1MB+ blob stretches its window the same way', () => {
+        // Each status lands under both the entry and the email key, so the
+        // serialized store doubles what one list costs
+        const breaches = Array.from({ length: 40 }, (_, i) => ({
+            Name: `Breach${i}`,
+            Description: 'd'.repeat(700),
+        }));
+        for (let i = 0; i < 20; i++) {
+            EmailBreachStatusStore.setEntryEmailStatus('/db.kdbx', `e-${i}`, `e-${i}@x.com`, breaches as any);
+        }
+        EmailBreachStatusStore.flush();
+        expect(writes.set).toBe(1);
+
+        EmailBreachStatusStore.setEntryEmailStatus('/db.kdbx', 'e-more', 'e-more@x.com', breaches as any);
+        vi.advanceTimersByTime(4999);
+        expect(writes.set).toBe(1);
+
+        vi.advanceTimersByTime(1);
+        expect(writes.set).toBe(2);
     });
 });

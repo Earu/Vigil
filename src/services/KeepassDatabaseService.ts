@@ -99,6 +99,11 @@ export class KeepassDatabaseService {
     // told succeeded whenever any UI save races it
     private static unmodeledEditUuids = new Map<string, number | undefined>();
 
+    // Converted entry models keyed by their kdbx object; see convertEntry in
+    // convertKdbxToDatabase. WeakMap: closing a vault drops the entries and
+    // their models with them
+    private static convertedEntryCache = new WeakMap<kdbxweb.KdbxEntry, { key: string; model: Entry }>();
+
     static registerUnmodeledEdits(uuids: string[]): void {
         for (const uuid of uuids) {
             this.unmodeledEditUuids.set(uuid, undefined);
@@ -235,19 +240,39 @@ export class KeepassDatabaseService {
 
         const recycleBinId = kdbxDb.meta.recycleBinUuid?.toString();
 
+        // Rebuilding a model used to convert every entry and every history
+        // revision on every save. Unchanged entries (nearly all of them, on a
+        // typical save) reuse their previous model object instead: any write
+        // path bumps lastModTime, pushHistory grows history, and a move bumps
+        // locationChanged, so this key changes whenever the model would.
+        // Reused models are shared across converts and must never be mutated
+        // in place, which the model-mutating helpers already honour by
+        // copying
+        const entryCacheKey = (entry: kdbxweb.KdbxEntry): string =>
+            `${entry.times.lastModTime?.getTime() ?? 0}:${entry.history.length}:${entry.times.locationChanged?.getTime() ?? 0}:${entry.previousParentGroup ?? ''}`;
+
+        const convertEntry = (entry: kdbxweb.KdbxEntry): Entry => {
+            const key = entryCacheKey(entry);
+            const cached = KeepassDatabaseService.convertedEntryCache.get(entry);
+            if (cached && cached.key === key) return cached.model;
+            const model: Entry = {
+                ...convertVersion(entry),
+                id: entry.uuid.toString(),
+                previousParentGroup: entry.previousParentGroup?.toString(),
+                created: entry.times.creationTime as Date,
+                history: entry.history.map(convertVersion),
+            };
+            KeepassDatabaseService.convertedEntryCache.set(entry, { key, model });
+            return model;
+        };
+
         const convertGroup = (group: kdbxweb.KdbxGroup): Group => {
             return {
                 id: group.uuid.toString(),
                 isRecycleBin: !!recycleBinId && group.uuid.toString() === recycleBinId,
                 name: group.name as string,
                 groups: group.groups.map(g => convertGroup(g)),
-                entries: group.entries.map(entry => ({
-                    ...convertVersion(entry),
-                    id: entry.uuid.toString(),
-                    previousParentGroup: entry.previousParentGroup?.toString(),
-                    created: entry.times.creationTime as Date,
-                    history: entry.history.map(convertVersion),
-                })),
+                entries: group.entries.map(convertEntry),
             };
         };
 
@@ -660,37 +685,44 @@ export class KeepassDatabaseService {
     }
 
     static saveEntry(database: Database, entry: Entry, selectedGroup: Group, isCreatingNew: boolean): [Database, Entry] {
-        const findGroupContainingEntry = (group: Group): Group | null => {
-            if (group.entries.some(e => e.id === entry.id)) {
-                return group;
-            }
-            for (const subgroup of group.groups) {
-                const found = findGroupContainingEntry(subgroup);
-                if (found) return found;
-            }
-            return null;
-        };
-
-        const updatedDatabase: Database = this.deepCopyWithDates(database);
+        // Copies only the path from the root down to the changed group. This
+        // used to deep-copy the entire model (every entry, every history
+        // revision) per save; untouched entries and groups now keep their
+        // object identity, which the convert cache and the identity checks in
+        // the save path lean on
         let savedEntry = entry;
-
         if (isCreatingNew) {
             // Assign the entry its definitive kdbx UUID up front so later
             // edits and saves address the same entry
             savedEntry = { ...entry, id: kdbxweb.KdbxUuid.random().toString() };
-            const updatedGroup = this.findGroupInDatabase(selectedGroup.id, updatedDatabase.root) || updatedDatabase.root;
-            updatedGroup.entries.push(savedEntry);
-        } else {
-            const group = findGroupContainingEntry(updatedDatabase.root);
-            if (group) {
-                const entryIndex = group.entries.findIndex(e => e.id === entry.id);
-                if (entryIndex !== -1) {
-                    group.entries[entryIndex] = entry;
-                }
-            }
         }
 
-        return [updatedDatabase, savedEntry];
+        const isTarget = isCreatingNew
+            ? (group: Group) => group.id === selectedGroup.id
+            : (group: Group) => group.entries.some(e => e.id === entry.id);
+        const applyTo = isCreatingNew
+            ? (group: Group): Group => ({ ...group, entries: [...group.entries, savedEntry] })
+            : (group: Group): Group => ({ ...group, entries: group.entries.map(e => (e.id === entry.id ? savedEntry : e)) });
+
+        const rebuild = (group: Group): Group | null => {
+            if (isTarget(group)) return applyTo(group);
+            for (let i = 0; i < group.groups.length; i++) {
+                const child = rebuild(group.groups[i]);
+                if (child) {
+                    const groups = group.groups.slice();
+                    groups[i] = child;
+                    return { ...group, groups };
+                }
+            }
+            return null;
+        };
+
+        let root = rebuild(database.root);
+        // A new entry whose group is not in the tree lands at the root, as
+        // the deep-copy version did
+        if (!root && isCreatingNew) root = applyTo(database.root);
+        if (!root) return [{ ...database }, savedEntry];
+        return [{ ...database, root, groups: root.groups }, savedEntry];
     }
 
     static findRecycleBin(root: Group): Group | null {
@@ -915,8 +947,14 @@ export class KeepassDatabaseService {
         if (wasProtected.some(name => !nowProtected.includes(name))) return true;
 
         const existingPassword = kdbxEntry.fields.get('Password');
-        const oldPassword = existingPassword ? this.getPasswordString(existingPassword as string | kdbxweb.ProtectedValue) : '';
-        if (oldPassword !== this.getPasswordString(entry.password)) return true;
+        // The model's ProtectedValue is the very object read out of the kdbx
+        // unless the entry was edited (prepareEntryForSave wraps a fresh one),
+        // so identity equality is an unchanged password with no decrypt. This
+        // is what keeps a full-vault save from decrypting every password
+        if (existingPassword !== entry.password) {
+            const oldPassword = existingPassword ? this.getPasswordString(existingPassword as string | kdbxweb.ProtectedValue) : '';
+            if (oldPassword !== this.getPasswordString(entry.password)) return true;
+        }
 
         if (!!kdbxEntry.times.expires !== !!entry.expires) return true;
         if ((kdbxEntry.times.expiryTime?.getTime() ?? 0) !== (entry.expiryTime?.getTime() ?? 0)) return true;
@@ -939,7 +977,9 @@ export class KeepassDatabaseService {
             const field = customFields[i];
             if (key !== field.key) return true;
             if ((value instanceof kdbxweb.ProtectedValue) !== field.protected) return true;
-            if (this.getFieldString(value) !== this.getFieldString(field.value)) return true;
+            // Identity first: unchanged protected values compare without a
+            // decrypt (see the password check in entryChanged)
+            if (value !== field.value && this.getFieldString(value) !== this.getFieldString(field.value)) return true;
         }
 
         return false;
@@ -1024,6 +1064,10 @@ export class KeepassDatabaseService {
         object.previousParentGroup = object.parentGroup?.uuid;
         object.parentGroup = newParent;
         object.times.locationChanged = new Date();
+        // Timestamps have millisecond resolution: two moves inside one
+        // millisecond would leave the converted-model cache key unchanged, so
+        // the writer invalidates explicitly instead of trusting the clock
+        if (object instanceof kdbxweb.KdbxEntry) this.convertedEntryCache.delete(object);
     }
 
     private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, index: KdbxIndex, isRoot = false, frozen: Set<string> = new Set()): Promise<void> {
@@ -1068,6 +1112,10 @@ export class KeepassDatabaseService {
                     continue;
                 }
                 kdbxEntry.pushHistory();
+                // Same reasoning as in reparent: a rewrite inside the same
+                // millisecond as the last one (retention can hold history
+                // length constant too) must not leave a stale cached model
+                this.convertedEntryCache.delete(kdbxEntry);
             } else {
                 kdbxEntry = kdbxDb.createEntry(kdbxGroup);
                 if (entry.id) {

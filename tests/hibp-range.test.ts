@@ -88,3 +88,40 @@ describe('pwned password lookup', () => {
         await expect(Hibp.isPasswordPwned(uniquePassword())).rejects.toThrow();
     });
 });
+
+// The range cache evicts LRU instead of clearing wholesale at the cap: a
+// full clear mid-sweep threw away every warm bucket at once
+describe('range cache LRU eviction', () => {
+    const svc = Hibp as any;
+    const fetchRange = (prefix: string): Promise<string> => svc.fetchRange(prefix);
+
+    it('a hit refreshes recency and the insert past the cap evicts only the coldest', async () => {
+        const cache = svc.rangeCache as Map<string, Promise<string>>;
+        cache.clear();
+        body = '';
+        const limit = svc.RANGE_CACHE_LIMIT as number;
+
+        for (let i = 0; i < limit; i++) await fetchRange(`P${i}`);
+        expect(calls).toHaveLength(limit);
+
+        // Touch P0: it becomes the warmest, leaving P1 the coldest
+        await fetchRange('P0');
+        expect(calls).toHaveLength(limit);
+
+        // The insert past the cap drops P1 alone
+        await fetchRange('NEWCOMER');
+        expect(cache.size).toBe(limit);
+        expect(cache.has('P1')).toBe(false);
+        expect(cache.has('P0')).toBe(true);
+        expect(cache.has('P2')).toBe(true);
+        expect(cache.has('NEWCOMER')).toBe(true);
+
+        // Survivors still answer from cache; the evicted prefix refetches
+        const before = calls.length;
+        await fetchRange('P0');
+        await fetchRange('P2');
+        expect(calls).toHaveLength(before);
+        await fetchRange('P1');
+        expect(calls).toHaveLength(before + 1);
+    });
+});

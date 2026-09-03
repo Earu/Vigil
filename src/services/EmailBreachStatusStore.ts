@@ -25,11 +25,17 @@ export class EmailBreachStatusStore {
     // Sealed under a key only an open vault can derive; see BreachCacheCrypto
     private static readonly STORE_NAME = 'email-breach';
     private static readonly CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-    // Same coalescing as BreachStatusStore. It matters far less here (the HIBP
-    // account API is rate limited to one lookup every few seconds, so writes
-    // are rare), but the two stores drive the same indicators and diverging
-    // write behaviour between them is only a trap for later
-    private static readonly COALESCE_MS = 1000;
+    // Same adaptive coalescing as BreachStatusStore: 1s below 100KB of
+    // serialized store, stretching to 5s at 1MB+, flushes still immediate.
+    // It matters far less here (the HIBP account API is rate limited to one
+    // lookup every few seconds, so writes are rare), but the two stores drive
+    // the same indicators and diverging write behaviour between them is only
+    // a trap for later
+    private static readonly COALESCE_MIN_MS = 1000;
+    private static readonly COALESCE_MAX_MS = 5000;
+    private static readonly COALESCE_SIZE_FLOOR = 100 * 1024;
+    private static readonly COALESCE_SIZE_CAP = 1024 * 1024;
+    private static lastPersistBytes = 0;
 
     // Decrypted once per vault; all lookups hit this in-memory copy
     private static store: DatabaseEmailBreachStatus | null = null;
@@ -60,9 +66,17 @@ export class EmailBreachStatusStore {
 
     private static persist(): void {
         this.cancelPending();
-        BreachCacheCrypto.write(this.STORE_NAME, this.getStore());
+        this.lastPersistBytes = BreachCacheCrypto.write(this.STORE_NAME, this.getStore());
         this.version++;
         this.listeners.forEach(listener => listener());
+    }
+
+    private static coalesceInterval(): number {
+        const size = this.lastPersistBytes;
+        if (size <= this.COALESCE_SIZE_FLOOR) return this.COALESCE_MIN_MS;
+        if (size >= this.COALESCE_SIZE_CAP) return this.COALESCE_MAX_MS;
+        const t = (size - this.COALESCE_SIZE_FLOOR) / (this.COALESCE_SIZE_CAP - this.COALESCE_SIZE_FLOOR);
+        return this.COALESCE_MIN_MS + t * (this.COALESCE_MAX_MS - this.COALESCE_MIN_MS);
     }
 
     private static cancelPending(): void {
@@ -79,7 +93,7 @@ export class EmailBreachStatusStore {
         this.coalesceTimer = setTimeout(() => {
             this.coalesceTimer = null;
             this.persist();
-        }, this.COALESCE_MS);
+        }, this.coalesceInterval());
     }
 
     public static flush(): void {
@@ -158,6 +172,7 @@ export class EmailBreachStatusStore {
     public static clearAll(): void {
         this.cancelPending();
         this.store = {};
+        this.lastPersistBytes = 0;
         this.storeEpoch = BreachCacheCrypto.epoch;
         BreachCacheCrypto.removeAllFor(this.STORE_NAME);
         this.version++;

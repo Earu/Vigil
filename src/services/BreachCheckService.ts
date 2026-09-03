@@ -116,6 +116,16 @@ export class BreachCheckService {
     // Cancellation support
     private static isCancelled = false;
 
+    // Progress toasts are throttled: a mostly-cached sweep calls
+    // incrementProgress once per entry in quick succession, and each toast
+    // update is a React render cycle. Leading call paints immediately, a
+    // trailing timer guarantees the last value lands. Completion,
+    // cancellation and error paths render through renderProgressToast, which
+    // bypasses the throttle
+    private static readonly TOAST_THROTTLE_MS = 150;
+    private static lastToastRender = 0;
+    private static toastTrailingTimer: ReturnType<typeof setTimeout> | null = null;
+
     public static cancelChecks(): void {
         this.isCancelled = true;
         this.clearProgress();
@@ -130,6 +140,7 @@ export class BreachCheckService {
         this.countedEmails.clear();
         this.progress = { checked: 0, total: 0 };
         this.emailProgress = { checked: 0, total: 0 };
+        this.cancelTrailingToast();
         if (this.toastId) {
             (window as any).updateToast?.(this.toastId, {
                 message: 'Breach check cancelled',
@@ -146,7 +157,34 @@ export class BreachCheckService {
         this.emailFetchCache.clear();
     }
 
+    private static cancelTrailingToast(): void {
+        if (this.toastTrailingTimer) {
+            clearTimeout(this.toastTrailingTimer);
+            this.toastTrailingTimer = null;
+        }
+    }
+
+    // Throttled path for per-entry progress. At most one render per
+    // TOAST_THROTTLE_MS; a burst schedules one trailing render so the final
+    // value always lands
     private static updateProgressToast(): void {
+        const elapsed = Date.now() - this.lastToastRender;
+        if (elapsed >= this.TOAST_THROTTLE_MS) {
+            this.renderProgressToast();
+            return;
+        }
+        if (this.toastTrailingTimer) return;
+        this.toastTrailingTimer = setTimeout(() => {
+            this.toastTrailingTimer = null;
+            this.renderProgressToast();
+        }, this.TOAST_THROTTLE_MS - elapsed);
+    }
+
+    // Immediate render, no throttle. Terminal states (completed, zeroed
+    // progress) call this directly so they never wait on the timer
+    private static renderProgressToast(): void {
+        this.cancelTrailingToast();
+        this.lastToastRender = Date.now();
         const isCheckingPasswords = this.progress.total > 0;
         const isCheckingEmails = this.emailProgress.total > 0;
 
@@ -299,7 +337,7 @@ export class BreachCheckService {
             if (!this.isCancelled) {
                 this.countedEntries.clear();
                 this.progress = { checked: 0, total: 0 };
-                this.updateProgressToast();
+                this.renderProgressToast();
             }
 
             return hasBreached;
@@ -399,33 +437,82 @@ export class BreachCheckService {
         return summaries;
     }
 
+    // cyrb53: fast 53-bit string hash, two imul lanes. Non-cryptographic on
+    // purpose: it only buckets candidates, real equality is confirmed on the
+    // decrypted text before anything is reported
+    private static cyrb53(text: string): string {
+        let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+        for (let i = 0; i < text.length; i++) {
+            const ch = text.charCodeAt(i);
+            h1 = Math.imul(h1 ^ ch, 2654435761);
+            h2 = Math.imul(h2 ^ ch, 1597334677);
+        }
+        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+        return (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36);
+    }
+
+    // Password hash keyed by the entry model object, so an unchanged model
+    // never re-decrypts its ProtectedValue. Only the hash is retained, never
+    // the text; '' means no password. Models are rebuilt on save, so a stale
+    // object simply stops being asked. Entry identity currently changes on
+    // every rebuild; the cache is correct regardless and pays off more once
+    // identities become stable
+    private static passwordHashCache = new WeakMap<Entry, string>();
+
+    private static passwordHash(entry: Entry): string {
+        const cached = this.passwordHashCache.get(entry);
+        if (cached !== undefined) return cached;
+        const text = entry.password ? KeepassDatabaseService.getPasswordString(entry.password) : '';
+        const hash = text ? this.cyrb53(text) : '';
+        this.passwordHashCache.set(entry, hash);
+        return hash;
+    }
+
     // Purely local: no network, no cached status, so this works the moment a
-    // vault is open. Recycle bin contents are left out, the way expiry is
+    // vault is open. Recycle bin contents are left out, the way expiry is.
+    // Buckets by cached hash first; only buckets with more than one member
+    // decrypt their few entries to confirm true equality, so a full-vault
+    // call decrypts almost nothing after the first pass
     public static findReusedPasswords(root: Group): ReusedPasswordGroup[] {
-        const byPassword = new Map<string, Array<{ entry: Entry; group: Group }>>();
+        const byHash = new Map<string, Array<{ entry: Entry; group: Group }>>();
 
         const walk = (group: Group) => {
             if (group.isRecycleBin) return;
             for (const entry of group.entries) {
-                const password = KeepassDatabaseService.getPasswordString(entry.password);
-                if (!password) continue;
-                const bucket = byPassword.get(password);
+                const hash = this.passwordHash(entry);
+                if (!hash) continue;
+                const bucket = byHash.get(hash);
                 if (bucket) bucket.push({ entry, group });
-                else byPassword.set(password, [{ entry, group }]);
+                else byHash.set(hash, [{ entry, group }]);
             }
             group.groups.forEach(walk);
         };
         walk(root);
 
-        return [...byPassword.values()]
-            .filter(bucket => bucket.length > 1)
-            .map(bucket => ({ entries: bucket, count: bucket.length }))
-            // Widest reuse first, then by title so the order is stable across
-            // renders (Map iteration order alone would follow insertion)
-            .sort((a, b) =>
-                b.count - a.count ||
-                a.entries[0].entry.title.localeCompare(b.entries[0].entry.title)
-            );
+        const clusters: ReusedPasswordGroup[] = [];
+        for (const bucket of byHash.values()) {
+            if (bucket.length < 2) continue;
+            // A shared hash is only a candidate: confirm on the real text so
+            // a collision never reports a false pair. The text stays local
+            const byText = new Map<string, Array<{ entry: Entry; group: Group }>>();
+            for (const item of bucket) {
+                const text = KeepassDatabaseService.getPasswordString(item.entry.password);
+                const sub = byText.get(text);
+                if (sub) sub.push(item);
+                else byText.set(text, [item]);
+            }
+            for (const sub of byText.values()) {
+                if (sub.length > 1) clusters.push({ entries: sub, count: sub.length });
+            }
+        }
+
+        // Widest reuse first, then by title so the order is stable across
+        // renders (Map iteration order alone would follow insertion)
+        return clusters.sort((a, b) =>
+            b.count - a.count ||
+            a.entries[0].entry.title.localeCompare(b.entries[0].entry.title)
+        );
     }
 
     public static clearCache(databasePath: string): void {
@@ -580,7 +667,7 @@ export class BreachCheckService {
             if (!this.isCancelled) {
                 this.countedEmails.clear();
                 this.emailProgress = { checked: 0, total: 0 };
-                this.updateProgressToast();
+                this.renderProgressToast();
             }
 
             return hasBreached;

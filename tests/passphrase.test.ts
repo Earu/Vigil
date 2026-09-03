@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { PassphraseService } from '../src/services/PassphraseService';
 import { EFF_WORDLIST } from '../src/data/effWordlist';
+
+// The wordlist is a lazy chunk in the app; load it once for the sync API
+beforeAll(() => PassphraseService.preload());
 
 describe('wordlist', () => {
     it('is the full EFF large wordlist', () => {

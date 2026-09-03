@@ -1,6 +1,7 @@
 import { Database, Entry, Group } from '../../types/database';
 import { useState } from 'react';
 import { BreachedEntry, BreachedEmailEntry, ReusedPasswordGroup } from '../../services/BreachCheckService';
+import { VirtualList } from './VirtualList';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { CloseActionIcon } from '../../icons/actions/ActionIcons';
 import './BreachReport.css';
@@ -101,6 +102,55 @@ export const BreachReport = ({
         </div>
     );
 
+    const renderEmailEntry = (entry: BreachedEmailEntry) => (
+        <div key={entry.entry.id} className="breached-entry">
+            <div className="report-entry-info">
+                <h3>{entry.entry.title}</h3>
+                <p className="username">{entry.entry.username}</p>
+                <p className="group-path">Group: {entry.group.name}</p>
+            </div>
+            <div className="breach-info">
+                <span className="strength-indicator" style={{ color: getStrengthColor(2) }}>
+                    Found in {entry.breaches.length} {entry.breaches.length === 1 ? 'breach' : 'breaches'}
+                </span>
+            </div>
+        </div>
+    );
+
+    const renderReusedCluster = (cluster: ReusedPasswordGroup) => (
+        <div key={cluster.entries[0].entry.id} className="reused-cluster">
+            <div className="reused-cluster-header">
+                Shared by {cluster.count} entries
+            </div>
+            <div className="breached-entries">
+                {cluster.entries.map(({ entry, group }) => (
+                    <div key={entry.id} className="breached-entry">
+                        <div className="report-entry-info">
+                            <h3>{entry.title}</h3>
+                            <p className="username">{entry.username}</p>
+                            <p className="group-path">Group: {group.name}</p>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+
+    const renderExpiredEntry = ({ entry, group }: { entry: Entry; group: Group }) => (
+        <div key={entry.id} className="breached-entry">
+            <div className="report-entry-info">
+                <h3>{entry.title}</h3>
+                <p className="username">{entry.username}</p>
+                <p className="group-path">Group: {group.name}</p>
+            </div>
+            <div className="breach-info">
+                <span className="strength-indicator" style={{ color: getStrengthColor(0) }}>
+                    Expired {entry.expiryTime?.toLocaleDateString()}
+                </span>
+            </div>
+        </div>
+    );
+
     return (
         <div className="breach-report-overlay">
             <div className="breach-report">
@@ -165,9 +215,11 @@ export const BreachReport = ({
                                     These passwords have appeared in known data breaches. It's recommended to change them as soon as possible.
                                 </p>
                             </div>
-                            <div className="breached-entries">
-                                {breachedEntries.map(entry => renderBreachedEntry(entry))}
-                            </div>
+                            <VirtualList
+                                className="breached-entries"
+                                items={breachedEntries}
+                                renderItem={renderBreachedEntry}
+                            />
                         </>
                     )}
 
@@ -182,9 +234,11 @@ export const BreachReport = ({
                                     These passwords are considered weak and should be strengthened to improve security.
                                 </p>
                             </div>
-                            <div className="breached-entries">
-                                {weakEntries.map(entry => renderWeakEntry(entry))}
-                            </div>
+                            <VirtualList
+                                className="breached-entries"
+                                items={weakEntries}
+                                renderItem={renderWeakEntry}
+                            />
                         </>
                     )}
 
@@ -199,22 +253,11 @@ export const BreachReport = ({
                                     These accounts have email addresses that have been exposed in data breaches since their passwords were last changed. It's recommended to update their passwords to ensure account security.
                                 </p>
                             </div>
-                            <div className="breached-entries">
-                                {breachedEmailEntries.map(entry => (
-                                    <div key={entry.entry.id} className="breached-entry">
-                                        <div className="report-entry-info">
-                                            <h3>{entry.entry.title}</h3>
-                                            <p className="username">{entry.entry.username}</p>
-                                            <p className="group-path">Group: {entry.group.name}</p>
-                                        </div>
-                                        <div className="breach-info">
-                                            <span className="strength-indicator" style={{ color: getStrengthColor(2) }}>
-                                                Found in {entry.breaches.length} {entry.breaches.length === 1 ? 'breach' : 'breaches'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <VirtualList
+                                className="breached-entries"
+                                items={breachedEmailEntries}
+                                renderItem={renderEmailEntry}
+                            />
                         </>
                     )}
 
@@ -229,26 +272,13 @@ export const BreachReport = ({
                                     These entries share a password with at least one other entry. One breach then exposes every account in the group, so give each of them its own password.
                                 </p>
                             </div>
-                            <div className="reused-clusters">
-                                {reusedPasswords.map(cluster => (
-                                    <div key={cluster.entries[0].entry.id} className="reused-cluster">
-                                        <div className="reused-cluster-header">
-                                            Shared by {cluster.count} entries
-                                        </div>
-                                        <div className="breached-entries">
-                                            {cluster.entries.map(({ entry, group }) => (
-                                                <div key={entry.id} className="breached-entry">
-                                                    <div className="report-entry-info">
-                                                        <h3>{entry.title}</h3>
-                                                        <p className="username">{entry.username}</p>
-                                                        <p className="group-path">Group: {group.name}</p>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <VirtualList
+                                className="reused-clusters"
+                                items={reusedPasswords}
+                                renderItem={renderReusedCluster}
+                                itemUnits={cluster => cluster.entries.length}
+                                unitSelector=".breached-entry"
+                            />
                         </>
                     )}
 
@@ -263,22 +293,11 @@ export const BreachReport = ({
                                     These entries are past their expiry date. Rotate the credentials and set a new expiry.
                                 </p>
                             </div>
-                            <div className="breached-entries">
-                                {expiredEntries.map(({ entry, group }) => (
-                                    <div key={entry.id} className="breached-entry">
-                                        <div className="report-entry-info">
-                                            <h3>{entry.title}</h3>
-                                            <p className="username">{entry.username}</p>
-                                            <p className="group-path">Group: {group.name}</p>
-                                        </div>
-                                        <div className="breach-info">
-                                            <span className="strength-indicator" style={{ color: getStrengthColor(0) }}>
-                                                Expired {entry.expiryTime?.toLocaleDateString()}
-                                            </span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                            <VirtualList
+                                className="breached-entries"
+                                items={expiredEntries}
+                                renderItem={renderExpiredEntry}
+                            />
                         </>
                     )}
 

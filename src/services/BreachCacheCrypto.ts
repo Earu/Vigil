@@ -74,8 +74,8 @@ class BreachCacheCryptoImpl {
     // own copy and reload, so a vault opening or closing never leaves them
     // serving another vault's decrypted contents
     private currentEpoch = 0;
-    // Once per session: writes coalesce at 1 Hz during a sweep, and every one
-    // of them would fail the same way
+    // Once per session: writes coalesce every few seconds during a sweep, and
+    // every one of them would fail the same way
     private warnedWriteFailure = false;
 
     get epoch(): number {
@@ -128,20 +128,25 @@ class BreachCacheCryptoImpl {
         }
     }
 
-    write(name: string, value: unknown): void {
+    // Returns the serialized plaintext size in bytes (0 when nothing could be
+    // sealed); the stores use it to scale their coalescing interval
+    write(name: string, value: unknown): number {
         const storageKey = this.storageKey(name);
-        if (!storageKey || !this.identity) return;
+        if (!storageKey || !this.identity) return 0;
         let sealed: string;
+        let plainBytes: number;
         try {
+            const plain = utf8(JSON.stringify(value));
+            plainBytes = plain.length;
             const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
-            const box = nacl.secretbox(utf8(JSON.stringify(value)), nonce, this.identity.key);
+            const box = nacl.secretbox(plain, nonce, this.identity.key);
             sealed = toBase64(concat(nonce, box));
         } catch {
-            return;
+            return 0;
         }
         try {
             localStorage.setItem(storageKey, sealed);
-            return;
+            return plainBytes;
         } catch { /* quota, most likely */ }
         // Storage is full. The open vault's fresh results are worth more than
         // another vault's stale cache, so evict every blob that is not this
@@ -152,7 +157,7 @@ class BreachCacheCryptoImpl {
                 .filter(key => key.startsWith(CACHE_KEY_PREFIX) && !key.endsWith(suffix))
                 .forEach(key => localStorage.removeItem(key));
             localStorage.setItem(storageKey, sealed);
-            return;
+            return plainBytes;
         } catch { /* still full, or storage unavailable */ }
         // The cache is rebuildable, but a silent failure means every unlock
         // re-sweeps the vault against HIBP with no visible reason. Say so once
@@ -165,6 +170,9 @@ class BreachCacheCryptoImpl {
                 });
             }
         }
+        // The blob was serialized even though storage refused it; the size is
+        // still what the next attempt will cost
+        return plainBytes;
     }
 
     remove(name: string): void {
