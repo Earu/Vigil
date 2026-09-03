@@ -37,7 +37,7 @@
 		"concurrently": "^8.2.2",
 		"cross-env": "^7.0.3",
 		"detect-libc": "^2.0.3",
-		"electron": "^44.0.0",
+		"electron": "^44.1.1",
 		"electron-builder": "^26.15.3",
 		"electron-updater": "^6.8.9",
 		"esbuild": "^0.20.2",
@@ -59,7 +59,7 @@
 	},
 	"main": "dist-electron/main.js",
 	"allowScripts": {
-		"electron@44.0.0": true,
+		"electron@44.1.1": true,
 		"electron-winstaller@5.4.0": true,
 		"esbuild@0.20.2": true,
 		"esbuild@0.24.2": true,
