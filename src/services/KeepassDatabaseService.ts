@@ -844,7 +844,7 @@ export class KeepassDatabaseService {
         return updatedDatabase;
     }
 
-    static saveEntry(database: Database, entry: Entry, selectedGroup: Group, isCreatingNew: boolean): [Database, Entry] {
+    static saveEntry(database: Database, entry: Entry, selectedGroup: Group, isCreatingNew: boolean): [Database, Entry, boolean] {
         // Copies only the path from the root down to the changed group. This
         // used to deep-copy the entire model (every entry, every history
         // revision) per save; untouched entries and groups now keep their
@@ -857,17 +857,10 @@ export class KeepassDatabaseService {
             savedEntry = { ...entry, id: kdbxweb.KdbxUuid.random().toString() };
         }
 
-        const isTarget = isCreatingNew
-            ? (group: Group) => group.id === selectedGroup.id
-            : (group: Group) => group.entries.some(e => e.id === entry.id);
-        const applyTo = isCreatingNew
-            ? (group: Group): Group => ({ ...group, entries: [...group.entries, savedEntry] })
-            : (group: Group): Group => ({ ...group, entries: group.entries.map(e => (e.id === entry.id ? savedEntry : e)) });
-
-        const rebuild = (group: Group): Group | null => {
+        const rebuild = (group: Group, isTarget: (g: Group) => boolean, applyTo: (g: Group) => Group): Group | null => {
             if (isTarget(group)) return applyTo(group);
             for (let i = 0; i < group.groups.length; i++) {
-                const child = rebuild(group.groups[i]);
+                const child = rebuild(group.groups[i], isTarget, applyTo);
                 if (child) {
                     const groups = group.groups.slice();
                     groups[i] = child;
@@ -876,13 +869,26 @@ export class KeepassDatabaseService {
             }
             return null;
         };
+        const addEntry = (group: Group): Group => ({ ...group, entries: [...group.entries, savedEntry] });
+        const replaceEntry = (group: Group): Group => ({ ...group, entries: group.entries.map(e => (e.id === entry.id ? savedEntry : e)) });
 
-        let root = rebuild(database.root);
-        // A new entry whose group is not in the tree lands at the root, as
-        // the deep-copy version did
-        if (!root && isCreatingNew) root = applyTo(database.root);
-        if (!root) return [{ ...database }, savedEntry];
-        return [{ ...database, root, groups: root.groups }, savedEntry];
+        let root = isCreatingNew
+            ? rebuild(database.root, group => group.id === selectedGroup.id, addEntry)
+            : rebuild(database.root, group => group.entries.some(e => e.id === entry.id), replaceEntry);
+
+        // An update whose entry is gone from the tree: a merge from another
+        // replica deleted it while the editor was open. The open editor is
+        // the newer intent, so the edit is re-added (same id: KDBX merge
+        // rules keep it, its modification time is newer than the tombstone's
+        // deletion time) instead of being silently dropped
+        const resurrected = !root && !isCreatingNew;
+        if (resurrected) {
+            root = rebuild(database.root, group => group.id === selectedGroup.id, addEntry);
+        }
+        // The target group is not in the tree either: land at the root, as
+        // the deep-copy version did for new entries
+        if (!root) root = addEntry(database.root);
+        return [{ ...database, root, groups: root.groups }, savedEntry, resurrected];
     }
 
     static findRecycleBin(root: Group): Group | null {
