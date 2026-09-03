@@ -73,10 +73,15 @@ export interface IElectronAPI {
 		/** The stored credential is still usable; only this attempt failed. */
 		retry?: boolean;
 	}>;
-	// hardwareBacked reports what protects the stored password now: false for
-	// a legacy macOS blob awaiting its re-seal at the next unlock
-	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled: boolean; hardwareBacked?: boolean; error?: string }>;
+	// armed says an unlock attempt could release a password right now: false
+	// for a session-scoped vault after a restart, until a password unlock
+	// re-arms it
+	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled: boolean; armed?: boolean; error?: string }>;
 	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
+	// Windows only: whether Hello unlock survives a restart (persistent blob)
+	// or the sealed password lives only in Vigil's memory for the session
+	getBiometricsConfig: () => Promise<{ requirePasswordAfterRestart: boolean }>;
+	setBiometricsConfig: (config: { requirePasswordAfterRestart: boolean }) => Promise<{ success: boolean; error?: string }>;
 	// Copying runs in the main process so it can carry the macOS pasteboard
 	// markers and so a quit mid-countdown can still take the secret back
 	copySecret: (text: string, clearSeconds?: number) => Promise<{ success: boolean; error?: string }>;

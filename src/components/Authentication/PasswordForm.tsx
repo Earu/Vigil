@@ -91,10 +91,10 @@ export const PasswordForm = ({
     // Why the option is missing on a machine whose sensor works (an unsigned
     // macOS build); the user should be told, since nothing else explains it
     const [biometricsUnavailableReason, setBiometricsUnavailableReason] = useState<string | null>(null);
-    // What protects the stored password right now. False only for a legacy
-    // macOS blob that the next unlock re-seals under the keychain; until then
-    // the button looks the same but the guarantee is not
-    const [biometricsHardwareBacked, setBiometricsHardwareBacked] = useState(true);
+    // Whether an unlock attempt could release a password right now. False for
+    // a session-scoped vault after a restart, until the password unlock below
+    // re-arms it
+    const [biometricsArmed, setBiometricsArmed] = useState(true);
     const [showPasswordInput, setShowPasswordInput] = useState(!initialBiometricsEnabled);
     const [keyFile, setKeyFile] = useState<{ path: string; name: string } | null>(null);
     const [hardwareKey, setHardwareKey] = useState<HardwareKeySelection | null>(null);
@@ -219,13 +219,17 @@ export const PasswordForm = ({
 
     useEffect(() => {
         if (!window.electron || !databasePath || !isBiometricsEnabled) {
-            setBiometricsHardwareBacked(true);
+            setBiometricsArmed(true);
             return;
         }
         let cancelled = false;
         window.electron.hasBiometricsEnabled(databasePath).then(result => {
             if (cancelled) return;
-            setBiometricsHardwareBacked(!(result.success && result.enabled && result.hardwareBacked === false));
+            // false only for a session-scoped vault awaiting its re-arm (or a
+            // persistent blob frozen by the restart-lock setting): the
+            // password field is what unlocks now, so lead with it
+            setBiometricsArmed(result.armed !== false);
+            if (result.armed === false) setShowPasswordInput(true);
         }).catch(() => {});
         return () => { cancelled = true; };
     }, [databasePath, isBiometricsEnabled]);
@@ -455,6 +459,15 @@ export const PasswordForm = ({
             rememberKeyFile(databasePath);
             onDatabaseOpen(database, db);
 
+            // A session-scoped biometric setup (require password after
+            // restart) is re-armed by exactly this: the typed master
+            // password. Silent, no prompt; the Hello check happens at release
+            if (isBiometricsEnabled && !biometricsArmed && databasePath && window.electron) {
+                void window.electron.enableBiometrics(databasePath, password)
+                    .then(result => { if (result.success) setBiometricsArmed(true); })
+                    .catch(() => {});
+            }
+
             // Start breach checking in the background
             if (databasePath) {
                 await startBreachCheck(database, db, databasePath);
@@ -675,19 +688,6 @@ export const PasswordForm = ({
                             <BiometricAuthIcon className="biometric-icon" />
                             {navigator.userAgent.includes('Mac') ? 'Unlock with Touch ID' : (navigator.userAgent.includes('Windows') ? 'Unlock with Windows Hello' : 'Unlock with Biometrics')}
                         </button>
-                    )}
-
-                    {/* Nothing is shown for a hardware backed unlock: that is the
-                        expected state and a badge for it would just be noise. The
-                        weaker one has to be visible, since the button and the
-                        prompt look exactly the same either way */}
-                    {isBiometricsEnabled && !biometricsHardwareBacked && (
-                        <p
-                            className="biometric-weak-notice"
-                            title="The saved password was stored by an earlier version under a key this machine can rebuild without a biometric check. The next unlock moves it into the biometry-gated keychain."
-                        >
-                            Not hardware backed until the next unlock
-                        </p>
                     )}
 
                     {isBiometricsEnabled && (

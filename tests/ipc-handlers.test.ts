@@ -63,6 +63,8 @@ vi.mock('../electron/src/file-operations', () => ({
 vi.mock('../electron/src/biometrics', () => ({
     isBiometricsAvailable: vi.fn(),
     getBiometricsInfo: vi.fn(),
+    getBiometricsConfig: vi.fn(),
+    setBiometricsConfig: vi.fn(),
     hasBiometricsEnabled: vi.fn(),
     enableBiometrics: vi.fn(),
     getBiometricPassword: vi.fn(),

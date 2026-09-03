@@ -71,6 +71,8 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [browserIntegration, setBrowserIntegration] = useState<{ supported: boolean; enabled: boolean; running: boolean } | null>(null);
     const [browserAssociations, setBrowserAssociations] = useState<Array<{ name: string; key: string }>>([]);
     const [contentProtection, setContentProtection] = useState<{ supported: boolean; enabled: boolean } | null>(null);
+    // null until loaded, so the toggle never flashes a wrong default
+    const [biometricsRestartLock, setBiometricsRestartLock] = useState<boolean | null>(null);
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
     // the database
@@ -106,6 +108,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             .then(status => setBrowserIntegration({ supported: status.supported, enabled: status.enabled, running: status.running }))
             .catch(() => {});
         window.electron.getContentProtection().then(setContentProtection).catch(() => {});
+        window.electron.getBiometricsConfig?.()
+            .then(config => setBiometricsRestartLock(config.requirePasswordAfterRestart))
+            .catch(() => {});
         const refreshAssociations = () =>
             setBrowserAssociations(kdbxDb ? BrowserIntegrationService.listAssociations(kdbxDb) : []);
         refreshAssociations();
@@ -151,6 +156,18 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             window.dispatchEvent(new Event('vigil-hibp-key-changed'));
         } else {
             (window as any).showToast?.({ message: result?.error || 'Failed to remove the API key', type: 'error', duration: 5000 });
+        }
+    };
+
+    const handleBiometricsRestartLockToggle = async (enabled: boolean) => {
+        if (!window.electron) return;
+        // Optimistic; turning the lock OFF may show one Hello prompt per
+        // armed vault, the consent to write its password back to disk
+        setBiometricsRestartLock(enabled);
+        const result = await window.electron.setBiometricsConfig({ requirePasswordAfterRestart: enabled });
+        if (!result.success) {
+            setBiometricsRestartLock(!enabled);
+            (window as any).showToast?.({ message: result.error || 'Failed to change the setting', type: 'error', duration: 5000 });
         }
     };
 
@@ -818,6 +835,25 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 </div>
                             )}
                         </div>
+                        {navigator.userAgent.includes('Windows') && biometricsRestartLock !== null && (
+                            <div className="content-protection-controls">
+                                <div className="auto-lock-toggle">
+                                    <label htmlFor="biometrics-restart-lock">Require master password after restart</label>
+                                    <input
+                                        type="checkbox"
+                                        id="biometrics-restart-lock"
+                                        checked={biometricsRestartLock}
+                                        onChange={(e) => handleBiometricsRestartLockToggle(e.target.checked)}
+                                    />
+                                </div>
+                                <p className="auto-lock-help">
+                                    Windows Hello unlock then works only until Vigil quits: nothing that can
+                                    release the master password is written to disk, so a fake Hello prompt
+                                    from another program cannot phish it. After a restart, type the master
+                                    password once and Hello unlock re-arms for the session.
+                                </p>
+                            </div>
+                        )}
                         {contentProtection?.supported && (
                             <div className="content-protection-controls">
                                 <div className="auto-lock-toggle">

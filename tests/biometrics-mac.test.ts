@@ -6,9 +6,8 @@ import path from 'path';
 // macOS biometric unlock has exactly one place a master password may be
 // sealed to: a key in the biometry-gated keychain, which only a signed build
 // can write. These tests pin the two policies around that: a build the
-// keychain refuses gets no unlock rather than the old prompt-only scheme, and
-// a blob written by that old scheme is either re-sealed or discarded, never
-// kept as it is
+// keychain refuses gets no unlock rather than a weaker scheme, and a blob in
+// any outdated format is discarded, never kept readable
 
 const state = vi.hoisted(() => ({
     userData: '',
@@ -103,7 +102,7 @@ describe('enabling biometric unlock on macOS', () => {
         expect(state.keytar.get(ACCOUNT)).toMatch(/^v3:/);
         expect(state.touch.secrets.has(ACCOUNT)).toBe(true);
 
-        expect(await bio.hasBiometricsEnabled(DB)).toEqual({ success: true, enabled: true, hardwareBacked: true });
+        expect(await bio.hasBiometricsEnabled(DB)).toEqual({ success: true, enabled: true, armed: true });
         expect(await bio.getBiometricPassword(DB)).toEqual({ success: true, password: 'hunter2' });
     });
 
@@ -148,49 +147,20 @@ describe('enabling biometric unlock on macOS', () => {
     });
 });
 
-describe('a blob written by the old prompt-only scheme', () => {
-    it('is re-sealed under the keychain by the first unlock on a signed build', async () => {
-        state.keytar.set(ACCOUNT, legacyBlob('hunter2'));
-        expect(await bio.hasBiometricsEnabled(DB)).toEqual({ success: true, enabled: true, hardwareBacked: false });
-
-        expect(await bio.getBiometricPassword(DB)).toEqual({ success: true, password: 'hunter2' });
-        expect(state.keytar.get(ACCOUNT)).toMatch(/^v3:/);
-        expect(state.touch.secrets.has(ACCOUNT)).toBe(true);
-        expect(await bio.hasBiometricsEnabled(DB)).toEqual({ success: true, enabled: true, hardwareBacked: true });
-    });
-
-    it('is discarded by a build that cannot re-seal it', async () => {
-        unsignedBuild();
+describe('a blob in an outdated format', () => {
+    it('is discarded at status check, never reported as enabled', async () => {
         state.keytar.set(ACCOUNT, legacyBlob('hunter2'));
         expect(await bio.hasBiometricsEnabled(DB)).toEqual({ success: true, enabled: false });
         expect(state.keytar.size).toBe(0);
+    });
 
+    it('is discarded at unlock with a re-enable message, releasing nothing', async () => {
         state.keytar.set(ACCOUNT, legacyBlob('hunter2'));
         const result = await bio.getBiometricPassword(DB);
         expect(result.success).toBe(false);
+        expect(result.password).toBeUndefined();
         expect(result.retry).toBeFalsy();
-        expect(result.error).toMatch(/turned off/);
-        expect(state.keytar.size).toBe(0);
-    });
-
-    it('is discarded, not guessed at, when the hardware identifier is unavailable', async () => {
-        // The old fallback derived the key from user name and host name
-        state.keytar.set(ACCOUNT, legacyBlob('hunter2'));
-        state.hardwareUuid = null;
-        const result = await bio.getBiometricPassword(DB);
-        expect(result.success).toBe(false);
-        expect(result.error).toMatch(/stale/);
-        expect(state.keytar.size).toBe(0);
-    });
-
-    it('does not survive an unlock whose re-seal failed', async () => {
-        state.keytar.set(ACCOUNT, legacyBlob('hunter2'));
-        // The probe passes, then the keychain refuses the real write
-        const probe = await bio.getBiometricsInfo();
-        expect(probe.available).toBe(true);
-        state.touch.acceptWrites = false;
-
-        expect(await bio.getBiometricPassword(DB)).toEqual({ success: true, password: 'hunter2' });
+        expect(result.error).toMatch(/enable it again/);
         expect(state.keytar.size).toBe(0);
     });
 });

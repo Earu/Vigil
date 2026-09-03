@@ -18,6 +18,8 @@ import {
 import {
     isBiometricsAvailable,
     getBiometricsInfo,
+    getBiometricsConfig,
+    setBiometricsConfig,
     hasBiometricsEnabled,
     enableBiometrics,
     getBiometricPassword,
@@ -246,6 +248,16 @@ export function setupIpcHandlers(): void {
 
     ipcMain.handle('get-biometrics-info', async () => {
         return await getBiometricsInfo();
+    });
+
+    // Global, not per-vault, so no path gate: whether Windows Hello unlock
+    // survives a restart (persistent blob) or lives only for the session
+    ipcMain.handle('get-biometrics-config', () => getBiometricsConfig());
+
+    ipcMain.handle('set-biometrics-config', async (_, config: unknown) => {
+        const strict = (config as { requirePasswordAfterRestart?: unknown } | null)?.requirePasswordAfterRestart;
+        if (typeof strict !== 'boolean') return { success: false, error: 'Invalid config' };
+        return await setBiometricsConfig({ requirePasswordAfterRestart: strict });
     });
 
     // Gated like the file channels: get-biometric-password hands out a

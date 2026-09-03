@@ -2,59 +2,73 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto'
 
 // Sealing for biometric-protected master passwords.
 //
-// v2 (Windows): the AES key is derived from a Windows Hello signature over a
-// random challenge stored alongside the ciphertext. The signature is RSA
-// PKCS#1 v1.5, so it is deterministic and re-derivable, but producing it
-// requires a live Hello verification: the key never exists on disk.
-// (Same construction as Bitwarden's Windows Hello unlock.)
+// Exactly one live format per platform; a blob in any older format is
+// discarded at read and the user re-enables. These are convenience secrets
+// (a sealed copy of a password the user knows), so "migration" for them is
+// a reset, not a compatibility reader that lives forever.
 //
 // v3 (macOS): the AES key is derived from a random 32-byte value that lives
 // in a biometry-gated keychain item, so releasing it costs a Touch ID (or
 // device passcode) check enforced by the OS. Nothing on disk derives the key.
-// Same shape as v2 minus the challenge, because the wrapping key is stored
-// rather than reconstructed. (KeePassXC's TouchID quick unlock does the same
+// Same envelope as v4 minus the challenge, because the wrapping key is
+// stored rather than reconstructed. (KeePassXC's TouchID quick unlock does the same
 // thing, with the sealed key held in memory instead of the keychain.)
+//
+// v4 (Windows): the AES key is HKDF of a Windows Hello signature over a
+// random challenge stored alongside the ciphertext, with a DPAPI-protected
+// random entropy value as the salt. The RSA PKCS#1 v1.5 signature is
+// deterministic and re-derivable, but producing it requires a live Hello
+// verification: the key never exists on disk. The entropy means the
+// signature alone no longer derives the key either. Against
+// same-user malware phishing a Hello prompt this only adds one more store to
+// read; what it actually closes is every path that reaches the Credential
+// Manager blob without user-context code execution (credential roaming,
+// backup exfiltration, cross-user reads). The real defense against prompt
+// phishing is the session-scoped mode in biometrics.ts, which writes no
+// persistent blob at all.
 
-const V2_PREFIX = 'v2:';
 const V3_PREFIX = 'v3:';
+const V4_PREFIX = 'v4:';
 const CHALLENGE_LENGTH = 32;
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
 
-export function isV2Blob(blob: string): boolean {
-    return blob.startsWith(V2_PREFIX);
-}
-
 export function isV3Blob(blob: string): boolean {
     return blob.startsWith(V3_PREFIX);
+}
+
+export function isV4Blob(blob: string): boolean {
+    return blob.startsWith(V4_PREFIX);
 }
 
 export function makeChallenge(): Buffer {
     return randomBytes(CHALLENGE_LENGTH);
 }
 
-export function deriveKeyFromSignature(signature: Buffer): Buffer {
-    return Buffer.from(hkdfSync('sha256', signature, Buffer.alloc(0), 'vigil-biometric-v2', 32));
+// v4: the entropy is the HKDF salt, so the same signature under different
+// entropy derives unrelated keys, and neither input alone derives anything
+export function deriveKeyWithEntropy(signature: Buffer, entropy: Buffer): Buffer {
+    return Buffer.from(hkdfSync('sha256', signature, entropy, 'vigil-biometric-v4', 32));
 }
 
-export function sealPassword(password: string, challenge: Buffer, key: Buffer): string {
+function sealWithPrefix(prefix: string, password: string, challenge: Buffer, key: Buffer): string {
     const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(password, 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();
-    return V2_PREFIX + Buffer.concat([challenge, iv, tag, encrypted]).toString('base64');
+    return prefix + Buffer.concat([challenge, iv, tag, encrypted]).toString('base64');
 }
 
-export function challengeFromBlob(blob: string): Buffer {
-    const data = Buffer.from(blob.slice(V2_PREFIX.length), 'base64');
+function challengeWithPrefix(prefix: string, blob: string): Buffer {
+    const data = Buffer.from(blob.slice(prefix.length), 'base64');
     if (data.length < CHALLENGE_LENGTH + IV_LENGTH + TAG_LENGTH) {
         throw new Error('Malformed biometric blob');
     }
     return data.subarray(0, CHALLENGE_LENGTH);
 }
 
-export function openPassword(blob: string, key: Buffer): string {
-    const data = Buffer.from(blob.slice(V2_PREFIX.length), 'base64');
+function openWithPrefix(prefix: string, blob: string, key: Buffer): string {
+    const data = Buffer.from(blob.slice(prefix.length), 'base64');
     if (data.length < CHALLENGE_LENGTH + IV_LENGTH + TAG_LENGTH) {
         throw new Error('Malformed biometric blob');
     }
@@ -64,6 +78,18 @@ export function openPassword(blob: string, key: Buffer): string {
     const decipher = createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(tag);
     return decipher.update(encrypted, undefined, 'utf8') + decipher.final('utf8');
+}
+
+export function sealPasswordV4(password: string, challenge: Buffer, key: Buffer): string {
+    return sealWithPrefix(V4_PREFIX, password, challenge, key);
+}
+
+export function challengeFromV4Blob(blob: string): Buffer {
+    return challengeWithPrefix(V4_PREFIX, blob);
+}
+
+export function openPasswordV4(blob: string, key: Buffer): string {
+    return openWithPrefix(V4_PREFIX, blob, key);
 }
 
 // v3: seal under a key that only a passed biometric check can produce.
