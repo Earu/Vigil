@@ -10,7 +10,7 @@ import {
     GeneratorSettings,
 } from '../../services/PasswordGeneratorService';
 import { CloseActionIcon, CopyActionIcon, RefreshActionIcon } from '../../icons/actions/ActionIcons';
-import { ClipboardService, CLIPBOARD_CLEAR_SECONDS } from '../../services/ClipboardService';
+import { ClipboardService } from '../../services/ClipboardService';
 
 // Only one generator is open at a time, so a constant identifies its copy
 // button well enough to keep the countdown badge off every entry's password
@@ -195,7 +195,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 {clipboard.secondsLeft > 0 && clipboard.source === COPY_SOURCE && (
                                     <div
                                         className="clipboard-timer"
-                                        style={{ '--progress': `${(clipboard.secondsLeft / CLIPBOARD_CLEAR_SECONDS) * 100}%` } as React.CSSProperties}
+                                        style={{ '--progress': `${(clipboard.secondsLeft / clipboard.totalSeconds) * 100}%` } as React.CSSProperties}
                                     >
                                         {clipboard.secondsLeft}s
                                     </div>

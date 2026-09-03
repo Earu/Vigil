@@ -143,4 +143,11 @@ export class ExportService {
         const name = (kdbxDb.meta.name || 'vigil').replace(/[^\w.-]+/g, '_');
         return `${name}-export.csv`;
     }
+
+    // Named -copy rather than after the vault so the save dialog does not
+    // default to overwriting the live file
+    static kdbxCopyFileName(kdbxDb: kdbxweb.Kdbx): string {
+        const name = (kdbxDb.meta.name || 'vigil').replace(/[^\w.-]+/g, '_');
+        return `${name}-copy.kdbx`;
+    }
 }

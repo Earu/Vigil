@@ -47,7 +47,9 @@ vi.stubGlobal('window', {
     showToast: (toast: { message: string; type: string }) => toasts.push(toast),
 });
 
-const { ClipboardService, CLIPBOARD_CLEAR_SECONDS } = await import('../src/services/ClipboardService');
+const { ClipboardService } = await import('../src/services/ClipboardService');
+const { userSettingsService, DEFAULT_CLIPBOARD_CLEAR_SECONDS } = await import('../src/services/UserSettingsService');
+const CLIPBOARD_CLEAR_SECONDS = DEFAULT_CLIPBOARD_CLEAR_SECONDS;
 
 // Run out the countdown; the clear itself is async, so let microtasks drain
 const runOut = async (seconds = CLIPBOARD_CLEAR_SECONDS) => {
@@ -74,7 +76,7 @@ describe('clipboard countdown', () => {
     it('clears a copied secret once the countdown runs out', async () => {
         await ClipboardService.copy('hunter2', 'Password', 'entry:a:Password');
         expect(board).toBe('hunter2');
-        expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: CLIPBOARD_CLEAR_SECONDS, label: 'Password', source: 'entry:a:Password' });
+        expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: CLIPBOARD_CLEAR_SECONDS, totalSeconds: CLIPBOARD_CLEAR_SECONDS, label: 'Password', source: 'entry:a:Password' });
 
         await runOut(CLIPBOARD_CLEAR_SECONDS - 1);
         expect(board).toBe('hunter2');
@@ -83,14 +85,14 @@ describe('clipboard countdown', () => {
         await runOut(1);
         expect(cleared).toBe(1);
         expect(board).toBe('');
-        expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: 0, label: '', source: '' });
+        expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: 0, totalSeconds: 0, label: '', source: '' });
     });
 
     it('restarts the countdown on a second copy instead of inheriting the old one', async () => {
         await ClipboardService.copy('first', 'Password', 'entry:a:Password');
         await runOut(CLIPBOARD_CLEAR_SECONDS - 2);
         await ClipboardService.copy('second', 'Username', 'entry:a:Username');
-        expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: CLIPBOARD_CLEAR_SECONDS, label: 'Username', source: 'entry:a:Username' });
+        expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: CLIPBOARD_CLEAR_SECONDS, totalSeconds: CLIPBOARD_CLEAR_SECONDS, label: 'Username', source: 'entry:a:Username' });
 
         // The old countdown would have fired by now
         await runOut(3);
@@ -107,7 +109,7 @@ describe('clipboard countdown', () => {
         await Promise.resolve();
 
         expect(cleared).toBe(1);
-        expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: 0, label: '', source: '' });
+        expect(ClipboardService.getSnapshot()).toEqual({ secondsLeft: 0, totalSeconds: 0, label: '', source: '' });
 
         // The countdown is gone, so nothing fires later
         await runOut();
@@ -138,6 +140,31 @@ describe('clipboard countdown', () => {
         await ClipboardService.copy('stored', 'Password', 'entry:a:Password');
 
         expect(ClipboardService.getSnapshot().source).toBe('entry:a:Password');
+    });
+
+    it('honours the configured clear duration', async () => {
+        userSettingsService.setClipboardClearSeconds(5);
+        try {
+            await ClipboardService.copy('hunter2', 'Password', 'entry:a:Password');
+            expect(ClipboardService.getSnapshot().secondsLeft).toBe(5);
+            expect(ClipboardService.getSnapshot().totalSeconds).toBe(5);
+
+            await runOut(5);
+            expect(cleared).toBe(1);
+        } finally {
+            userSettingsService.setClipboardClearSeconds(DEFAULT_CLIPBOARD_CLEAR_SECONDS);
+        }
+    });
+
+    it('clamps the configured duration to its bounds', () => {
+        try {
+            userSettingsService.setClipboardClearSeconds(1);
+            expect(userSettingsService.getClipboardClearSeconds()).toBe(5);
+            userSettingsService.setClipboardClearSeconds(9999);
+            expect(userSettingsService.getClipboardClearSeconds()).toBe(600);
+        } finally {
+            userSettingsService.setClipboardClearSeconds(DEFAULT_CLIPBOARD_CLEAR_SECONDS);
+        }
     });
 
     it('notifies subscribers on every tick', async () => {

@@ -12,10 +12,14 @@
 // lives there too, next to the clipboard it is about. What is left here is the
 // countdown the UI draws.
 
-export const CLIPBOARD_CLEAR_SECONDS = 20;
+import { userSettingsService } from './UserSettingsService';
 
 export interface ClipboardCountdown {
     secondsLeft: number;
+    // What the countdown started from, so a progress bar has a denominator;
+    // the duration is a user setting read at copy time, so it can differ
+    // between two countdowns
+    totalSeconds: number;
     // What was copied ("Password", "Username"), for the toast wording
     label: string;
     // Which control started this countdown, so the badge appears on that
@@ -24,7 +28,7 @@ export interface ClipboardCountdown {
     source: string;
 }
 
-const IDLE: ClipboardCountdown = { secondsLeft: 0, label: '', source: '' };
+const IDLE: ClipboardCountdown = { secondsLeft: 0, totalSeconds: 0, label: '', source: '' };
 
 class ClipboardServiceImpl {
     private snapshot: ClipboardCountdown = IDLE;
@@ -72,7 +76,8 @@ class ClipboardServiceImpl {
         // A second copy restarts the countdown rather than inheriting what
         // was left of the previous one
         this.stopTimer();
-        this.emit({ secondsLeft: CLIPBOARD_CLEAR_SECONDS, label, source });
+        const totalSeconds = userSettingsService.getClipboardClearSeconds();
+        this.emit({ secondsLeft: totalSeconds, totalSeconds, label, source });
         this.timer = setInterval(() => {
             const secondsLeft = this.snapshot.secondsLeft - 1;
             if (secondsLeft > 0) {
