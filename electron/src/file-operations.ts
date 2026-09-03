@@ -1,4 +1,5 @@
 import { app, dialog, BrowserWindow } from 'electron';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { backupBeforeWrite, BackupRequest, DEFAULT_BACKUP_OPTIONS } from './backups';
@@ -6,14 +7,33 @@ import { grantPath, grantPathPersistent } from './path-authority';
 
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
 
+// Temp files are created exclusively ('wx') under a random name: 'w' would
+// follow anything pre-planted at the path, so in a directory another local
+// user can write to, a predictable name let a pre-placed symlink capture the
+// bytes and, after the rename, the file itself. O_EXCL refuses to open a
+// pre-existing path (symlinks included) and the random suffix makes planting
+// one a lottery; EEXIST retries cover the lottery winner
+async function openExclusiveTemp(tmpBase: string, mode: number): Promise<{ handle: fs.promises.FileHandle; tmpPath: string }> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const tmpPath = `${tmpBase}.tmp-${crypto.randomBytes(8).toString('hex')}`;
+        try {
+            return { handle: await fs.promises.open(tmpPath, 'wx', mode), tmpPath };
+        } catch (error) {
+            lastError = error;
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        }
+    }
+    throw lastError;
+}
+
 // Sidecar files (the last-database record) hold vault locations: written
 // owner-only, temp in the same dir then rename so a crash mid-write cannot
 // truncate them. The mode only applies on create and the umask masks it,
 // hence the chmod on the temp file that survives the rename
 async function writeSidecar(filePath: string, data: string): Promise<void> {
-    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    const { handle, tmpPath } = await openExclusiveTemp(filePath, 0o600);
     try {
-        const handle = await fs.promises.open(tmpPath, 'w', 0o600);
         try {
             if (process.platform !== 'win32') await handle.chmod(0o600);
             await handle.writeFile(data);
@@ -80,19 +100,16 @@ async function targetMode(filePath: string): Promise<number | null> {
 // Write to a temp file in the same directory, fsync, then rename over the
 // target. A crash mid-write leaves the original database intact
 async function atomicWrite(filePath: string, data: Buffer): Promise<void> {
-    const tmpPath = path.join(
-        path.dirname(filePath),
-        `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}`
-    );
+    const tmpBase = path.join(path.dirname(filePath), `.${path.basename(filePath)}`);
     const mode = await targetMode(filePath);
 
+    // The temp file is the one that survives the rename, so it is the one
+    // whose permissions matter. Created at the umask default it would be
+    // 0644 on a typical setup, quietly making a 0600 vault world readable
+    // on the next save. The open mode is still masked by the umask, so the
+    // exact mode is set with a second call that is not
+    const { handle, tmpPath } = await openExclusiveTemp(tmpBase, mode ?? 0o666);
     try {
-        // The temp file is the one that survives the rename, so it is the one
-        // whose permissions matter. Created at the umask default it would be
-        // 0644 on a typical setup, quietly making a 0600 vault world readable
-        // on the next save. The open mode is still masked by the umask, so the
-        // exact mode is set with a second call that is not
-        const handle = await fs.promises.open(tmpPath, 'w', mode ?? 0o666);
         try {
             if (mode !== null) await handle.chmod(mode);
             await handle.writeFile(data);

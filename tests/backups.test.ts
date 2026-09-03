@@ -155,6 +155,31 @@ describe('vault backups', () => {
         expect((fs.statSync(backup).mode & 0o777).toString(8)).toBe('600');
     });
 
+    it('creates the backup directory owner-only', async () => {
+        process.umask(0o022);
+        const vault = newVault();
+
+        await backupBeforeWrite(vault, ON);
+
+        expect((fs.statSync(backupDir(vault)).mode & 0o777).toString(8)).toBe('700');
+    });
+
+    it('a failed chmod still leaves the copy no wider than the vault', async () => {
+        // The copy is created at the vault's mode (umask can only subtract),
+        // so the chmod is a fix-up rather than the only thing standing
+        // between a 0600 vault and a 0644 backup
+        process.umask(0o022);
+        const vault = newVault();
+        fs.chmodSync(vault, 0o600);
+        const spy = vi.spyOn(fs.promises, 'chmod').mockRejectedValue(new Error('denied'));
+
+        await backupBeforeWrite(vault, ON);
+        spy.mockRestore();
+
+        const [backup] = await listBackups(vault);
+        expect((fs.statSync(backup).mode & 0o777).toString(8)).toBe('600');
+    });
+
     it('keeps two vaults of the same name apart', async () => {
         const a = path.join(fs.mkdtempSync(path.join(tmpRoot, 'a-')), 'vault.kdbx');
         const b = path.join(fs.mkdtempSync(path.join(tmpRoot, 'b-')), 'vault.kdbx');

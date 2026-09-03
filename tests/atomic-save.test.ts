@@ -44,6 +44,47 @@ describe('atomic database writes', () => {
         expect(fs.readdirSync(dir)).toHaveLength(1);
     });
 
+    // The temp name is random and the open is exclusive ('wx'): in a
+    // directory another user can write to, a predictable name plus 'w' let a
+    // pre-planted symlink capture the vault bytes and, after the rename, the
+    // vault file itself
+    it('refuses to write through anything pre-planted at the temp path', async () => {
+        const cryptoMod = (await import('crypto')).default;
+        const fixed = Buffer.from('0123456789abcdef', 'hex');
+        const spy = vi.spyOn(cryptoMod, 'randomBytes').mockReturnValue(fixed as any);
+        const planted = path.join(dir, `.vault.kdbx.tmp-${fixed.toString('hex')}`);
+        fs.writeFileSync(planted, 'attacker-owned');
+
+        const result = await saveToFile(target, Buffer.from('should-never-land'));
+        spy.mockRestore();
+
+        expect(result.success).toBe(false);
+        expect(fs.readFileSync(planted, 'utf8')).toBe('attacker-owned');
+        expect(fs.readFileSync(target).toString()).toBe('version-2-longer-content');
+        fs.unlinkSync(planted);
+    });
+
+    it('retries under a fresh name when the random one collides', async () => {
+        const cryptoMod = (await import('crypto')).default;
+        const real = cryptoMod.randomBytes.bind(cryptoMod);
+        const fixed = Buffer.from('feedfacefeedface', 'hex');
+        const spy = vi.spyOn(cryptoMod, 'randomBytes')
+            .mockImplementationOnce((() => fixed) as any)
+            .mockImplementation(((size: number) => real(size)) as any);
+        const planted = path.join(dir, `.vault.kdbx.tmp-${fixed.toString('hex')}`);
+        fs.writeFileSync(planted, 'attacker-owned');
+
+        const result = await saveToFile(target, Buffer.from('lands-on-retry'));
+        spy.mockRestore();
+
+        expect(result.success).toBe(true);
+        expect(fs.readFileSync(target).toString()).toBe('lands-on-retry');
+        expect(fs.readFileSync(planted, 'utf8')).toBe('attacker-owned');
+        fs.unlinkSync(planted);
+        // Restore the content later tests expect
+        await saveToFile(target, Buffer.from('version-2-longer-content'));
+    });
+
     it('stats files and fails cleanly on missing ones', async () => {
         const stat = await statFile(target);
         expect(stat.success).toBe(true);
