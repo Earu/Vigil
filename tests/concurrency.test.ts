@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import * as kdbxweb from 'kdbxweb';
-import { installMockWindow, cred, loadSaved, allTitles, tick, MockEnv } from './helpers';
+import { installMockWindow, cred, loadSaved, allTitles, tick, MockEnv, wireConflictResolver } from './helpers';
 
 const env: MockEnv = installMockWindow();
 const { KeepassDatabaseService: Svc } = await import('../src/services/KeepassDatabaseService');
+wireConflictResolver(Svc, env);
 
 describe('concurrent-change protection', () => {
     let kdbxDb: kdbxweb.Kdbx;

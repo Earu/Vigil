@@ -84,6 +84,27 @@ export class KeepassDatabaseService {
         }
     }
 
+    // Asks the user whether an unmergeable external change may be overwritten.
+    // App registers a dialog-backed resolver; without one the answer is no
+    static conflictResolver: ((message: string) => Promise<boolean>) | undefined;
+
+    // Same ledger idea for VALUES of existing entries: the browser updating a
+    // stored login rewrites fields on the kdbx object directly, and a save
+    // applying a model built before that write would push the old values back
+    // (archiving the new ones into history and telling nobody). An entry
+    // listed here is written out as the kdbx holds it whenever the model is
+    // older than the first one that carried the new values. The cost, taken
+    // deliberately: a user edit to the SAME entry racing the browser's update
+    // loses to it; the alternative silently undoes a write the extension was
+    // told succeeded whenever any UI save races it
+    private static unmodeledEditUuids = new Map<string, number | undefined>();
+
+    static registerUnmodeledEdits(uuids: string[]): void {
+        for (const uuid of uuids) {
+            this.unmodeledEditUuids.set(uuid, undefined);
+        }
+    }
+
     private static async hashBytes(bytes: Uint8Array): Promise<string> {
         const digest = await crypto.subtle.digest('SHA-256', bytes.slice().buffer);
         return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -94,8 +115,11 @@ export class KeepassDatabaseService {
         this.currentPath = path;
         this.lastKnownMtimeMs = undefined;
         this.lastKnownHash = undefined;
-        // Closing the vault: the unmodeled-object ledger belongs to it
-        if (path === undefined) this.unseenUuids.clear();
+        // Closing the vault: the unmodeled-object ledgers belong to it
+        if (path === undefined) {
+            this.unseenUuids.clear();
+            this.unmodeledEditUuids.clear();
+        }
         if (!path || !window.electron) return;
 
         // The bytes the vault was opened from are the content baseline; when
@@ -173,6 +197,9 @@ export class KeepassDatabaseService {
         const generation = ++this.modelGeneration;
         for (const [uuid, seenAt] of this.unseenUuids) {
             if (seenAt === undefined) this.unseenUuids.set(uuid, generation);
+        }
+        for (const [uuid, seenAt] of this.unmodeledEditUuids) {
+            if (seenAt === undefined) this.unmodeledEditUuids.set(uuid, generation);
         }
 
         const convertAttachments = (entry: kdbxweb.KdbxEntry): Attachment[] =>
@@ -999,7 +1026,7 @@ export class KeepassDatabaseService {
         object.times.locationChanged = new Date();
     }
 
-    private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, index: KdbxIndex, isRoot = false): Promise<void> {
+    private static async updateGroup(group: Group, kdbxGroup: kdbxweb.KdbxGroup, kdbxDb: kdbxweb.Kdbx, index: KdbxIndex, isRoot = false, frozen: Set<string> = new Set()): Promise<void> {
         // The UI labels the root group "All Entries"; never write that label
         // over the real group name stored in the file
         if (!isRoot && kdbxGroup.name !== group.name) {
@@ -1025,6 +1052,13 @@ export class KeepassDatabaseService {
                 // existing object keeps its history, tags and everything else
                 // the UI model does not carry; recreating it would drop them
                 this.reparent(kdbxEntry, kdbxGroup);
+                // The kdbx holds values written outside any model (browser
+                // set-login on an existing entry) and this model predates
+                // them: keep the entry as the file has it
+                if (frozen.has(entry.id)) {
+                    updatedEntries.push(kdbxEntry);
+                    continue;
+                }
                 // Untouched entries keep their kdbx object as-is: no field
                 // rewrites, no attachment re-hashing, no history snapshot.
                 // A move is a location change, not a field change, so it
@@ -1115,7 +1149,7 @@ export class KeepassDatabaseService {
                     kdbxDb.meta.recycleBinEnabled = true;
                 }
             }
-            await this.updateGroup(subgroup, kdbxSubgroup, kdbxDb, index);
+            await this.updateGroup(subgroup, kdbxSubgroup, kdbxDb, index, false, frozen);
             updatedGroups.push(kdbxSubgroup);
         }
 
@@ -1313,8 +1347,16 @@ export class KeepassDatabaseService {
                 for (const [uuid, seenAt] of this.unseenUuids) {
                     if (seenAt === undefined || modelGeneration < seenAt) unseen.add(uuid);
                 }
+                // Entries whose values this model is too old to overwrite
+                const frozen = new Set<string>();
+                for (const [uuid, seenAt] of this.unmodeledEditUuids) {
+                    if (seenAt === undefined || modelGeneration < seenAt) frozen.add(uuid);
+                    // An up-to-date model is authoritative again; the entry
+                    // closes out of the ledger
+                    else this.unmodeledEditUuids.delete(uuid);
+                }
                 const index = this.indexDatabase(root);
-                await this.updateGroup(database.root, root, kdbxDb, index, true);
+                await this.updateGroup(database.root, root, kdbxDb, index, true, frozen);
                 this.keepUnseenMerged(root, index, unseen);
 
                 // Record permanently deleted objects so a later merge (another
@@ -1365,9 +1407,18 @@ export class KeepassDatabaseService {
                     replacingExternalChanges = true;
                     const merged = await this.mergeExternalChanges(kdbxDb, external.data);
                     if (!merged) {
-                        const overwrite = window.confirm(
-                            'The database file was modified outside Vigil and the changes could not be merged. Overwrite them with your version?'
-                        );
+                        // Asked through the resolver App registers, never
+                        // window.confirm: a synchronous prompt blocked the
+                        // renderer with the save queue behind it, was
+                        // invisible to headless callers (browser IPC,
+                        // import), and Chromium answers it false during
+                        // unload, silently discarding the edit. With nobody
+                        // to ask, the safe answer is no
+                        const overwrite = this.conflictResolver
+                            ? await this.conflictResolver(
+                                'The database file was modified outside Vigil and the changes could not be merged. Overwrite them with your version?'
+                            )
+                            : false;
                         if (!overwrite) {
                             throw new Error('SAVE_CANCELLED_CONFLICT');
                         }

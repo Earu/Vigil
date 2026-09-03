@@ -68,6 +68,54 @@ describe('path authority', () => {
     });
 });
 
+// Reads and writes are separate capabilities: a key file the user picked at
+// unlock must be readable, and save-to-file must still refuse to overwrite it
+describe('write grant split', () => {
+    beforeEach(() => {
+        authority.resetForTests();
+        fs.rmSync(grantFile, { force: true });
+    });
+
+    it('a plain grant allows reads only', () => {
+        authority.grantPath('/home/user/unlock.keyx');
+        expect(authority.isPathGranted('/home/user/unlock.keyx')).toBe(true);
+        expect(authority.isPathGranted('/home/user/unlock.keyx', { write: true })).toBe(false);
+    });
+
+    it('a write grant allows both', () => {
+        authority.grantPath('/home/user/vault.kdbx', { write: true });
+        expect(authority.isPathGranted('/home/user/vault.kdbx')).toBe(true);
+        expect(authority.isPathGranted('/home/user/vault.kdbx', { write: true })).toBe(true);
+    });
+
+    it('normalizes write grants like read grants', () => {
+        authority.grantPath('/home/user/../user/vault.kdbx', { write: true });
+        expect(authority.isPathGranted('/home/user/vault.kdbx', { write: true })).toBe(true);
+    });
+
+    it('round-trips the write bit through the persisted list', () => {
+        authority.grantPathPersistent('/keys/unlock.keyx');
+        authority.grantPathPersistent('/vaults/synced.kdbx', { write: true });
+        authority.resetForTests();
+        expect(authority.isPathGranted('/keys/unlock.keyx')).toBe(true);
+        expect(authority.isPathGranted('/keys/unlock.keyx', { write: true })).toBe(false);
+        expect(authority.isPathGranted('/vaults/synced.kdbx')).toBe(true);
+        expect(authority.isPathGranted('/vaults/synced.kdbx', { write: true })).toBe(true);
+    });
+
+    it('reads a pre-split list of bare strings as read-only', () => {
+        fs.writeFileSync(grantFile, JSON.stringify(['/keys/legacy.keyx']));
+        expect(authority.isPathGranted('/keys/legacy.keyx')).toBe(true);
+        expect(authority.isPathGranted('/keys/legacy.keyx', { write: true })).toBe(false);
+    });
+
+    it('leaves no temp file next to the persisted list', () => {
+        authority.grantPathPersistent('/keys/a.keyx');
+        const leftovers = fs.readdirSync(userData).filter(name => name.includes('.tmp-'));
+        expect(leftovers).toEqual([]);
+    });
+});
+
 describe('dropped vault registration', () => {
     beforeEach(() => authority.resetForTests());
 
@@ -75,6 +123,7 @@ describe('dropped vault registration', () => {
         const granted = registerDroppedVault('/home/user/dropped.kdbx');
         expect(granted).toBe('/home/user/dropped.kdbx');
         expect(authority.isPathGranted('/home/user/dropped.kdbx')).toBe(true);
+        expect(authority.isPathGranted('/home/user/dropped.kdbx', { write: true })).toBe(true);
     });
 
     // The grant behind this allows writes, so nothing but a vault file may

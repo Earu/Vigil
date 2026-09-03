@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as kdbxweb from 'kdbxweb';
-import { installMockWindow, cred, loadSaved, allTitles, tick, MockEnv } from './helpers';
+import { installMockWindow, cred, loadSaved, allTitles, tick, MockEnv, wireConflictResolver } from './helpers';
 
 // External-change detection rests on a baseline (mtime + content hash) that
 // setPath fills in with two independent best-effort fetches. Either fetch can
@@ -11,6 +11,7 @@ import { installMockWindow, cred, loadSaved, allTitles, tick, MockEnv } from './
 
 const env: MockEnv = installMockWindow();
 const { KeepassDatabaseService: Svc } = await import('../src/services/KeepassDatabaseService');
+wireConflictResolver(Svc, env);
 
 const electron = () => (globalThis as any).window.electron;
 

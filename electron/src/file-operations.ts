@@ -6,9 +6,30 @@ import { grantPath, grantPathPersistent } from './path-authority';
 
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
 
+// Sidecar files (the last-database record) hold vault locations: written
+// owner-only, temp in the same dir then rename so a crash mid-write cannot
+// truncate them. The mode only applies on create and the umask masks it,
+// hence the chmod on the temp file that survives the rename
+async function writeSidecar(filePath: string, data: string): Promise<void> {
+    const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+    try {
+        const handle = await fs.promises.open(tmpPath, 'w', 0o600);
+        try {
+            if (process.platform !== 'win32') await handle.chmod(0o600);
+            await handle.writeFile(data);
+        } finally {
+            await handle.close();
+        }
+        await fs.promises.rename(tmpPath, filePath);
+    } catch (error) {
+        await fs.promises.unlink(tmpPath).catch(() => {});
+        throw error;
+    }
+}
+
 export async function saveLastDatabasePath(dbPath: string): Promise<boolean> {
     try {
-        await fs.promises.writeFile(LAST_DB_PATH, JSON.stringify({ path: dbPath }));
+        await writeSidecar(LAST_DB_PATH, JSON.stringify({ path: dbPath }));
         return true;
     } catch (error) {
         console.error('Failed to save last database path:', error);
@@ -22,8 +43,9 @@ export async function loadLastDatabasePath(): Promise<string | null> {
             const data = await fs.promises.readFile(LAST_DB_PATH, 'utf-8');
             const { path: dbPath } = JSON.parse(data);
             if (fs.existsSync(dbPath)) {
-                // The renderer follows up with read-file and stat-file on it
-                grantPath(dbPath);
+                // The renderer follows up with read-file, stat-file and,
+                // once unlocked, save-to-file on it
+                grantPath(dbPath, { write: true });
                 return dbPath;
             }
         }
@@ -83,6 +105,19 @@ async function atomicWrite(filePath: string, data: Buffer): Promise<void> {
         await fs.promises.unlink(tmpPath).catch(() => {});
         throw error;
     }
+
+    // The rename is durable only once the directory entry is on disk; a
+    // power cut before that can revert to the previous file. Best effort:
+    // Windows cannot open a directory for sync, and a failed directory sync
+    // must not fail a save that already landed
+    try {
+        const dirHandle = await fs.promises.open(path.dirname(filePath), 'r');
+        try {
+            await dirHandle.sync();
+        } finally {
+            await dirHandle.close();
+        }
+    } catch { /* the file itself is written and fsynced */ }
 }
 
 export async function statFile(filePath: string): Promise<{ success: boolean, mtimeMs?: number, size?: number, error?: string }> {
@@ -123,7 +158,7 @@ export async function saveFile(data: Uint8Array, backup: BackupRequest = DEFAULT
         await atomicWrite(filePath, Buffer.from(data));
         await saveLastDatabasePath(filePath);
         // Every later save of this session goes through save-to-file
-        grantPath(filePath);
+        grantPath(filePath, { write: true });
         return { success: true, filePath };
     } catch (error) {
         console.error('Failed to save file:', error);
@@ -185,7 +220,7 @@ export function registerDroppedVault(filePath: string): string | null {
     if (typeof filePath !== 'string' || !/\.kdbx$/i.test(filePath) || !path.isAbsolute(filePath)) {
         return null;
     }
-    grantPath(filePath);
+    grantPath(filePath, { write: true });
     return filePath;
 }
 
@@ -241,8 +276,9 @@ export async function readFile(filePath: string): Promise<{ success: boolean, er
 export async function handleFileOpen(filePath: string, targetWindow?: BrowserWindow): Promise<void> {
     try {
         // Covers every open route that starts in the main process: the open
-        // dialog, a file-manager launch, second instances, macOS open-file
-        grantPath(filePath);
+        // dialog, a file-manager launch, second instances, macOS open-file.
+        // All of them open a vault, which save-to-file later overwrites
+        grantPath(filePath, { write: true });
         const result = await fs.promises.readFile(filePath);
         const window = targetWindow ?? BrowserWindow.getAllWindows()[0];
         if (!window || window.isDestroyed()) return;

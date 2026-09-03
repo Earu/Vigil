@@ -74,6 +74,9 @@ class BreachCacheCryptoImpl {
     // own copy and reload, so a vault opening or closing never leaves them
     // serving another vault's decrypted contents
     private currentEpoch = 0;
+    // Once per session: writes coalesce at 1 Hz during a sweep, and every one
+    // of them would fail the same way
+    private warnedWriteFailure = false;
 
     get epoch(): number {
         return this.currentEpoch;
@@ -128,11 +131,40 @@ class BreachCacheCryptoImpl {
     write(name: string, value: unknown): void {
         const storageKey = this.storageKey(name);
         if (!storageKey || !this.identity) return;
+        let sealed: string;
         try {
             const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
             const box = nacl.secretbox(utf8(JSON.stringify(value)), nonce, this.identity.key);
-            localStorage.setItem(storageKey, toBase64(concat(nonce, box)));
-        } catch { /* storage full or unavailable; the cache is rebuildable */ }
+            sealed = toBase64(concat(nonce, box));
+        } catch {
+            return;
+        }
+        try {
+            localStorage.setItem(storageKey, sealed);
+            return;
+        } catch { /* quota, most likely */ }
+        // Storage is full. The open vault's fresh results are worth more than
+        // another vault's stale cache, so evict every blob that is not this
+        // vault's and retry once
+        try {
+            const suffix = `_${this.identity.id}`;
+            Object.keys(localStorage)
+                .filter(key => key.startsWith(CACHE_KEY_PREFIX) && !key.endsWith(suffix))
+                .forEach(key => localStorage.removeItem(key));
+            localStorage.setItem(storageKey, sealed);
+            return;
+        } catch { /* still full, or storage unavailable */ }
+        // The cache is rebuildable, but a silent failure means every unlock
+        // re-sweeps the vault against HIBP with no visible reason. Say so once
+        if (!this.warnedWriteFailure) {
+            this.warnedWriteFailure = true;
+            if (typeof window !== 'undefined') {
+                (window as unknown as { showToast?: (t: object) => void }).showToast?.({
+                    message: 'Breach check cache could not be saved (storage full); checks will re-run on next unlock',
+                    type: 'warning',
+                });
+            }
+        }
     }
 
     remove(name: string): void {

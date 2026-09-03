@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as kdbxweb from 'kdbxweb';
-import { installMockWindow, cred, loadSaved, tick, MockEnv } from './helpers';
+import { installMockWindow, cred, loadSaved, tick, MockEnv, wireConflictResolver } from './helpers';
 
 // mergeExternalChanges mutates the live kdbxDb (history notes, then the merge
 // itself). A merge that throws after grafting objects in leaves the database
@@ -11,6 +11,7 @@ import { installMockWindow, cred, loadSaved, tick, MockEnv } from './helpers';
 
 const env: MockEnv = installMockWindow();
 const { KeepassDatabaseService: Svc } = await import('../src/services/KeepassDatabaseService');
+wireConflictResolver(Svc, env);
 
 const tombstones = (db: kdbxweb.Kdbx) => db.deletedObjects.map(d => d.uuid!.toString());
 const realMerge = kdbxweb.Kdbx.prototype.merge;

@@ -433,6 +433,9 @@ export class PasskeyService {
             if (updatable) {
                 entry = updatable.entry;
                 entry.pushHistory();
+                // Values rewritten outside any UI model: a save from a model
+                // built before this write must not push them back
+                KeepassDatabaseService.registerUnmodeledEdits([entry.uuid.toString()]);
             } else {
                 const root = kdbxDb.getDefaultGroup();
                 const name = groupName || PASSKEYS_GROUP_NAME;

@@ -20,7 +20,11 @@ const tombstones = (db: kdbxweb.Kdbx) => db.deletedObjects.map(d => d.uuid!.toSt
 async function freshVault(): Promise<kdbxweb.Kdbx> {
     const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
     db0.setVersion(3);
-    db0.createEntry(db0.getDefaultGroup()).fields.set('Title', 'Kept');
+    const kept = db0.createEntry(db0.getDefaultGroup());
+    kept.fields.set('Title', 'Kept');
+    kept.fields.set('URL', 'https://kept.example');
+    kept.fields.set('Password', kdbxweb.ProtectedValue.fromString('old-pw'));
+    db0.createEntry(db0.getDefaultGroup()).fields.set('Title', 'Other');
     env.disk.bytes = Buffer.from(await db0.save());
     env.disk.mtime = 500;
     const db = await loadSaved(env);
@@ -28,6 +32,11 @@ async function freshVault(): Promise<kdbxweb.Kdbx> {
     await tick();
     return db;
 }
+
+// KeePassXC-Browser addresses entries by the hex spelling of their uuid
+const uuidHexOf = (entry: kdbxweb.KdbxEntry): string =>
+    [...kdbxweb.ByteUtils.base64ToBytes(entry.uuid.id)]
+        .map(b => b.toString(16).padStart(2, '0')).join('');
 
 // The ctx App.tsx builds for browser requests: saveDatabase converts a fresh
 // model from kdbxDb at call time and hands it to the database service
@@ -94,5 +103,46 @@ describe('a browser write racing a UI save', () => {
         expect(tombstones(onDisk)).toEqual([]);
         const kept = onDisk.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'Kept')!;
         expect(kept.fields.get('Notes')).toBe('second edit');
+    });
+
+    it('an update to an existing entry is not reverted by a stale UI model queued behind it', async () => {
+        const db = await freshVault();
+        const electron = (globalThis as any).window.electron;
+        const saveToFile = electron.saveToFile;
+        electron.saveToFile = async (...args: unknown[]) => { await tick(); return saveToFile(...args); };
+
+        const stale = Db.convertKdbxToDatabase(db);
+        const keptKdbx = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'Kept')!;
+        const otherModel = stale.root.entries.find(e => e.title === 'Other')!;
+
+        // Save #1: the user edits a different entry, in flight for a while
+        const [edited] = Db.saveEntry(stale, { ...otherModel, notes: 'user edit' }, stale.root, false);
+        const first = Db.saveDatabase(edited, db);
+
+        // The extension updates Kept's password mid-save
+        const browserRequest = Browser.handleRequest(
+            'set-login',
+            { uuid: uuidHexOf(keptKdbx), url: 'https://kept.example', login: 'kept-user', password: 'new-pw' },
+            appCtx(db)
+        );
+        await new Promise(resolve => setTimeout(resolve, 0));
+
+        // The UI queues another edit to the other entry from a model that
+        // still carries Kept's old password
+        const editedOther = edited.root.entries.find(e => e.title === 'Other')!;
+        const [editedAgain] = Db.saveEntry(edited, { ...editedOther, notes: 'second user edit' }, edited.root, false);
+        const second = Db.saveDatabase(editedAgain, db);
+
+        const [, browserResult] = await Promise.all([first, browserRequest, second]);
+        electron.saveToFile = saveToFile;
+        expect(browserResult.errorCode).toBeUndefined();
+
+        // The extension was told the update landed, so the file must hold the
+        // new password; the user's own edit to the other entry lands too
+        const onDisk = await loadSaved(env);
+        const kept = onDisk.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'Kept')!;
+        expect((kept.fields.get('Password') as kdbxweb.ProtectedValue).getText()).toBe('new-pw');
+        const other = onDisk.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'Other')!;
+        expect(other.fields.get('Notes')).toBe('second user edit');
     });
 });

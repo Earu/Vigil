@@ -108,8 +108,10 @@ export function setupIpcHandlers(): void {
         return await saveFile(data, backup ?? DEFAULT_BACKUP_OPTIONS);
     });
 
+    // The write grant, held only by vault paths: a read grant (a key file,
+    // an attachment destination) must not let vault bytes overwrite the file
     ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array, backup?: BackupRequest) => {
-        if (!isPathGranted(filePath)) {
+        if (!isPathGranted(filePath, { write: true })) {
             return { success: false, error: 'Failed to save file' };
         }
         return await saveToFile(filePath, data, backup ?? DEFAULT_BACKUP_OPTIONS);
