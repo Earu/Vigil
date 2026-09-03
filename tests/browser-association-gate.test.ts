@@ -29,10 +29,13 @@ vi.mock('electron', () => ({
 let rendererReply: any = {};
 let windows: any[] = [];
 
-const fakeWindow = () => ({
+// Replies come back with the same sender identity that was asked: the main
+// process drops a response from any other webContents
+const fakeWindow = (webContentsId = 1) => ({
     webContents: {
+        id: webContentsId,
         send: (_channel: string, request: { id: number }) => {
-            queueMicrotask(() => respond?.(null, { id: request.id, result: rendererReply }));
+            queueMicrotask(() => respond?.({ sender: { id: webContentsId } }, { id: request.id, result: rendererReply }));
         },
     },
 });
@@ -127,6 +130,32 @@ describe('what sets the association flag', () => {
 
         await handleDecryptedMessage('test-associate', { id: 'Vigil', key: 'wrong' }, session);
 
+        expect(session.associated).toBe(false);
+    });
+
+    it('ignores an answer from a window that was not asked', async () => {
+        // Preload exposes browserIntegrationRespond to every window, so a
+        // compromised renderer could try to approve a consent request that
+        // belongs to another vault's window. Only the asked sender counts;
+        // the forged approval must not associate the session
+        windows = [{
+            webContents: {
+                id: 1,
+                send: (_channel: string, request: { id: number }) => {
+                    queueMicrotask(() => {
+                        // The imposter (a different webContents) races in an
+                        // approval before the real window denies
+                        respond?.({ sender: { id: 99 } }, { id: request.id, result: { hash: 'deadbeef', id: 'Vigil' } });
+                        respond?.({ sender: { id: 1 } }, { id: request.id, result: { errorCode: ERROR_ASSOCIATION_FAILED } });
+                    });
+                },
+            },
+        }];
+        const session = Session();
+
+        const result = await handleDecryptedMessage('associate', { key: 'k', idKey: 'idk' }, session);
+
+        expect(result.errorCode).toBe(ERROR_ASSOCIATION_FAILED);
         expect(session.associated).toBe(false);
     });
 
