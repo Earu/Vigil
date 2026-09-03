@@ -104,6 +104,7 @@ vi.mock('../electron/src/path-authority', () => ({
     isPathGranted: vi.fn(() => false),
 }));
 
+const electron = await import('electron');
 const windowMod = await import('../electron/src/window');
 const crypto = await import('../electron/src/crypto');
 const fileOps = await import('../electron/src/file-operations');
@@ -329,6 +330,51 @@ describe('vault-opened', () => {
         expect(await invoke('vault-opened', '/vault.kdbx')).toEqual({ duplicate: false });
         expect(registerVault).toHaveBeenCalledWith('/vault.kdbx', mine);
         expect(focusWindow).not.toHaveBeenCalled();
+    });
+});
+
+describe('qr-capture-screens gating', () => {
+    // Full-desktop screenshots only for a focused, visible window: the legit
+    // path is the user clicking the scan button, which guarantees both. A
+    // compromised background renderer gets the failure shape and the capturer
+    // is never touched
+    const getSources = () => vi.mocked((electron as any).desktopCapturer.getSources);
+
+    const captureWindow = (overrides: Partial<{ visible: boolean; focused: boolean }> = {}) => ({
+        isVisible: () => overrides.visible ?? true,
+        isFocused: () => overrides.focused ?? true,
+        isDestroyed: () => false,
+        hide: vi.fn(),
+        show: vi.fn(),
+    });
+
+    it.each([
+        ['no sender window', null],
+        ['a hidden window', captureWindow({ visible: false })],
+        ['an unfocused window', captureWindow({ focused: false })],
+    ])('refuses %s without touching the capturer', async (_label, win) => {
+        fromWebContents.mockReturnValue(win);
+        const result = await invoke('qr-capture-screens');
+        expect(result.success).toBe(false);
+        expect(getSources()).not.toHaveBeenCalled();
+    });
+
+    it('captures for a focused, visible window', async () => {
+        vi.useFakeTimers();
+        const win = captureWindow();
+        fromWebContents.mockReturnValue(win);
+        getSources().mockResolvedValue([
+            { thumbnail: { isEmpty: () => false, toPNG: () => Buffer.from('png') } },
+        ] as never);
+
+        const pending = invoke('qr-capture-screens');
+        await vi.advanceTimersByTimeAsync(400);
+        const result = await pending;
+        vi.useRealTimers();
+
+        expect(result.success).toBe(true);
+        expect(win.hide).toHaveBeenCalled();
+        expect(win.show).toHaveBeenCalled();
     });
 });
 

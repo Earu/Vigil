@@ -321,16 +321,20 @@ export function setupIpcHandlers(): void {
 
     ipcMain.handle('get-platform', () => getPlatform());
 
-    // QR screen capture; decoding happens in the renderer
+    // QR screen capture; decoding happens in the renderer. Only a focused,
+    // visible window may ask: the legit path is the user clicking the scan
+    // button, at which point the window is by definition both. Without the
+    // gate this channel hands any renderer full-desktop screenshots, the
+    // exact capability the page-level permission handler denies
     ipcMain.handle('qr-capture-screens', async (event) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender);
-        const wasVisible = senderWindow?.isVisible() ?? false;
+        if (!senderWindow || !senderWindow.isVisible() || !senderWindow.isFocused()) {
+            return { success: false, error: 'Screen capture requires the requesting window to be active' };
+        }
         try {
             // hide the window so it cannot cover the QR code
-            if (wasVisible) {
-                senderWindow!.hide();
-                await new Promise(resolve => setTimeout(resolve, 400));
-            }
+            senderWindow.hide();
+            await new Promise(resolve => setTimeout(resolve, 400));
             const largest = screen.getAllDisplays().reduce(
                 (acc, d) => ({
                     width: Math.max(acc.width, Math.round(d.size.width * d.scaleFactor)),
@@ -349,7 +353,9 @@ export function setupIpcHandlers(): void {
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : 'Screen capture failed' };
         } finally {
-            if (wasVisible) senderWindow?.show();
+            // The window can be closed while hidden mid-capture; show() on a
+            // destroyed window throws
+            if (!senderWindow.isDestroyed()) senderWindow.show();
         }
     });
 
