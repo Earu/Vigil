@@ -102,7 +102,9 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
         setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(password));
     };
 
-    const generatePassphrase = (opts: PassphraseOptions = passphraseOptions) => {
+    const generatePassphrase = async (opts: PassphraseOptions = passphraseOptions) => {
+        // Wordlist is a lazy chunk; instant once cached
+        await PassphraseService.preload();
         const phrase = PassphraseService.generate(opts);
         const bits = PassphraseService.entropyBits(opts);
         setGeneratedPassword(phrase);

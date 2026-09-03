@@ -32,9 +32,19 @@ export class BreachStatusStore {
     // A breach sweep writes one status per entry. Persisting and notifying on
     // each one is quadratic: the whole store is re-serialized every time, and
     // every subscriber re-walks the entry tree. These drive background
-    // indicators, so coalescing a second of them costs nothing; each tick
-    // still costs the subscribers several full tree walks
-    private static readonly COALESCE_MS = 1000;
+    // indicators, so coalescing costs nothing; each tick still re-encrypts
+    // the whole blob and costs the subscribers several full tree walks.
+    // The interval adapts to the last persist's serialized size: 1s below
+    // 100KB, stretching linearly to 5s at 1MB and capped there, so a large
+    // vault pays the serialize+encrypt price fifth as often. Flush points
+    // (sweep end, lock, pagehide/visibilitychange) still write immediately,
+    // so a crash loses a few seconds of results at most, which the resume
+    // machinery re-fetches
+    private static readonly COALESCE_MIN_MS = 1000;
+    private static readonly COALESCE_MAX_MS = 5000;
+    private static readonly COALESCE_SIZE_FLOOR = 100 * 1024;
+    private static readonly COALESCE_SIZE_CAP = 1024 * 1024;
+    private static lastPersistBytes = 0;
 
     // Decrypted once per vault; all lookups hit this in-memory copy
     private static store: DatabaseBreachStatus | null = null;
@@ -68,9 +78,17 @@ export class BreachStatusStore {
     // told about it
     private static persist(): void {
         this.cancelPending();
-        BreachCacheCrypto.write(this.STORE_NAME, this.getStore());
+        this.lastPersistBytes = BreachCacheCrypto.write(this.STORE_NAME, this.getStore());
         this.version++;
         this.listeners.forEach(listener => listener());
+    }
+
+    private static coalesceInterval(): number {
+        const size = this.lastPersistBytes;
+        if (size <= this.COALESCE_SIZE_FLOOR) return this.COALESCE_MIN_MS;
+        if (size >= this.COALESCE_SIZE_CAP) return this.COALESCE_MAX_MS;
+        const t = (size - this.COALESCE_SIZE_FLOOR) / (this.COALESCE_SIZE_CAP - this.COALESCE_SIZE_FLOOR);
+        return this.COALESCE_MIN_MS + t * (this.COALESCE_MAX_MS - this.COALESCE_MIN_MS);
     }
 
     private static cancelPending(): void {
@@ -87,7 +105,7 @@ export class BreachStatusStore {
         this.coalesceTimer = setTimeout(() => {
             this.coalesceTimer = null;
             this.persist();
-        }, this.COALESCE_MS);
+        }, this.coalesceInterval());
     }
 
     // Force a coalesced write out now: a sweep finished, the vault locked, or
@@ -140,6 +158,7 @@ export class BreachStatusStore {
     public static clearAll(): void {
         this.cancelPending();
         this.store = {};
+        this.lastPersistBytes = 0;
         this.storeEpoch = BreachCacheCrypto.epoch;
         BreachCacheCrypto.removeAllFor(this.STORE_NAME);
         this.version++;

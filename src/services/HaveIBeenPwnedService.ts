@@ -25,8 +25,10 @@ export class HaveIBeenPwnedService {
     }
 
     // Range responses shared between passwords with the same 5-char hash
-    // prefix (identical passwords across entries always share one). Bounded;
-    // reset when full so memory stays flat on huge vaults
+    // prefix (identical passwords across entries always share one). Bounded
+    // by LRU eviction: a hit refreshes the key's recency (Map iteration is
+    // insertion-ordered), an insert past the cap drops only the coldest
+    // prefix, so a huge vault stays flat without ever dumping the whole cache
     private static rangeCache = new Map<string, Promise<string>>();
     private static readonly RANGE_CACHE_LIMIT = 512;
 
@@ -39,8 +41,16 @@ export class HaveIBeenPwnedService {
     // must be discarded (see isPasswordPwned)
     private static fetchRange(prefix: string): Promise<string> {
         const cached = this.rangeCache.get(prefix);
-        if (cached) return cached;
-        if (this.rangeCache.size >= this.RANGE_CACHE_LIMIT) this.rangeCache.clear();
+        if (cached) {
+            // Re-insert so the key becomes the newest and evicts last
+            this.rangeCache.delete(prefix);
+            this.rangeCache.set(prefix, cached);
+            return cached;
+        }
+        if (this.rangeCache.size >= this.RANGE_CACHE_LIMIT) {
+            const oldest = this.rangeCache.keys().next().value;
+            if (oldest !== undefined) this.rangeCache.delete(oldest);
+        }
         const request = fetch(`${this.HIBP_API_URL}/range/${prefix}`, {
             headers: { 'Add-Padding': 'true' },
         }).then((response) => {

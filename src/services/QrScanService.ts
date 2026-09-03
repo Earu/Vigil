@@ -1,4 +1,4 @@
-import jsQR from 'jsqr';
+import type jsQRType from 'jsqr';
 
 export interface QrScanResult {
     text?: string;
@@ -6,7 +6,21 @@ export interface QrScanResult {
 }
 
 export class QrScanService {
-    private static decodeImageData(data: ImageData): string | null {
+    // jsqr only matters when scanning a TOTP QR code, so it loads on first
+    // use instead of riding in the main bundle (same pattern as zxcvbn in
+    // HaveIBeenPwnedService). A failed chunk load retries on the next call
+    private static jsQRLoading: Promise<typeof jsQRType> | null = null;
+
+    private static loadDecoder(): Promise<typeof jsQRType> {
+        if (!this.jsQRLoading) {
+            this.jsQRLoading = import('jsqr').then(module => module.default);
+            this.jsQRLoading.catch(() => { this.jsQRLoading = null; });
+        }
+        return this.jsQRLoading;
+    }
+
+    private static async decodeImageData(data: ImageData): Promise<string | null> {
+        const jsQR = await this.loadDecoder();
         const result = jsQR(data.data, data.width, data.height, { inversionAttempts: 'attemptBoth' });
         return result?.data ?? null;
     }
@@ -53,7 +67,7 @@ export class QrScanService {
             const url = URL.createObjectURL(blob);
             try {
                 const data = await this.imageDataFromUrl(url);
-                const text = this.decodeImageData(data);
+                const text = await this.decodeImageData(data);
                 if (text) return { text };
             } catch {
                 // fall through to the generic error
@@ -77,7 +91,7 @@ export class QrScanService {
         const url = URL.createObjectURL(file);
         try {
             const data = await this.imageDataFromUrl(url);
-            const text = this.decodeImageData(data);
+            const text = await this.decodeImageData(data);
             return text ? { text } : { error: 'No QR code found in the image' };
         } catch {
             return { error: 'Could not read the image' };

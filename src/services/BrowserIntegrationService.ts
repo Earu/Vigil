@@ -3,6 +3,7 @@ import { Database } from '../types/database';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
 import { TotpService } from './TotpService';
 import { PasswordGeneratorService } from './PasswordGeneratorService';
+import { PassphraseService } from './PassphraseService';
 import { PasskeyService, PasskeyEntryInfo, PASSKEY_ERRORS } from './PasskeyService';
 import { userSettingsService } from './UserSettingsService';
 
@@ -456,7 +457,10 @@ export class BrowserIntegrationService {
             case 'generate-password': {
                 // Uses the generator settings the user last picked in the
                 // generator modal (mode, length, character sets)
-                const password = PasswordGeneratorService.generateFromSettings();
+                const settings = PasswordGeneratorService.loadSettings();
+                // Words mode needs the lazily loaded wordlist
+                if (settings.mode === 'words') await PassphraseService.preload();
+                const password = PasswordGeneratorService.generateFromSettings(settings);
                 return { password, entries: [{ password }] };
             }
 

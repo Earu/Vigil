@@ -1,5 +1,3 @@
-import { EFF_WORDLIST } from '../data/effWordlist';
-
 export interface PassphraseOptions {
     wordCount: number;
     separator: string;
@@ -8,7 +6,26 @@ export interface PassphraseOptions {
 }
 
 export class PassphraseService {
-    static readonly WORDLIST_SIZE = EFF_WORDLIST.length;
+    // EFF large wordlist size, fixed by the list itself
+    static readonly WORDLIST_SIZE = 7776;
+
+    // The wordlist is ~60 KB of the bundle and only matters in passphrase
+    // mode, so it loads on demand (same pattern as zxcvbn in
+    // HaveIBeenPwnedService). Generation stays sync once loaded; callers
+    // await preload() before generating. A failed chunk load retries on the
+    // next call
+    private static wordlist: string[] | null = null;
+    private static wordlistLoading: Promise<void> | null = null;
+
+    static preload(): Promise<void> {
+        if (!this.wordlistLoading) {
+            this.wordlistLoading = import('../data/effWordlist').then(module => {
+                this.wordlist = module.EFF_WORDLIST;
+            });
+            this.wordlistLoading.catch(() => { this.wordlistLoading = null; });
+        }
+        return this.wordlistLoading;
+    }
 
     private static randomIndex(max: number): number {
         // rejection sampling to avoid modulo bias
@@ -23,9 +40,11 @@ export class PassphraseService {
     }
 
     static generate(options: PassphraseOptions): string {
+        const wordlist = this.wordlist;
+        if (!wordlist) throw new Error('Wordlist not loaded, call preload() first');
         const words: string[] = [];
         for (let i = 0; i < options.wordCount; i++) {
-            let word = EFF_WORDLIST[this.randomIndex(EFF_WORDLIST.length)];
+            let word = wordlist[this.randomIndex(wordlist.length)];
             if (options.capitalize) {
                 word = word.charAt(0).toUpperCase() + word.slice(1);
             }
@@ -39,7 +58,7 @@ export class PassphraseService {
     }
 
     static entropyBits(options: PassphraseOptions): number {
-        let bits = options.wordCount * Math.log2(EFF_WORDLIST.length);
+        let bits = options.wordCount * Math.log2(this.WORDLIST_SIZE);
         if (options.includeNumber) {
             bits += Math.log2(options.wordCount * 10);
         }
