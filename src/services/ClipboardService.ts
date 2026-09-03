@@ -1,16 +1,14 @@
 // A copied secret must not sit in the clipboard indefinitely, and the
 // countdown has to outlive whatever view started it: the generator modal is
 // normally closed straight after its copy button is pressed, and the entry
-// panel is closed the moment the user goes to paste. One module level timer
-// owns the pending clear, so closing a view never cuts the countdown short
-// and two views can never leave two clears racing each other.
+// panel is closed the moment the user goes to paste.
 //
-// The write and the clear happen in the main process (electron/src/clipboard),
-// which is what lets a copy carry the macOS markers that keep it out of
-// clipboard history and off the user's other devices, and what lets a quit
-// mid-countdown still take the secret back. Remembering which value is ours
-// lives there too, next to the clipboard it is about. What is left here is the
-// countdown the UI draws.
+// The write, the clear and the countdown that triggers it all happen in the
+// main process (electron/src/clipboard): the markers that keep a copy out of
+// clipboard history, the record of which value is ours, and a clear that
+// still fires after this whole window is closed. The countdown here is a
+// parallel one that only draws the badge; when it reaches zero it goes idle
+// and leaves the actual clearing to the main-process timer.
 
 import { userSettingsService } from './UserSettingsService';
 
@@ -56,9 +54,12 @@ class ClipboardServiceImpl {
     }
 
     async copy(text: string, label: string, source: string): Promise<boolean> {
+        const totalSeconds = userSettingsService.getClipboardClearSeconds();
         try {
             if (window.electron) {
-                const result = await window.electron.copySecret(text);
+                // The duration rides along so the main process can arm the
+                // clear that outlives this renderer
+                const result = await window.electron.copySecret(text, totalSeconds);
                 if (!result?.success) throw new Error(result?.error ?? 'Copy failed');
             } else {
                 // No main process to ask (tests, a plain browser context)
@@ -76,7 +77,6 @@ class ClipboardServiceImpl {
         // A second copy restarts the countdown rather than inheriting what
         // was left of the previous one
         this.stopTimer();
-        const totalSeconds = userSettingsService.getClipboardClearSeconds();
         this.emit({ secondsLeft: totalSeconds, totalSeconds, label, source });
         this.timer = setInterval(() => {
             const secondsLeft = this.snapshot.secondsLeft - 1;
@@ -84,9 +84,12 @@ class ClipboardServiceImpl {
                 this.emit({ ...this.snapshot, secondsLeft });
                 return;
             }
+            // The badge goes idle; the clear is the main-process timer's.
+            // Calling clearClipboard here would be worse than redundant: with
+            // two windows, this window's stale countdown reaching zero must
+            // not take back a secret the other window copied more recently
             this.stopTimer();
             this.emit(IDLE);
-            void window.electron?.clearClipboard().catch(console.error);
         }, 1000);
 
         (window as any).showToast?.({

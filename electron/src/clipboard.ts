@@ -4,6 +4,12 @@ import { clipboard, ClipboardItem } from 'electron';
 // secret, it takes it back when the countdown ends or the vault locks, and it
 // takes it back on quit rather than leaving it behind for the next thing that
 // pastes.
+//
+// The countdown that ends in the clear lives here, not in a renderer: a
+// renderer dies with its window, and on macOS closing the last window quits
+// nothing, so a renderer-owned countdown would leave the secret behind for
+// good. The renderer keeps its own parallel countdown purely to draw the
+// badge; the one armed in copySecret is the one that clears.
 
 // Every desktop has its own way for an app to say "this is a password, do not
 // record it and do not sync it", and all three are alongside the text on the
@@ -82,7 +88,42 @@ export function getPendingSecret(): string | null {
     return pendingSecret;
 }
 
-export async function copySecret(text: string): Promise<{ success: boolean; error?: string }> {
+// The duration is a renderer-supplied setting, so it is clamped to the same
+// bounds the settings UI enforces: whatever a renderer sends, a copied secret
+// is cleared within ten minutes. The bounds are duplicated from
+// UserSettingsService because the main process cannot import renderer code
+const DEFAULT_CLEAR_SECONDS = 20;
+const MIN_CLEAR_SECONDS = 5;
+const MAX_CLEAR_SECONDS = 600;
+
+let clearTimer: NodeJS.Timeout | null = null;
+
+function cancelClearTimer(): void {
+    if (clearTimer !== null) {
+        clearTimeout(clearTimer);
+        clearTimer = null;
+    }
+}
+
+// One timer for the one clipboard: a second copy re-arms it, so the first
+// copy's countdown can never take back the second copy's value early
+function ownSecret(text: string, clearSeconds: unknown): void {
+    pendingSecret = text;
+    cancelClearTimer();
+    const seconds = typeof clearSeconds === 'number' && Number.isFinite(clearSeconds)
+        ? Math.min(MAX_CLEAR_SECONDS, Math.max(MIN_CLEAR_SECONDS, Math.round(clearSeconds)))
+        : DEFAULT_CLEAR_SECONDS;
+    clearTimer = setTimeout(() => {
+        clearTimer = null;
+        void clearClipboard().catch(error =>
+            console.error('Failed to clear the clipboard when the countdown ran out:', error));
+    }, seconds * 1000);
+    // A pending clear must never be what keeps the process alive; quitting
+    // has its own clear (clearOnQuit)
+    clearTimer.unref?.();
+}
+
+export async function copySecret(text: string, clearSeconds?: number): Promise<{ success: boolean; error?: string }> {
     try {
         const markers = markersFor(process.platform);
         if (markers) {
@@ -102,7 +143,7 @@ export async function copySecret(text: string): Promise<{ success: boolean; erro
             // whatever the platform makes of these formats, either the text is
             // on the clipboard or the plain write below puts it there
             if (wrote && await textLanded(text)) {
-                pendingSecret = text;
+                ownSecret(text, clearSeconds);
                 return { success: true };
             }
             if (wrote) {
@@ -111,7 +152,7 @@ export async function copySecret(text: string): Promise<{ success: boolean; erro
         }
 
         await clipboard.writeText(text);
-        pendingSecret = text;
+        ownSecret(text, clearSeconds);
         return { success: true };
     } catch (error) {
         console.error('Failed to copy to clipboard:', error);
@@ -134,6 +175,7 @@ async function textLanded(text: string): Promise<boolean> {
 // something the vault did not write, so there is nothing of ours left to clear
 export function forgetSecret(): void {
     pendingSecret = null;
+    cancelClearTimer();
 }
 
 // Clears only when the clipboard still holds what the vault put there. With
@@ -141,6 +183,9 @@ export function forgetSecret(): void {
 // anyway would throw away whatever the user copied from somewhere else. A read
 // that fails does clear: leaving a password behind is the worse outcome
 export async function clearClipboard(): Promise<{ success: boolean; error?: string }> {
+    // Whether this is the countdown firing or an early clear (lock, quit),
+    // the countdown is spent either way
+    cancelClearTimer();
     const secret = pendingSecret;
     pendingSecret = null;
     if (secret === null) return { success: true };

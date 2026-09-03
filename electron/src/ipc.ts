@@ -293,9 +293,11 @@ export function setupIpcHandlers(): void {
 
     // Utility handlers
     // The copy itself runs here so it can carry the macOS pasteboard markers,
-    // and so the main process knows which value is the vault's to take back
-    ipcMain.handle('copy-secret', async (_, text: string) => {
-        return await copySecret(text);
+    // and so the main process knows which value is the vault's to take back.
+    // The clear countdown is armed here too, so it survives the renderer that
+    // started it; the duration is clamped in copySecret
+    ipcMain.handle('copy-secret', async (_, text: string, clearSeconds?: number) => {
+        return await copySecret(text, clearSeconds);
     });
 
     ipcMain.handle('clear-clipboard', async () => {
