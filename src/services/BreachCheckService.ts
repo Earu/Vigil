@@ -732,16 +732,18 @@ export class BreachCheckService {
                 try {
                     const breaches = await this.checkEmailEntry(databasePath, entry);
                     if (breaches.length > 0) {
-                        // Update the breach status to include breachedEmail
-                        const currentStatus = BreachStatusStore.getEntryStatus(databasePath, entry.id) || {
-                            isPwned: false,
-                            count: 0,
-                            strength: { score: 0, feedback: { warning: '', suggestions: [] } }
-                        };
-                        BreachStatusStore.setEntryStatus(databasePath, entry.id, {
-                            ...currentStatus,
-                            breachedEmail: true
-                        });
+                        // Merge breachedEmail into an existing password verdict
+                        // only. Fabricating a record here would count as a cache
+                        // hit in checkEntry and skip the real password check for
+                        // the TTL; with no record yet, checkEntry reads the
+                        // email store itself when it writes its verdict
+                        const currentStatus = BreachStatusStore.getEntryStatus(databasePath, entry.id);
+                        if (currentStatus !== null) {
+                            BreachStatusStore.setEntryStatus(databasePath, entry.id, {
+                                ...currentStatus,
+                                breachedEmail: true
+                            });
+                        }
                     }
                     hasBreached = hasBreached || breaches.length > 0;
                 } catch (error) {
