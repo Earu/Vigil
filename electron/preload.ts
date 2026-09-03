@@ -50,7 +50,9 @@ const api: IElectronAPI = {
 		ipcRenderer.on(channel, wrapper)
 		return () => { ipcRenderer.off(channel, wrapper) }
 	},
-	checkEmailBreaches: (email: string, apiKey: string) => ipcRenderer.invoke('check-email-breaches', email, apiKey),
+	checkEmailBreaches: (email: string) => ipcRenderer.invoke('check-email-breaches', email),
+	setHibpApiKey: (key: string | null) => ipcRenderer.invoke('set-hibp-api-key', key),
+	hasHibpApiKey: () => ipcRenderer.invoke('has-hibp-api-key'),
 	fetchFavicon: (host: string) => ipcRenderer.invoke('fetch-favicon', host),
 	isHardwareKeyPresent: () => ipcRenderer.invoke('hardware-key-present'),
 	listHardwareKeys: () => ipcRenderer.invoke('hardware-key-list'),

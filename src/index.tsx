@@ -5,9 +5,14 @@ import './index.css';
 import * as kdbxweb from 'kdbxweb';
 import { IElectronAPI } from './types/electron';
 import { installErrorReporting } from './errorReporting';
+import { userSettingsService } from './services/UserSettingsService';
 
 // Before anything else can fail
 installErrorReporting();
+
+// A HIBP API key stored in localStorage by an older version moves to the OS
+// keychain; fire-and-forget, the sweep gates on the keychain either way
+void userSettingsService.migrateHibpApiKey();
 
 // On Linux the frameless window has no system-drawn rounded corners, so the
 // window is made transparent there and the corners are rounded in CSS

@@ -1,5 +1,4 @@
 import type zxcvbnType from 'zxcvbn';
-import { userSettingsService } from './UserSettingsService';
 import { HibpBreach } from './BreachCheckService';
 
 export class HaveIBeenPwnedService {
@@ -114,15 +113,21 @@ export class HaveIBeenPwnedService {
      * so callers can retry later instead of caching a false all-clear
      */
     public static async checkEmailBreaches(email: string): Promise<HibpBreach[] | null> {
-        const apiKey = userSettingsService.getHibpApiKey();
-        if (!apiKey) {
-            return [];
-        }
-
+        // The API key lives in the main process (OS keychain); with none
+        // stored the main side answers [] without any network call
         try {
-            return await window.electron?.checkEmailBreaches(email, apiKey) ?? [];
+            return await window.electron?.checkEmailBreaches(email) ?? [];
         } catch {
             return null;
+        }
+    }
+
+    // Whether an API key is stored, for gating the email sweep and its UI
+    public static async hasApiKey(): Promise<boolean> {
+        try {
+            return await window.electron?.hasHibpApiKey() ?? false;
+        } catch {
+            return false;
         }
     }
 

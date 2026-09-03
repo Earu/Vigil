@@ -8,6 +8,7 @@ import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, Un
 import { KeyActionIcon, UsbKeyIcon } from '../../icons/actions/ActionIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
+import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 
 interface HardwareKeySelection {
     serial: number | null;
@@ -262,9 +263,9 @@ export const PasswordForm = ({
 
         // Run both checks in parallel if needed
         await Promise.all([
-            // Check passwords
+            // Check passwords, unless the user opted out of the online sweep
             (async () => {
-                if (hasCheckedPasswordEntries && !allPasswordEntriesCached) {
+                if (userSettingsService.getCheckPasswordBreaches() && hasCheckedPasswordEntries && !allPasswordEntriesCached) {
                     const hasBreaches = await BreachCheckService.checkGroup(databasePath, database.root);
                     if (hasBreaches && KeepassDatabaseService.getPath() === databasePath) {
                         window.electron?.showNotification({
@@ -276,7 +277,7 @@ export const PasswordForm = ({
             })(),
             // Check emails
             (async () => {
-                const hasApikey = userSettingsService.getHibpApiKey() != null;
+                const hasApikey = await HaveIBeenPwnedService.hasApiKey();
                 if (hasCheckedEmailEntries && !allEmailEntriesCached && hasApikey) {
                     const hasBreaches = await BreachCheckService.checkGroupEmails(databasePath, database.root);
                     if (hasBreaches && KeepassDatabaseService.getPath() === databasePath) {

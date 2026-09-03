@@ -24,10 +24,8 @@ const { BreachCheckService } = await import('../src/services/BreachCheckService'
 const { EmailBreachStatusStore } = await import('../src/services/EmailBreachStatusStore');
 const { BreachStatusStore } = await import('../src/services/BreachStatusStore');
 const { HaveIBeenPwnedService } = await import('../src/services/HaveIBeenPwnedService');
-const { userSettingsService } = await import('../src/services/UserSettingsService');
 const { KeepassDatabaseService } = await import('../src/services/KeepassDatabaseService');
 
-userSettingsService.setHibpApiKey('test-key');
 (BreachCheckService as any).EMAIL_REQUEST_DELAY = 0;
 
 const entry = (id: string, username: string, modified = '2020-01-01') => ({

@@ -2,6 +2,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { CloseActionIcon, DownloadActionIcon } from '../../icons/actions/ActionIcons';
 import { DarkThemeIcon, LightThemeIcon, SystemThemeIcon } from '../../icons/SettingsIcon';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
+import { LockIcon } from '../../icons/actions/LockIcon';
 import { ImportAuthIcon } from '../../icons/auth/AuthIcons';
 import { userSettingsService, MIN_BACKUP_KEEP, MAX_BACKUP_KEEP, MIN_CLIPBOARD_CLEAR_SECONDS, MAX_CLIPBOARD_CLEAR_SECONDS, DEFAULT_CLIPBOARD_CLEAR_SECONDS } from '../../services/UserSettingsService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
@@ -39,9 +40,19 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         }
         window.electron.getBackupInfo(vaultPath).then(setBackupInfo).catch(() => setBackupInfo(null));
     }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setApiKey('');
+        window.electron?.hasHibpApiKey?.().then(setHibpKeyStored).catch(() => setHibpKeyStored(false));
+    }, [isOpen]);
     const { theme, setTheme } = useTheme();
-    const [apiKey, setApiKey] = useState<string>(userSettingsService.getHibpApiKey() || '');
+    // The key itself lives in the OS keychain via the main process; this is
+    // only what the user is currently typing, committed on blur or Enter
+    const [apiKey, setApiKey] = useState('');
+    const [hibpKeyStored, setHibpKeyStored] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
+    const [checkPasswordBreaches, setCheckPasswordBreaches] = useState<boolean>(userSettingsService.getCheckPasswordBreaches());
     const [showImportModal, setShowImportModal] = useState(false);
     const [fetchFavicons, setFetchFavicons] = useState<boolean>(userSettingsService.getFetchFavicons());
     const [clipboardClearSeconds, setClipboardClearSeconds] = useState<number>(userSettingsService.getClipboardClearSeconds());
@@ -117,10 +128,30 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         }
     })();
 
-    const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const newApiKey = e.target.value;
-        setApiKey(newApiKey);
-        userSettingsService.setHibpApiKey(newApiKey || undefined);
+    const commitApiKey = async () => {
+        const key = apiKey.trim();
+        // An empty box next to a stored key is no change; removal is its own
+        // button so a stray blur cannot silently drop the key
+        if (!key) return;
+        const result = await window.electron?.setHibpApiKey(key);
+        if (result?.success) {
+            setHibpKeyStored(true);
+            setApiKey('');
+            window.dispatchEvent(new Event('vigil-hibp-key-changed'));
+            (window as any).showToast?.({ message: 'API key saved to the system keychain', type: 'success', duration: 3000 });
+        } else {
+            (window as any).showToast?.({ message: result?.error || 'Failed to store the API key', type: 'error', duration: 5000 });
+        }
+    };
+
+    const removeApiKey = async () => {
+        const result = await window.electron?.setHibpApiKey(null);
+        if (result?.success) {
+            setHibpKeyStored(false);
+            window.dispatchEvent(new Event('vigil-hibp-key-changed'));
+        } else {
+            (window as any).showToast?.({ message: result?.error || 'Failed to remove the API key', type: 'error', duration: 5000 });
+        }
     };
 
     const handleContentProtectionToggle = async (enabled: boolean) => {
@@ -821,26 +852,55 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </div>
                             <p className="auto-lock-help">Shows each entry's website icon, but sends the entry's domain to Google's favicon service</p>
                         </div>
+                        <div className="favicon-controls">
+                            <div className="auto-lock-toggle">
+                                <label htmlFor="check-password-breaches">Check passwords against Have I Been Pwned</label>
+                                <input
+                                    type="checkbox"
+                                    id="check-password-breaches"
+                                    checked={checkPasswordBreaches}
+                                    onChange={(e) => {
+                                        setCheckPasswordBreaches(e.target.checked);
+                                        userSettingsService.setCheckPasswordBreaches(e.target.checked);
+                                    }}
+                                />
+                            </div>
+                            <p className="auto-lock-help">Runs on unlock using k-anonymity: only the first 5 characters of each password's SHA-1 hash leave the machine, never the password</p>
+                        </div>
                         <div className="api-key-input">
                             <label htmlFor="hibp-api-key">Have I Been Pwned API Key</label>
-                            <div className="input-with-toggle">
+                            <div className={`input-with-toggle${hibpKeyStored ? ' key-locked' : ''}`}>
                                 <input
                                     type={showApiKey ? 'text' : 'password'}
                                     id="hibp-api-key"
                                     value={apiKey}
-                                    onChange={handleApiKeyChange}
-                                    placeholder="Enter your HIBP API key"
+                                    disabled={hibpKeyStored}
+                                    onChange={(e) => setApiKey(e.target.value)}
+                                    onBlur={() => void commitApiKey()}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') void commitApiKey(); }}
+                                    placeholder={hibpKeyStored ? '***************************' : 'Enter your HIBP API key'}
                                 />
-                                <button
-                                    className="toggle-visibility"
-                                    onClick={() => setShowApiKey(!showApiKey)}
-                                    type="button"
-                                >
-                                    {showApiKey ? <HidePasswordIcon /> : <ShowPasswordIcon />}
-                                </button>
+                                {hibpKeyStored ? (
+                                    <div className="key-locked-overlay" title="Stored in the system keychain">
+                                        <LockIcon />
+                                    </div>
+                                ) : (
+                                    <button
+                                        className="toggle-visibility"
+                                        onClick={() => setShowApiKey(!showApiKey)}
+                                        type="button"
+                                    >
+                                        {showApiKey ? <HidePasswordIcon /> : <ShowPasswordIcon />}
+                                    </button>
+                                )}
                             </div>
+                            {hibpKeyStored && (
+                                <button className="clear-cache-button" onClick={() => void removeApiKey()} type="button">
+                                    Remove API Key
+                                </button>
+                            )}
                             <p className="api-key-help">
-                                Get your API key from{' '}
+                                Enables email breach checks. Get your API key from{' '}
                                 <a href="https://haveibeenpwned.com/API/Key" target="_blank" rel="noopener noreferrer" onClick={() => window.electron?.openExternal('https://haveibeenpwned.com/API/Key')}>
                                     haveibeenpwned.com
                                 </a>
