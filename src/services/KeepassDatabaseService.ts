@@ -596,8 +596,22 @@ export class KeepassDatabaseService {
         });
     }
 
+    // Assigned by PlaceholderService at module load, so search can match the
+    // resolved text a {REF:...} field shows without a circular import
+    static displayResolver: ((text: string, entry: Entry) => string) | undefined;
+
     private static matchesTerm(entry: Entry, term: SearchTerm): boolean {
-        const has = (value: string | undefined) => !!value && value.toLowerCase().includes(term.value);
+        const has = (value: string | undefined) => {
+            if (!value) return false;
+            if (value.toLowerCase().includes(term.value)) return true;
+            // A field holding {REF:...} or a placeholder matches on what the
+            // user sees in the list, not just the token text
+            if (value.includes('{') && this.displayResolver) {
+                const resolved = this.displayResolver(value, entry);
+                return resolved !== value && resolved.toLowerCase().includes(term.value);
+            }
+            return false;
+        };
         const taggedWith = () => (entry.tags ?? []).some(tag => tag.toLowerCase().includes(term.value));
 
         switch (term.field) {

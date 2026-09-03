@@ -112,6 +112,23 @@ describe('model placeholder resolution', () => {
     });
 });
 
+describe('registered display resolution', () => {
+    it('resolves through the registered root and falls back to raw without one', () => {
+        const target = makeEntry({ title: 'Hub', username: 'hub-user' });
+        const referrer = makeEntry({ username: '{REF:U@T:Hub}' });
+        const root = makeRoot([referrer, target]);
+
+        expect(PlaceholderService.displayField(referrer.username, referrer)).toBe('{REF:U@T:Hub}');
+        PlaceholderService.setModelRoot(root);
+        try {
+            expect(PlaceholderService.displayField(referrer.username, referrer)).toBe('hub-user');
+        } finally {
+            PlaceholderService.setModelRoot(null);
+        }
+        expect(PlaceholderService.displayField(referrer.username, referrer)).toBe('{REF:U@T:Hub}');
+    });
+});
+
 describe('kdbx placeholder resolution', () => {
     it('resolves references for browser logins straight off the kdbx', () => {
         const db = kdbxweb.Kdbx.create(cred(), 'Vault');

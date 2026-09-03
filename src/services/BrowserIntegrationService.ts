@@ -316,13 +316,17 @@ export class BrowserIntegrationService {
                 }
 
                 if (undecided.length > 0 && ctx.requestAccessConsent) {
+                    // Resolved for the dialog: the user is deciding about the
+                    // credential a reference points at, not the token text
+                    const shown = (entry: kdbxweb.KdbxEntry, name: string) =>
+                        PlaceholderService.resolveKdbx(this.fieldString(entry.fields.get(name)), entry, kdbxDb.getDefaultGroup(), recycleBinUuid);
                     const consent = await ctx.requestAccessConsent({
                         url: payload.url,
                         host: siteHost,
                         entries: undecided.map(entry => ({
                             id: this.uuidHex(entry.uuid),
-                            title: this.fieldString(entry.fields.get('Title')),
-                            username: this.fieldString(entry.fields.get('UserName')),
+                            title: shown(entry, 'Title'),
+                            username: shown(entry, 'UserName'),
                         })),
                     });
                     if (consent) {
@@ -363,7 +367,9 @@ export class BrowserIntegrationService {
                         url: payload.url ?? '',
                         login: payload.login ?? '',
                         mode: entry ? 'update' : 'create',
-                        entryTitle: entry ? this.fieldString(entry.fields.get('Title')) : undefined,
+                        entryTitle: entry
+                            ? PlaceholderService.resolveKdbx(this.fieldString(entry.fields.get('Title')), entry, root)
+                            : undefined,
                     })
                     : false;
                 if (!consent) return { errorCode: ERROR_DENIED };

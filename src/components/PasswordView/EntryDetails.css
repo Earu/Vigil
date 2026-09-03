@@ -105,6 +105,33 @@
     color: var(--color-error);
 }
 
+/* Field-row remove (custom field, TOTP): the standard field-row button
+   footprint, with the remove hover. Attachment list rows keep their flat
+   compact actions */
+.field-remove-button {
+    padding: 0.35rem;
+    background-color: var(--overlay-medium);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-tertiary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.field-remove-button:hover {
+    background-color: var(--overlay-dark);
+    border-color: var(--border-hover);
+    color: var(--color-error);
+}
+
+.field-remove-button svg {
+    width: 1.05rem;
+    height: 1.05rem;
+}
+
 .attachment-action-button svg {
     width: 0.95rem;
     height: 0.95rem;
@@ -173,7 +200,8 @@
 .totp-add-row {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    /* The gap every field row uses (.field-value-container) */
+    gap: 0.5rem;
 }
 
 .totp-add-row .field-value {
@@ -207,10 +235,12 @@
     color: var(--color-error);
 }
 
+/* Same footprint as copy/visibility/open/generate: every square icon
+   button sitting in a field row shares one size */
 .totp-qr-button {
     padding: 0.35rem;
-    background: none;
-    border: none;
+    background-color: var(--overlay-medium);
+    border: 1px solid var(--border-secondary);
     border-radius: var(--radius-md);
     color: var(--text-tertiary);
     cursor: pointer;
@@ -221,13 +251,14 @@
 }
 
 .totp-qr-button:hover {
-    background-color: var(--overlay-medium);
+    background-color: var(--overlay-dark);
+    border-color: var(--border-hover);
     color: var(--text-secondary);
 }
 
 .totp-qr-button svg {
-    width: 1rem;
-    height: 1rem;
+    width: 1.05rem;
+    height: 1.05rem;
 }
 
 .custom-fields-list {
@@ -239,7 +270,8 @@
 .custom-field-row {
     display: flex;
     align-items: center;
-    gap: 0.25rem;
+    /* The gap every field row uses (.field-value-container) */
+    gap: 0.5rem;
 }
 
 .custom-field-row .custom-field-key {
@@ -274,8 +306,8 @@
 }
 
 .custom-field-protect svg {
-    width: 0.9rem;
-    height: 0.9rem;
+    width: 1.05rem;
+    height: 1.05rem;
 }
 
 .add-attachment-button {

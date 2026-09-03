@@ -141,7 +141,7 @@ export const EntryList = ({
 	// Titles and usernames may hold KeePass placeholders and {REF:...}
 	// references; the list shows them resolved, the model keeps the raw text
 	const displayText = (text: string, entry: Entry) =>
-		database ? PlaceholderService.resolveModel(text, entry, database.root) : text;
+		PlaceholderService.displayField(text, entry);
 
 	const getEntryStatus = (entry: Entry) => {
 		const path = KeepassDatabaseService.getPath();
