@@ -71,6 +71,8 @@ vi.mock('../electron/src/biometrics', () => ({
 
 vi.mock('../electron/src/hibp', () => ({
     checkEmailBreaches: vi.fn(),
+    setHibpApiKey: vi.fn(),
+    hasHibpApiKey: vi.fn(),
 }));
 
 vi.mock('../electron/src/content-protection', () => ({

@@ -87,7 +87,9 @@ export interface IElectronAPI {
 	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 	getPlatform: () => Promise<string>;
 	on: (channel: string, callback: (...args: any[]) => void) => () => void;
-	checkEmailBreaches: (email: string, apiKey: string) => Promise<any[]>;
+	checkEmailBreaches: (email: string) => Promise<any[]>;
+	setHibpApiKey: (key: string | null) => Promise<{ success: boolean; error?: string }>;
+	hasHibpApiKey: () => Promise<boolean>;
 	// Favicon bytes for icon promotion; fails rather than returning placeholders
 	fetchFavicon: (host: string) => Promise<{ success: boolean; data?: Uint8Array; error?: string }>;
 	isHardwareKeyPresent: () => Promise<boolean>;

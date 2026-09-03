@@ -23,7 +23,7 @@ import {
     getBiometricPassword,
     disableBiometrics
 } from './biometrics';
-import { checkEmailBreaches } from './hibp';
+import { checkEmailBreaches, setHibpApiKey, hasHibpApiKey } from './hibp';
 import { fetchFavicon } from './favicon';
 import { isSupported as isContentProtectionSupported, isContentProtectionEnabled, setContentProtectionEnabled } from './content-protection';
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
@@ -271,9 +271,20 @@ export function setupIpcHandlers(): void {
         return await disableBiometrics(dbPath);
     });
 
-    // HIBP handlers
-    ipcMain.handle('check-email-breaches', async (_, email: string, apiKey: string) => {
-        return await checkEmailBreaches(email, apiKey);
+    // HIBP handlers. The API key stays in the main process (OS keychain);
+    // the renderer sends the address and learns only whether a key is stored
+    ipcMain.handle('check-email-breaches', async (_, email: string) => {
+        if (typeof email !== 'string') throw new Error('Invalid email');
+        return await checkEmailBreaches(email);
+    });
+
+    ipcMain.handle('set-hibp-api-key', async (_, key: unknown) => {
+        if (key !== null && typeof key !== 'string') return { success: false, error: 'Invalid key' };
+        return await setHibpApiKey(key);
+    });
+
+    ipcMain.handle('has-hibp-api-key', async () => {
+        return await hasHibpApiKey();
     });
 
     // Favicon download for icon promotion; host validation lives with the fetch

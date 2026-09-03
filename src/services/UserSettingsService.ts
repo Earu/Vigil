@@ -7,7 +7,14 @@ export interface HardwareKeyPreference {
 
 interface UserSettings {
     theme: Theme;
+    // Legacy location of the HIBP API key. New installs never write it; an
+    // existing value is migrated into the OS keychain (main process) and
+    // removed on startup. See migrateHibpApiKey
     hibpApiKey?: string;
+    // The unlock-time HIBP password sweep (k-anonymity range queries). On by
+    // default; the off switch exists because even prefix queries tell HIBP
+    // an IP runs a password manager and roughly how many secrets it holds
+    checkPasswordBreaches?: boolean;
     autoLockEnabled: boolean;
     autoLockDuration: number;
     // Remembered key file path per database path. Only paths are stored,
@@ -160,12 +167,28 @@ class UserSettingsService {
         this.saveSettings();
     }
 
-    getHibpApiKey(): string | undefined {
-        return this.current.hibpApiKey;
+    // One-way: hands a key stored by an older version to the main process
+    // (OS keychain) and strips it from localStorage. Removal only happens
+    // once the keychain write is confirmed, so a failure leaves the key
+    // working from its old location and the migration retries next start
+    async migrateHibpApiKey(): Promise<void> {
+        const legacy = this.current.hibpApiKey;
+        if (!legacy || !window.electron?.setHibpApiKey) return;
+        try {
+            const result = await window.electron.setHibpApiKey(legacy);
+            if (result?.success) {
+                delete this.current.hibpApiKey;
+                this.saveSettings();
+            }
+        } catch { /* keychain unavailable; retry next start */ }
     }
 
-    setHibpApiKey(apiKey: string | undefined): void {
-        this.current.hibpApiKey = apiKey;
+    getCheckPasswordBreaches(): boolean {
+        return this.current.checkPasswordBreaches ?? true;
+    }
+
+    setCheckPasswordBreaches(enabled: boolean): void {
+        this.current.checkPasswordBreaches = enabled;
         this.saveSettings();
     }
 

@@ -177,7 +177,22 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		return entry || KeepassDatabaseService.createNewEntry();
 	});
 
+	// The latest edit state, readable from the reset effect without putting
+	// isEditing in its deps (which would re-run the reset on every edit-mode
+	// toggle rather than only when the entry prop changes)
+	const isEditingRef = useRef(isEditing);
+	isEditingRef.current = isEditing;
+	const prevEntryIdRef = useRef<string | undefined>(undefined);
+
 	useEffect(() => {
+		const sameEntry = !isNew && entry !== undefined && entry?.id === prevEntryIdRef.current;
+		prevEntryIdRef.current = entry?.id;
+		// The same entry arriving as a new object is a model refresh, not a
+		// selection: history grew after our own save, or a background save
+		// landed (a browser set-login). Mid-edit, that refresh must not
+		// re-seed the form and throw away what the user has typed
+		if (sameEntry && isEditingRef.current) return;
+
 		// A reveal belongs to the entry it was clicked on: switching entries
 		// must not carry it over and render the next password in plaintext
 		setShowPassword(false);

@@ -51,3 +51,46 @@ describe('auto-lock default', () => {
         expect(reloaded.getAutoLockEnabled()).toBe(false);
     });
 });
+
+describe('password breach checking', () => {
+    it('is on by default and turns off persistently', async () => {
+        const settings = await freshService();
+        expect(settings.getCheckPasswordBreaches()).toBe(true);
+
+        settings.setCheckPasswordBreaches(false);
+        const reloaded = await freshService();
+        expect(reloaded.getCheckPasswordBreaches()).toBe(false);
+    });
+});
+
+describe('HIBP API key migration', () => {
+    it('moves a legacy localStorage key to the keychain and strips it', async () => {
+        store.set(SETTINGS_KEY, JSON.stringify({
+            theme: 'dark', autoLockEnabled: true, autoLockDuration: 20,
+            hibpApiKey: 'legacy-key',
+        }));
+        const setHibpApiKey = vi.fn(async () => ({ success: true }));
+        (globalThis as any).window = { electron: { setHibpApiKey } };
+
+        const settings = await freshService();
+        await settings.migrateHibpApiKey();
+
+        expect(setHibpApiKey).toHaveBeenCalledWith('legacy-key');
+        expect(JSON.parse(store.get(SETTINGS_KEY)!).hibpApiKey).toBeUndefined();
+        delete (globalThis as any).window;
+    });
+
+    it('keeps the legacy key when the keychain write fails', async () => {
+        store.set(SETTINGS_KEY, JSON.stringify({
+            theme: 'dark', autoLockEnabled: true, autoLockDuration: 20,
+            hibpApiKey: 'legacy-key',
+        }));
+        (globalThis as any).window = { electron: { setHibpApiKey: async () => ({ success: false }) } };
+
+        const settings = await freshService();
+        await settings.migrateHibpApiKey();
+
+        expect(JSON.parse(store.get(SETTINGS_KEY)!).hibpApiKey).toBe('legacy-key');
+        delete (globalThis as any).window;
+    });
+});

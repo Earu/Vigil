@@ -200,6 +200,28 @@
     box-shadow: 0 0 0 3px var(--accent-muted);
 }
 
+/* A stored key is write-only: the field is disabled and blurred under a
+   lock, and Remove API Key is the way back to an editable input */
+.input-with-toggle.key-locked input {
+    filter: blur(2px);
+    pointer-events: none;
+    user-select: none;
+}
+
+.key-locked-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.key-locked-overlay svg {
+    width: 16px;
+    height: 16px;
+}
+
 .toggle-visibility {
     position: absolute;
     right: 0.75rem;

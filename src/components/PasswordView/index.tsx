@@ -11,7 +11,7 @@ import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { PlaceholderService } from '../../services/PlaceholderService';
 import './PasswordView.css';
-import { userSettingsService } from '../../services/UserSettingsService';
+import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 
 interface PasswordViewProps {
 	database: Database;
@@ -47,6 +47,21 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const [reportOpenedManually, setReportOpenedManually] = useState(false);
 	const [isCheckingBreaches, setIsCheckingBreaches] = useState(false);
 	const [isCheckingEmails, setIsCheckingEmails] = useState(false);
+	// Whether a HIBP API key is stored (main-process keychain); Settings
+	// announces changes so the email report gating follows without a reload
+	const [hasHibpKey, setHasHibpKey] = useState(false);
+	useEffect(() => {
+		let cancelled = false;
+		const refresh = () => {
+			void HaveIBeenPwnedService.hasApiKey().then(has => { if (!cancelled) setHasHibpKey(has); });
+		};
+		refresh();
+		window.addEventListener('vigil-hibp-key-changed', refresh);
+		return () => {
+			cancelled = true;
+			window.removeEventListener('vigil-hibp-key-changed', refresh);
+		};
+	}, []);
 	const [sidebarWidth, setSidebarWidth] = useState(260);
 	const [detailsWidth, setDetailsWidth] = useState(340);
 	const [isResizing, setIsResizing] = useState<'left' | 'right' | null>(null);
@@ -95,12 +110,12 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		const { breached, weak } = BreachCheckService.findBreachedAndWeakEntries(database.root);
 		setBreachedEntries(breached);
 		setWeakEntries(weak);
-		if (userSettingsService.getHibpApiKey() != null) {
+		if (hasHibpKey) {
 			setBreachedEmailEntries(BreachCheckService.findBreachedEmails(database.root).breached);
 		}
 		setReportOpenedManually(true);
 		setShowBreachReport(true);
-	}, [securityReportRequestId]);
+	}, [securityReportRequestId, hasHibpKey]);
 
 	useEffect(() => {
 		const updateBreachStatus = () => {
@@ -116,8 +131,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		};
 
 		const updateEmailBreachStatus = () => {
-			const hasApikey = userSettingsService.getHibpApiKey() != null;
-			if (!hasApikey) {
+			if (!hasHibpKey) {
 				setIsCheckingEmails(false);
 				return;
 			}
@@ -132,7 +146,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 
 		updateBreachStatus();
 		updateEmailBreachStatus();
-	}, [database, isCheckingBreaches, isCheckingEmails, breachStoreVersion, emailStoreVersion]);
+	}, [database, isCheckingBreaches, isCheckingEmails, breachStoreVersion, emailStoreVersion, hasHibpKey]);
 
 	// Placeholder resolution ({REF:...}, {USERNAME}, ...) follows the open
 	// vault: registered while this view is mounted, cleared with it on lock
