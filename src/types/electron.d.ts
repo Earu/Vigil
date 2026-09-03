@@ -79,7 +79,7 @@ export interface IElectronAPI {
 	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
 	// Copying runs in the main process so it can carry the macOS pasteboard
 	// markers and so a quit mid-countdown can still take the secret back
-	copySecret: (text: string) => Promise<{ success: boolean; error?: string }>;
+	copySecret: (text: string, clearSeconds?: number) => Promise<{ success: boolean; error?: string }>;
 	clearClipboard: () => Promise<{ success: boolean; error?: string }>;
 	getContentProtection: () => Promise<{ supported: boolean; enabled: boolean }>;
 	setContentProtection: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean; error?: string }>;

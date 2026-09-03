@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // Main-process side of the clipboard: it owns the write, the record of which
 // value belongs to the vault, and the clear. The macOS markers matter because
@@ -170,6 +170,80 @@ describe('clearing', () => {
         await mod.copySecret('hunter2');
         await mod.clearClipboard();
         await mod.clearClipboard();
+        expect(clears).toBe(1);
+    });
+});
+
+describe('the clear countdown', () => {
+    // The countdown lives here so it survives the renderer that started the
+    // copy: closing the last window on macOS quits nothing, and a countdown
+    // owned by that window's renderer would leave the secret behind for good
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        mod.forgetSecret();
+        vi.useRealTimers();
+    });
+
+    it('clears the secret when the countdown runs out, with no renderer involved', async () => {
+        await mod.copySecret('hunter2', 20);
+        await vi.advanceTimersByTimeAsync(19_000);
+        expect(clears).toBe(0);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect(clears).toBe(1);
+        expect(board).toBe('');
+    });
+
+    it('re-arms on a second copy instead of letting the first countdown fire early', async () => {
+        await mod.copySecret('first', 20);
+        await vi.advanceTimersByTimeAsync(15_000);
+        await mod.copySecret('second', 20);
+        await vi.advanceTimersByTimeAsync(15_000);
+        expect(clears).toBe(0);
+        expect(board).toBe('second');
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(clears).toBe(1);
+    });
+
+    it('an early clear spends the countdown', async () => {
+        await mod.copySecret('hunter2', 20);
+        await mod.clearClipboard();
+        board = 'a shopping list';
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(clears).toBe(1);
+        expect(board).toBe('a shopping list');
+    });
+
+    it('releasing ownership cancels the countdown', async () => {
+        await mod.copySecret('hunter2', 20);
+        mod.forgetSecret();
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(clears).toBe(0);
+        expect(board).toBe('hunter2');
+    });
+
+    it('falls back to the default duration when the renderer sends none', async () => {
+        await mod.copySecret('hunter2');
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(clears).toBe(1);
+    });
+
+    // The duration crosses IPC from the renderer, so the clamp is the main
+    // process's own: whatever arrives, the secret is cleared within the
+    // bounds the settings UI enforces
+    it.each([
+        { sent: Number.NaN, firesAfter: 20_000 },
+        { sent: Number.POSITIVE_INFINITY, firesAfter: 20_000 },
+        { sent: -5, firesAfter: 5_000 },
+        { sent: 1, firesAfter: 5_000 },
+        { sent: 99_999_999, firesAfter: 600_000 },
+    ])('clamps a hostile duration ($sent)', async ({ sent, firesAfter }) => {
+        await mod.copySecret('hunter2', sent);
+        await vi.advanceTimersByTimeAsync(firesAfter - 1_000);
+        expect(clears).toBe(0);
+        await vi.advanceTimersByTimeAsync(1_000);
         expect(clears).toBe(1);
     });
 });

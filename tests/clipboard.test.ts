@@ -24,25 +24,41 @@ const clipboard = {
 
 vi.stubGlobal('navigator', { clipboard });
 // Stands in for electron/src/clipboard, which owns the write, the record of
-// which value is the vault's and the clear; see clipboard-main.test.ts
+// which value is the vault's, the clear, and the countdown that triggers it;
+// see clipboard-main.test.ts. The countdown here matters: the renderer's own
+// timer only draws the badge, so a test that expects the board cleared is
+// exercising this stand-in timer the way the app exercises the main-process
+// one
+let mainTimer: ReturnType<typeof setTimeout> | null = null;
+let lastClearSeconds: number | undefined;
+
+const mainClear = async () => {
+    if (mainTimer) {
+        clearTimeout(mainTimer);
+        mainTimer = null;
+    }
+    if (ours !== null && board !== ours && !readThrows) {
+        ours = null;
+        return { success: true };
+    }
+    ours = null;
+    cleared++;
+    board = '';
+    return { success: true };
+};
+
 vi.stubGlobal('window', {
     electron: {
-        copySecret: async (text: string) => {
+        copySecret: async (text: string, clearSeconds?: number) => {
             if (writeThrows) return { success: false, error: 'denied' };
             board = text;
             ours = text;
+            lastClearSeconds = clearSeconds;
+            if (mainTimer) clearTimeout(mainTimer);
+            mainTimer = setTimeout(() => { void mainClear(); }, (clearSeconds ?? 20) * 1000);
             return { success: true };
         },
-        clearClipboard: async () => {
-            if (ours !== null && board !== ours && !readThrows) {
-                ours = null;
-                return { success: true };
-            }
-            ours = null;
-            cleared++;
-            board = '';
-            return { success: true };
-        },
+        clearClipboard: async () => mainClear(),
     },
     showToast: (toast: { message: string; type: string }) => toasts.push(toast),
 });
@@ -65,6 +81,11 @@ beforeEach(() => {
     writeThrows = false;
     ours = null;
     toasts.length = 0;
+    lastClearSeconds = undefined;
+    if (mainTimer) {
+        clearTimeout(mainTimer);
+        mainTimer = null;
+    }
 });
 
 afterEach(() => {
@@ -148,6 +169,9 @@ describe('clipboard countdown', () => {
             await ClipboardService.copy('hunter2', 'Password', 'entry:a:Password');
             expect(ClipboardService.getSnapshot().secondsLeft).toBe(5);
             expect(ClipboardService.getSnapshot().totalSeconds).toBe(5);
+            // The main process arms the real clear, so it must be told the
+            // configured duration rather than assuming the default
+            expect(lastClearSeconds).toBe(5);
 
             await runOut(5);
             expect(cleared).toBe(1);
