@@ -5,6 +5,22 @@ export interface QrScanResult {
     error?: string;
 }
 
+// Decoding runs on raw RGBA at full resolution, four bytes a pixel, so an
+// image from the clipboard or a file is scaled to fit this many pixels
+// first. A crafted PNG a few hundred kilobytes on disk can otherwise decode
+// to gigabytes and take the renderer, and any unsaved edit, down with it.
+// 16 megapixels is a 4K screenshot with room to spare; a QR code that needs
+// more than that to be readable was not going to be
+export const MAX_DECODE_PIXELS = 16 * 1024 * 1024;
+
+// The size to draw an image at so it fits the pixel budget, aspect kept
+export function decodeSize(width: number, height: number, maxPixels = MAX_DECODE_PIXELS): { width: number; height: number } {
+    const pixels = width * height;
+    if (pixels <= maxPixels) return { width, height };
+    const scale = Math.sqrt(maxPixels / pixels);
+    return { width: Math.max(1, Math.floor(width * scale)), height: Math.max(1, Math.floor(height * scale)) };
+}
+
 export class QrScanService {
     // jsqr only matters when scanning a TOTP QR code, so it loads on first
     // use instead of riding in the main bundle (same pattern as zxcvbn in
@@ -32,25 +48,13 @@ export class QrScanService {
             img.onerror = () => reject(new Error('Could not read the image'));
             img.src = url;
         });
+        const { width, height } = decodeSize(image.naturalWidth, image.naturalHeight);
         const canvas = document.createElement('canvas');
-        canvas.width = image.naturalWidth;
-        canvas.height = image.naturalHeight;
+        canvas.width = width;
+        canvas.height = height;
         const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(image, 0, 0);
-        return ctx.getImageData(0, 0, canvas.width, canvas.height);
-    }
-
-    private static async decodePngBase64(pngBase64: string): Promise<string | null> {
-        const data = await this.imageDataFromUrl(`data:image/png;base64,${pngBase64}`);
-        return this.decodeImageData(data);
-    }
-
-    private static async decodeImages(images: string[]): Promise<string | null> {
-        for (const png of images) {
-            const text = await this.decodePngBase64(png).catch(() => null);
-            if (text) return text;
-        }
-        return null;
+        ctx.drawImage(image, 0, 0, width, height);
+        return ctx.getImageData(0, 0, width, height);
     }
 
     static async scanClipboard(): Promise<QrScanResult> {
@@ -79,12 +83,12 @@ export class QrScanService {
         return { error: 'No image in the clipboard' };
     }
 
+    // The main process captures and decodes; only the text comes back
     static async scanScreens(): Promise<QrScanResult> {
         if (!window.electron) return { error: 'Not available' };
         const result = await window.electron.qrCaptureScreens();
-        if (!result.success || !result.images) return { error: result.error ?? 'Screen capture failed' };
-        const text = await this.decodeImages(result.images);
-        return text ? { text } : { error: 'No QR code found on screen' };
+        if (!result.success || !result.text) return { error: result.error ?? 'Screen capture failed' };
+        return { text: result.text };
     }
 
     static async scanFile(file: File): Promise<QrScanResult> {

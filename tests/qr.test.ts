@@ -54,3 +54,23 @@ describe('qr decoding', () => {
         expect(jsQR(rgba, dim, dim, { inversionAttempts: 'attemptBoth' })).toBeNull();
     });
 });
+
+const { decodeSize, MAX_DECODE_PIXELS } = await import('../src/services/QrScanService');
+
+describe('decode size cap', () => {
+
+    it('leaves an ordinary image alone', () => {
+        expect(decodeSize(1920, 1080)).toEqual({ width: 1920, height: 1080 });
+        expect(decodeSize(4096, 4096)).toEqual({ width: 4096, height: 4096 });
+    });
+
+    it('scales a huge image down to the pixel budget, aspect kept', () => {
+        const { width, height } = decodeSize(30000, 30000);
+        expect(width * height).toBeLessThanOrEqual(MAX_DECODE_PIXELS);
+        expect(width).toBe(height);
+        const wide = decodeSize(40000, 10000);
+        expect(wide.width * wide.height).toBeLessThanOrEqual(MAX_DECODE_PIXELS);
+        expect(wide.width / wide.height).toBeCloseTo(4, 1);
+        expect(decodeSize(1, 100_000_000).width).toBe(1);
+    });
+});

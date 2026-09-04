@@ -120,6 +120,18 @@ describe('main process trust boundary', () => {
             .toEqual(['http:', 'https:', 'mailto:']);
     });
 
+    it('screen capture requires a real gesture and hands the renderer text only', () => {
+        const ipc = read('electron/src/ipc.ts');
+        const body = ipc.slice(ipc.indexOf("handle('qr-capture-screens'"));
+        // Up to the next channel registration: this handler has nested
+        // callbacks, so the first '});' is not its end
+        const handler = body.slice(0, body.indexOf('\n    handle('));
+        expect(handler).toMatch(/consumeRecentGesture\(/);
+        expect(handler).toMatch(/decodeQrFromImage\(/);
+        expect(handler).not.toMatch(/toPNG|toDataURL|toJPEG|toBitmap/);
+        expect(read('electron/src/window.ts')).toMatch(/trackGestures\(win\)/);
+    });
+
     it('the log file is created owner-only', () => {
         expect(read('electron/src/logger.ts')).toMatch(/writeOptions = \{[^}]*mode: 0o600/);
     });

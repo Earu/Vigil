@@ -109,6 +109,14 @@ vi.mock('../electron/src/logger', () => ({
     revealLogs: vi.fn(),
 }));
 
+vi.mock('../electron/src/gesture', () => ({
+    consumeRecentGesture: vi.fn(() => true),
+}));
+
+vi.mock('../electron/src/qr-decode', () => ({
+    decodeQrFromImage: vi.fn(() => null),
+}));
+
 vi.mock('../electron/src/path-authority', () => ({
     isPathGranted: vi.fn(() => false),
 }));
@@ -122,6 +130,8 @@ const hardwareKey = await import('../electron/src/hardware-key');
 const backups = await import('../electron/src/backups');
 const logger = await import('../electron/src/logger');
 const authority = await import('../electron/src/path-authority');
+const gesture = await import('../electron/src/gesture');
+const qrDecode = await import('../electron/src/qr-decode');
 
 const { setupIpcHandlers } = await import('../electron/src/ipc');
 setupIpcHandlers();
@@ -343,11 +353,19 @@ describe('vault-opened', () => {
 });
 
 describe('qr-capture-screens gating', () => {
-    // Full-desktop screenshots only for a focused, visible window: the legit
-    // path is the user clicking the scan button, which guarantees both. A
-    // compromised background renderer gets the failure shape and the capturer
-    // is never touched
+    // Full-desktop screenshots only for a focused, visible window that just
+    // saw a real click or key press: the legit path is the user clicking the
+    // scan button, which guarantees all three. A compromised renderer gets
+    // the failure shape and the capturer is never touched; even on the legit
+    // path it gets decoded text, never the image
     const getSources = () => vi.mocked((electron as any).desktopCapturer.getSources);
+    const consume = vi.mocked(gesture.consumeRecentGesture);
+    const decode = vi.mocked(qrDecode.decodeQrFromImage);
+
+    beforeEach(() => {
+        consume.mockReturnValue(true);
+        decode.mockReturnValue(null);
+    });
 
     const captureWindow = (overrides: Partial<{ visible: boolean; focused: boolean }> = {}) => ({
         isVisible: () => overrides.visible ?? true,
@@ -368,22 +386,45 @@ describe('qr-capture-screens gating', () => {
         expect(getSources()).not.toHaveBeenCalled();
     });
 
-    it('captures for a focused, visible window', async () => {
+    it('refuses a focused, visible window with no recent gesture', async () => {
+        // focus-window is an IPC any renderer can call, so visible and
+        // focused is something the caller can arrange; a click is not
+        consume.mockReturnValue(false);
+        fromWebContents.mockReturnValue(captureWindow());
+        const result = await invoke('qr-capture-screens');
+        expect(result.success).toBe(false);
+        expect(getSources()).not.toHaveBeenCalled();
+    });
+
+    const capture = async () => {
         vi.useFakeTimers();
         const win = captureWindow();
         fromWebContents.mockReturnValue(win);
-        getSources().mockResolvedValue([
-            { thumbnail: { isEmpty: () => false, toPNG: () => Buffer.from('png') } },
-        ] as never);
-
+        const thumbnail = { isEmpty: () => false };
+        getSources().mockResolvedValue([{ thumbnail }] as never);
         const pending = invoke('qr-capture-screens');
         await vi.advanceTimersByTimeAsync(400);
         const result = await pending;
         vi.useRealTimers();
+        return { win, thumbnail, result };
+    };
 
-        expect(result.success).toBe(true);
+    it('captures after a gesture and returns the decoded text, never the image', async () => {
+        decode.mockReturnValue('otpauth://totp/x?secret=ABC');
+        const { win, thumbnail, result } = await capture();
+
+        expect(result).toEqual({ success: true, text: 'otpauth://totp/x?secret=ABC' });
+        expect(decode).toHaveBeenCalledWith(thumbnail);
+        expect(JSON.stringify(result)).not.toContain('image');
         expect(win.hide).toHaveBeenCalled();
         expect(win.show).toHaveBeenCalled();
+    });
+
+    it('reports no code found without handing anything back', async () => {
+        const { result } = await capture();
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/No QR code/);
+        expect(Object.keys(result).sort()).toEqual(['error', 'success']);
     });
 });
 
