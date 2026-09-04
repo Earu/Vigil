@@ -155,7 +155,11 @@ const P_INIT: readonly number[] = [
         0x9216d5d9, 0x8979fb1b,
 ];
 
-const sha512 = (data: Uint8Array): Uint8Array => new Uint8Array(createHash('sha512').update(data).digest());
+// CodeQL reads the passphrase reaching this as a weak password hash. It is
+// the first step of bcrypt_pbkdf as OpenBSD specifies it; the cost lives in
+// the Blowfish key expansion below, and the output is used only as a KDF
+// input, never stored
+const sha512 = (data: Uint8Array): Uint8Array => new Uint8Array(createHash('sha512').update(data).digest()); // codeql[js/insufficient-password-hash]
 
 class Blowfish {
     readonly S: Uint32Array[] = S_INIT.map(box => Uint32Array.from(box));
