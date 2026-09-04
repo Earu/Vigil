@@ -89,8 +89,10 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 			if (data.groupId) {
 				const draggedGroupId = data.groupId;
 
-				// Don't allow dropping on itself or root
-				if (draggedGroupId === group.id || group.id === database.root.id) {
+				// Dropping on itself is meaningless. Root is a valid target: it is
+				// where top-level groups live, and the only way out of the
+				// recycle bin when no other top-level group exists
+				if (draggedGroupId === group.id) {
 					return;
 				}
 

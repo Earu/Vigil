@@ -128,4 +128,36 @@ describe('moving objects between groups', () => {
         expect(restored[0].uuid.toString()).toBe(entryId);
         expect(restored[0].history).toHaveLength(revisions);
     });
+
+    it('drags a group out of the recycle bin back to the root', async () => {
+        // Personal sits under Work. Bin it, then drop it on "All Entries",
+        // which is the only target left when no other top-level group exists
+        let database = Svc.convertKdbxToDatabase(kdbxDb);
+        let personal = Svc.findGroupInDatabase(
+            database.root.groups.find(g => g.name === 'Work')!.groups[0].id, database.root)!;
+        expect(personal.name).toBe('Personal');
+        const personalId = personal.id;
+
+        await Svc.saveDatabase(Svc.removeGroup(database, personal), kdbxDb);
+        kdbxDb = await loadSaved(env);
+        database = Svc.convertKdbxToDatabase(kdbxDb);
+        expect(Svc.isGroupInRecycleBin(database, Svc.findGroupInDatabase(personalId, database.root)!)).toBe(true);
+
+        personal = Svc.findGroupInDatabase(personalId, database.root)!;
+        const moved = Svc.moveGroup(database, personal, database.root);
+        expect(moved).not.toBe(database);
+        await Svc.saveDatabase(moved, kdbxDb);
+        kdbxDb = await loadSaved(env);
+
+        const top = kdbxDb.getDefaultGroup().groups;
+        expect(top.map(g => g.uuid.toString())).toContain(personalId);
+        const bin = kdbxDb.getGroup(kdbxDb.meta.recycleBinUuid!)!;
+        expect(bin.groups).toHaveLength(0);
+        expect(kdbxDb.deletedObjects.map(d => d.uuid!.toString())).not.toContain(personalId);
+
+        // Dropping a group on the parent it already has is a no-op
+        database = Svc.convertKdbxToDatabase(kdbxDb);
+        personal = Svc.findGroupInDatabase(personalId, database.root)!;
+        expect(Svc.moveGroup(database, personal, database.root)).toBe(database);
+    });
 });
