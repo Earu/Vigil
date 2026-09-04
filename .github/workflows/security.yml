@@ -10,7 +10,7 @@ name: Security
 #                (tests/fuzz) plus the hardening invariants pinned in
 #                tests/hardening-invariants.test.ts
 #   codeql       GitHub's static analysis, results land in the Security tab
-#   audit        known vulnerabilities in the dependencies that ship
+#   audit        the lockfile against the OSV advisory database
 #   dependency-review  on pull requests: new dependencies with known
 #                vulnerabilities or unacceptable licenses block the merge
 #   packaged     builds the Linux app and checks the bytes that ship: the
@@ -151,41 +151,57 @@ jobs:
   audit:
     name: Dependency audit
     runs-on: ubuntu-latest
-    # The advisory endpoint has stalled for minutes at a time; a hung audit
-    # must not hold the report open for hours
-    timeout-minutes: 10
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Setup Node.js
-      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+    # OSV carries the same advisories npm audit reads (GitHub's database
+    # among its sources) behind its own API, so an npm registry outage no
+    # longer fails the report or stalls it for minutes. The whole lockfile
+    # is scanned, build tooling included: a compromised bundler ships as
+    # surely as a compromised runtime dependency
+    - name: Scan the lockfile against OSV
+      id: osv
+      uses: google/osv-scanner-action/osv-scanner-action@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
       with:
-        node-version: '22'
-        cache: 'npm'
+        scan-args: |-
+          --lockfile=package-lock.json
+          --format=sarif
+          --output=osv.sarif
+      continue-on-error: true
 
-    - name: Install dependencies
-      run: npm ci --no-audit --no-fund
+    - name: Upload to the Security tab
+      if: always()
+      uses: github/codeql-action/upload-sarif@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+      with:
+        sarif_file: osv.sarif
+        category: dependencies
+      continue-on-error: true
 
-    # Only what ships: the renderer bundle, the main process bundle and the
-    # native modules. Build tooling is reviewed by dependency-review on the
-    # pull request that changes it
-    - name: Audit shipped dependencies
+    - name: Report
+      if: always()
       run: |
-        set +e
-        npm audit --omit=dev --audit-level=high --json > audit.json
-        status=$?
-        set -e
         node -e '
-          const report = JSON.parse(require("fs").readFileSync("audit.json", "utf8"));
-          const v = report.metadata?.vulnerabilities ?? {};
-          const lines = ["## Dependency audit (shipped dependencies)", ""];
-          lines.push(`critical: ${v.critical ?? 0}, high: ${v.high ?? 0}, moderate: ${v.moderate ?? 0}, low: ${v.low ?? 0}`);
-          for (const [name, item] of Object.entries(report.vulnerabilities ?? {})) {
-            lines.push(`- **${name}** ${item.severity}: ${(item.via || []).map(x => typeof x === "string" ? x : x.title).join("; ")}`);
+          const fs = require("fs");
+          const lines = ["## Dependency audit (OSV)", ""];
+          if (!fs.existsSync("osv.sarif")) {
+            lines.push("The scanner produced no report; see the scan step.");
+          } else {
+            const results = JSON.parse(fs.readFileSync("osv.sarif", "utf8")).runs.flatMap(r => r.results ?? []);
+            lines.push(results.length === 0
+              ? "No known vulnerabilities in package-lock.json."
+              : `${results.length} finding(s), filed under Security > Code scanning, category \`dependencies\`:`);
+            for (const r of results.slice(0, 40)) lines.push(`- ${r.ruleId}: ${(r.message?.text ?? "").split("\n")[0].slice(0, 160)}`);
           }
-          require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n\n");
         '
-        exit $status
+
+    - name: Fail on findings
+      if: steps.osv.outcome == 'failure'
+      run: exit 1
 
   dependency-review:
     name: Dependency review
