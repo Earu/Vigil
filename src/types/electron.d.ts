@@ -149,7 +149,9 @@ export interface IElectronAPI {
 	sshAgentInspectKey: (data: Uint8Array, passphrase?: string) => Promise<SshKeyInspection>;
 	sshAgentAddKey: (data: Uint8Array, passphrase: string, options: SshAgentAddOptions) => Promise<{ success: true; fingerprint: string } | SshKeyFailure>;
 	sshAgentRemoveKey: (data: Uint8Array, passphrase?: string) => Promise<{ success: true } | SshKeyFailure>;
-	qrCaptureScreens: () => Promise<{ success: boolean; images?: string[]; error?: string }>;
+	// Decoded in the main process: the renderer gets the QR text, never the
+	// screenshot
+	qrCaptureScreens: () => Promise<{ success: boolean; text?: string; error?: string }>;
 	browserIntegrationRespond: (id: number, result: unknown) => void;
 	getBrowserIntegrationStatus: () => Promise<{ supported: boolean; enabled: boolean; running: boolean; socketPath: string }>;
 	setBrowserIntegrationEnabled: (enabled: boolean) => Promise<{ success: boolean; running: boolean; written?: string[]; error?: string }>;

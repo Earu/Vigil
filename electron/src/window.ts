@@ -5,6 +5,7 @@ import { handleFileOpen } from './file-operations';
 import { applyContentProtection } from './content-protection';
 import { isDevBuild } from './utils';
 import { APP_INDEX_URL } from './app-protocol';
+import { trackGestures } from './gesture';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
@@ -123,6 +124,10 @@ export function createWindow(startupFile?: string) {
     // Applied before anything is rendered, so the vault is never briefly
     // capturable while the renderer boots
     applyContentProtection(win);
+
+    // Actions that must follow a real click (screen capture for the QR
+    // scanner) check for one through this
+    trackGestures(win);
 
     // Set security-related headers including CSP.
     // Fonts are self-hosted (src/fonts), so no remote font or style host is

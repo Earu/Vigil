@@ -35,6 +35,8 @@ import { logRendererError, revealLogs } from './logger';
 import { isPathGranted } from './path-authority';
 import { agentSocketPath, isAgentRunning, listIdentities, addKeyForWindow, releaseWindow, removeIdentity, forgetKeyForWindow, loadedFingerprints } from './ssh-agent';
 import { parsePrivateKey, publicBlobOf, readPublicInfo, fingerprintOf, SshKeyError } from './ssh-key';
+import { consumeRecentGesture } from './gesture';
+import { decodeQrFromImage } from './qr-decode';
 
 export function setupIpcHandlers(): void {
     // Renderer failures land in the same file as main-process ones. Fire and
@@ -425,10 +427,20 @@ export function setupIpcHandlers(): void {
     // button, at which point the window is by definition both. Without the
     // gate this channel hands any renderer full-desktop screenshots, the
     // exact capability the page-level permission handler denies
+    // A full-desktop screenshot, decoded here and handed over as text only.
+    // Two gates, both about the same thing: this only ever follows the user
+    // clicking the scan button. The window must be visible and focused, and
+    // it must have seen a real click or key press in the last two seconds
+    // (gesture.ts), which a renderer cannot fake and focus-window cannot
+    // supply. The decode stays in this process so that even the gated path
+    // never gives the renderer the desktop image itself (qr-decode.ts)
     handle('qr-capture-screens', async (event) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender);
         if (!senderWindow || !senderWindow.isVisible() || !senderWindow.isFocused()) {
             return { success: false, error: 'Screen capture requires the requesting window to be active' };
+        }
+        if (!consumeRecentGesture(senderWindow)) {
+            return { success: false, error: 'Screen capture must follow a click in the window' };
         }
         try {
             // hide the window so it cannot cover the QR code
@@ -442,13 +454,15 @@ export function setupIpcHandlers(): void {
                 { width: 1920, height: 1080 }
             );
             const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: largest });
-            const images = sources
-                .filter(source => !source.thumbnail.isEmpty())
-                .map(source => source.thumbnail.toPNG().toString('base64'));
-            if (images.length === 0) {
+            const captured = sources.map(source => source.thumbnail).filter(thumbnail => !thumbnail.isEmpty());
+            if (captured.length === 0) {
                 return { success: false, error: 'Screen capture produced no image' };
             }
-            return { success: true, images };
+            for (const thumbnail of captured) {
+                const text = decodeQrFromImage(thumbnail);
+                if (text) return { success: true, text };
+            }
+            return { success: false, error: 'No QR code found on screen' };
         } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : 'Screen capture failed' };
         } finally {
