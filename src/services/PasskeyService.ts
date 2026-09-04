@@ -401,9 +401,9 @@ export class PasskeyService {
     // First supported algorithm in the RP's preference order wins, ES256 if
     // the list is absent (KeePassXC order)
     static async pickAlgorithm(pubKeyCredParams: Array<{ type: string; alg: number }> | undefined): Promise<number | null> {
-        if (!pubKeyCredParams || pubKeyCredParams.length === 0) return ES256;
+        if (!Array.isArray(pubKeyCredParams) || pubKeyCredParams.length === 0) return ES256;
         for (const param of pubKeyCredParams) {
-            if (param.type !== 'public-key') continue;
+            if (!param || param.type !== 'public-key') continue;
             if (param.alg === EDDSA && !(await this.supportsEd25519())) continue;
             if ([ES256, RS256, EDDSA].includes(param.alg)) return param.alg;
         }
@@ -423,7 +423,14 @@ export class PasskeyService {
         if (!originAllowed(origin, opts.allowLocalhost ?? false)) return error(PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED);
         if (String(options.challenge).length < 16) return error(PASSKEY_ERRORS.INVALID_CHALLENGE);
 
-        const userId = options.user?.id ? b64urlDecode(String(options.user.id)) : new Uint8Array();
+        // The page chooses the user id; one that is not base64url is as
+        // invalid as one of the wrong length
+        let userId: Uint8Array;
+        try {
+            userId = options.user?.id ? b64urlDecode(String(options.user.id)) : new Uint8Array();
+        } catch {
+            return error(PASSKEY_ERRORS.INVALID_USER_ID);
+        }
         if (userId.length < 1 || userId.length > 64) return error(PASSKEY_ERRORS.INVALID_USER_ID);
 
         const domain = effectiveDomain(origin);
@@ -436,7 +443,8 @@ export class PasskeyService {
 
         // A credential the RP already knows must not be re-registered
         const existing = this.passkeyEntries(kdbxDb, rpId);
-        const excludeIds: string[] = (options.excludeCredentials ?? [])
+        const excludeIds: string[] = (Array.isArray(options.excludeCredentials) ? options.excludeCredentials : [])
+            .filter((c: any) => c && c.id !== undefined)
             .map((c: any) => String(c.id));
         if (excludeIds.length > 0 && existing.some(e => excludeIds.includes(e.credentialId))) {
             return error(PASSKEY_ERRORS.CREDENTIAL_IS_EXCLUDED);
@@ -529,8 +537,9 @@ export class PasskeyService {
         const rpId = await validateRpId(options.rpId, domain, origin, opts.relatedOrigins);
         if (!rpId) return { errorCode: PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH };
 
-        const allowedIds: string[] = (options.allowCredentials ?? [])
-            .filter((c: any) => c.type === 'public-key' && c.id)
+        // A page can send anything here; a non-list reads as an empty one
+        const allowedIds: string[] = (Array.isArray(options.allowCredentials) ? options.allowCredentials : [])
+            .filter((c: any) => c && c.type === 'public-key' && c.id)
             .map((c: any) => String(c.id));
 
         const entries = this.passkeyEntries(kdbxDb, rpId).filter(e =>

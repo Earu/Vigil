@@ -1,0 +1,30 @@
+# Dependency alerts live in the Security tab and come from GitHub's own
+# advisory database, continuously, without a workflow run. Version updates
+# here keep the SHA-pinned actions current (Dependabot rewrites the pin and
+# its version comment) and batch npm bumps into one pull request a week.
+# Delete the npm block to keep only the action pins moving.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    # Electron majors change the runtime and are taken by hand
+    ignore:
+      - dependency-name: electron
+        update-types: ["version-update:semver-major"]

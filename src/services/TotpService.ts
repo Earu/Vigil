@@ -36,7 +36,10 @@ export class TotpService {
 
     static normalizeSecret(secret: string): string | null {
         const cleaned = secret.replace(/[\s-]/g, '').replace(/=+$/, '').toUpperCase();
-        if (cleaned.length === 0) return null;
+        // One base32 character is five bits, which decodes to no key at all,
+        // and an empty HMAC key is refused by WebCrypto at code time rather
+        // than here. Two characters is the shortest thing that is a key
+        if (cleaned.length < 2) return null;
         if (![...cleaned].every(c => BASE32_ALPHABET.includes(c))) return null;
         return cleaned;
     }

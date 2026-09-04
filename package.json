@@ -11,7 +11,9 @@
 		"electron:dev": "node electron/build.mjs && node electron/copy-native-modules.mjs && concurrently \"vite\" \"cross-env NODE_ENV=development electron dist-electron/main.js --ozone-platform-hint=auto\"",
 		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder --config electron-builder.config.js",
 		"test": "vitest run",
-		"smoke": "node scripts/smoke-boot.mjs"
+		"smoke": "node scripts/smoke-boot.mjs",
+		"test:fuzz": "vitest run tests/fuzz tests/hardening-invariants.test.ts",
+		"check:fuses": "node scripts/check-fuses.mjs"
 	},
 	"dependencies": {
 		"@node-rs/argon2": "^2.0.2",
@@ -43,6 +45,7 @@
 		"electron-builder": "^26.15.3",
 		"electron-updater": "^6.8.9",
 		"esbuild": "^0.20.2",
+		"fast-check": "^4.9.0",
 		"js-yaml": "^4.3.2",
 		"jsdom": "^30.0.1",
 		"node-addon-api": "^8.3.0",
