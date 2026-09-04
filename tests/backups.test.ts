@@ -194,6 +194,19 @@ describe('vault backups', () => {
         expect(fs.readFileSync((await listBackups(b))[0], 'utf8')).toBe('from b');
     });
 
+    it('keeps one set of copies for a vault however it is reached', async () => {
+        const real = newVault('behind a link');
+        const link = path.join(tmpRoot, `link-${counter++}.kdbx`);
+        fs.symlinkSync(real, link);
+
+        await backupBeforeWrite(link, ON);
+
+        expect(backupDir(link)).toBe(backupDir(real));
+        const backups = await listBackups(real);
+        expect(backups).toHaveLength(1);
+        expect(fs.readFileSync(backups[0], 'utf8')).toBe('behind a link');
+    });
+
     it('reports what is stored', async () => {
         const vault = newVault('some bytes');
         await backupBeforeWrite(vault, ON);

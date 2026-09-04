@@ -62,6 +62,32 @@ describe('main process trust boundary', () => {
         expect(csp).toContain("base-uri 'self'");
     });
 
+    it('the packaged renderer loads from the app scheme, never from file:', () => {
+        const window = read('electron/src/window.ts');
+        expect(window).not.toMatch(/loadFile\(/);
+        expect(window).toMatch(/win\.loadURL\(APP_INDEX_URL\)/);
+        // Nothing in the production CSP may name file:, or 'self' stops
+        // being the whole story
+        const production = window.slice(window.indexOf(': "default-src \'self\';"'));
+        expect(production.slice(0, production.indexOf('frame-ancestors'))).not.toMatch(/file:/);
+        const guard = read('electron/src/ipc-guard.ts');
+        expect(guard).toMatch(/APP_SCHEME/);
+        expect(guard).not.toMatch(/'file:'/);
+    });
+
+    it('a packaged build refuses debugging switches before anything else runs', () => {
+        const main = read('electron/app-main.ts');
+        const refuse = main.indexOf('refuseDebugSwitches();');
+        expect(refuse).toBeGreaterThan(0);
+        expect(refuse).toBeLessThan(main.indexOf('requestSingleInstanceLock'));
+        expect(refuse).toBeLessThan(main.indexOf('app.whenReady'));
+        const guard = read('electron/src/launch-guard.ts');
+        for (const name of ['remote-debugging-port', 'remote-debugging-pipe']) {
+            expect(guard).toContain(`'${name}'`);
+        }
+        expect(guard).toMatch(/if \(!app\.isPackaged\) return;/);
+    });
+
     it('packaged builds block navigation and grant the page only clipboard permissions', () => {
         expect(read('electron/src/window.ts')).toMatch(/will-navigate[\s\S]*?if \(!isDevBuild\(\)\) \{\s*(\/\/[^\n]*\n\s*)*event\.preventDefault\(\)/);
         const main = read('electron/app-main.ts');
@@ -128,6 +154,8 @@ describe('packaged build configuration', () => {
         expect(fuses.onlyLoadAppFromAsar).toBe(true);
         expect(fuses.enableCookieEncryption).toBe(true);
         expect(fuses.loadBrowserProcessSpecificV8Snapshot).toBe(false);
+        // The renderer loads from vigil://app; file:// gets nothing extra
+        expect(fuses.grantFileProtocolExtraPrivileges).toBe(false);
         // Windows is the one platform whose native messaging proxy needs it
         expect(fuses.runAsNode).toBe(process.platform === 'win32');
         expect(config.asar).toBe(true);

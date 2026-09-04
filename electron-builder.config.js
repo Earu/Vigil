@@ -109,6 +109,11 @@ module.exports = {
         "enableEmbeddedAsarIntegrityValidation": true,
         "onlyLoadAppFromAsar": true,
         "loadBrowserProcessSpecificV8Snapshot": false,
-        "grantFileProtocolExtraPrivileges": true
+        // The renderer loads from its own scheme (electron/src/app-protocol.ts),
+        // so file:// pages need no storage or fetch privileges. Settings
+        // written by 1.5.x sat in the file:// origin and are not carried
+        // over: theme, toggles, remembered key file and hardware key
+        // choices reset once
+        "grantFileProtocolExtraPrivileges": false
     }
 };

@@ -85,6 +85,41 @@ describe('atomic database writes', () => {
         await saveToFile(target, Buffer.from('version-2-longer-content'));
     });
 
+    // A vault kept behind a symlink is written where the link points. Renaming
+    // over the link would swap it for a plain file: every later save would
+    // land in that file while the real vault, the one other machines sync,
+    // never changed again
+    it('writes through a symlink to the real vault and leaves the link in place', async () => {
+        const realDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-real-'));
+        const real = path.join(realDir, 'real.kdbx');
+        fs.writeFileSync(real, 'before');
+        const link = path.join(dir, 'link.kdbx');
+        fs.symlinkSync(real, link);
+
+        expect((await saveToFile(link, Buffer.from('through the link'))).success).toBe(true);
+
+        expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+        expect(fs.readFileSync(real, 'utf8')).toBe('through the link');
+        expect(fs.readFileSync(link, 'utf8')).toBe('through the link');
+        expect(fs.readdirSync(realDir)).toEqual(['real.kdbx']);
+        fs.unlinkSync(link);
+        fs.rmSync(realDir, { recursive: true, force: true });
+    });
+
+    it('creates the target of a link that points at nothing yet', async () => {
+        const realDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-dangling-'));
+        const real = path.join(realDir, 'new.kdbx');
+        const link = path.join(dir, 'dangling.kdbx');
+        fs.symlinkSync(real, link);
+
+        expect((await saveToFile(link, Buffer.from('first save'))).success).toBe(true);
+
+        expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+        expect(fs.readFileSync(real, 'utf8')).toBe('first save');
+        fs.unlinkSync(link);
+        fs.rmSync(realDir, { recursive: true, force: true });
+    });
+
     it('stats files and fails cleanly on missing ones', async () => {
         const stat = await statFile(target);
         expect(stat.success).toBe(true);
