@@ -76,13 +76,13 @@ export const DatabaseForm = ({
                     Browse Database
                 </button>
                 <button
-                    className="create-new-button"
+                    className="secondary-button"
                     onClick={() => setIsCreatingNew(true)}
                 >
                     Create New Database
                 </button>
                 <button
-                    className="import-browser-button"
+                    className="secondary-button"
                     onClick={() => setShowImportModal(true)}
                 >
                     <ImportAuthIcon className="auth-import-icon" />

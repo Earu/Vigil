@@ -509,6 +509,7 @@
 
 .settings-primary-button:hover {
     background: var(--accent-hover);
+    color: var(--accent-contrast);
 }
 
 .settings-modal-header .close-button {

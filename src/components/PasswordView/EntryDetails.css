@@ -137,13 +137,18 @@
     height: 0.95rem;
 }
 
+/* Pixel geometry on purpose: rem padding and font sizes resolve to
+   fractions here (0.4rem is 5.6px, 0.75rem is 10.5px), the glyph boxes get
+   integer-rounded ascent and descent, and the code and the counter both
+   rasterised a pixel above the row's centre. Whole pixels and one shared
+   24px line box measure centred at 1x and 1.25x */
 .totp-display {
     flex: 1;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.4rem 0.75rem;
+    padding: 5px 12px;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-secondary);
     border-radius: var(--radius-md);
@@ -151,7 +156,8 @@
 
 .totp-code {
     font-family: monospace;
-    font-size: 1.15rem;
+    font-size: 16px;
+    line-height: 24px;
     font-weight: 600;
     letter-spacing: 0.12em;
     color: var(--text-primary);
@@ -159,7 +165,8 @@
 }
 
 .totp-countdown {
-    font-size: 0.75rem;
+    font-size: 11px;
+    line-height: 24px;
     color: var(--text-tertiary);
     font-variant-numeric: tabular-nums;
 }
@@ -259,6 +266,30 @@
 .totp-qr-button svg {
     width: 1.05rem;
     height: 1.05rem;
+}
+
+.hotp-placeholder {
+    font-size: 0.8rem;
+    color: var(--text-tertiary);
+}
+
+.hotp-configured {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+/* Same recipe as .ssh-lifetime: a short numeric field inside a text row */
+.hotp-counter-input {
+    width: 5rem;
+    padding: 0.15rem 0.35rem;
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-family: monospace;
+    font-variant-numeric: tabular-nums;
 }
 
 .custom-fields-list {
