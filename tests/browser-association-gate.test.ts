@@ -25,6 +25,13 @@ vi.mock('electron', () => ({
     BrowserWindow: { getAllWindows: () => [] },
 }));
 
+// The sender check is covered by ipc-guard.test.ts; the fake renderer here
+// is always the trusted one
+vi.mock('../electron/src/ipc-guard', async () => {
+    const { ipcMain } = await import('electron');
+    return { handle: ipcMain.handle, on: ipcMain.on, isTrustedSender: () => true };
+});
+
 // What the fake renderer replies with, per test
 let rendererReply: any = {};
 let windows: any[] = [];

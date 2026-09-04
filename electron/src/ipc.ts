@@ -1,4 +1,5 @@
-import { ipcMain, Notification, app, BrowserWindow, desktopCapturer, screen } from 'electron';
+import { Notification, BrowserWindow, desktopCapturer, screen } from 'electron';
+import { handle, on } from './ipc-guard';
 import { findVaultWindow, registerVault, unregisterWindow, focusWindow, setUnsavedChanges } from './window';
 import { hashPassword } from './crypto';
 import { openExternal, getPlatform, getAppIconPath } from './utils';
@@ -32,18 +33,17 @@ import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './ha
 import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
 import { logRendererError, revealLogs } from './logger';
 import { isPathGranted } from './path-authority';
-import path from 'path';
 
 export function setupIpcHandlers(): void {
     // Renderer failures land in the same file as main-process ones. Fire and
     // forget from the renderer; the size cap keeps a looping error from
     // filling the disk faster than rotation can
-    ipcMain.on('renderer-log-error', (_, message: unknown) => {
+    on('renderer-log-error', (_, message: unknown) => {
         if (typeof message !== 'string') return;
         logRendererError(message.slice(0, 8192));
     });
 
-    ipcMain.handle('reveal-logs', async () => {
+    handle('reveal-logs', async () => {
         return await revealLogs();
     });
 
@@ -58,7 +58,7 @@ export function setupIpcHandlers(): void {
     // slow enough to make even that unreasonable
     const ARGON2_TIMEOUT_MS = 10 * 60 * 1000;
     let argon2Chain: Promise<unknown> = Promise.resolve();
-    ipcMain.handle('argon2', (event, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
+    handle('argon2', (event, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
         const abort = new AbortController();
         const onGone = () => abort.abort(new Error('The window that asked for this unlock was closed'));
         event.sender.once('destroyed', onGone);
@@ -76,15 +76,15 @@ export function setupIpcHandlers(): void {
     });
 
     // Hardware key (YubiKey challenge-response) handlers
-    ipcMain.handle('hardware-key-present', () => {
+    handle('hardware-key-present', () => {
         return hardwareKeyPresent();
     });
 
-    ipcMain.handle('hardware-key-list', async () => {
+    handle('hardware-key-list', async () => {
         return await listHardwareKeys();
     });
 
-    ipcMain.handle('hardware-key-challenge', async (event, serial: number | null, slot: number, challenge: ArrayBuffer) => {
+    handle('hardware-key-challenge', async (event, serial: number | null, slot: number, challenge: ArrayBuffer) => {
         // 'hardware-key-touch' opens the renderer's touch prompt; the paired
         // 'hardware-key-touch-done' closes it however the challenge ends
         let touchSignaled = false;
@@ -107,13 +107,13 @@ export function setupIpcHandlers(): void {
     });
 
     // File operation handlers
-    ipcMain.handle('save-file', async (_, data: Uint8Array, backup?: BackupRequest) => {
+    handle('save-file', async (_, data: Uint8Array, backup?: BackupRequest) => {
         return await saveFile(data, backup ?? DEFAULT_BACKUP_OPTIONS);
     });
 
     // The write grant, held only by vault paths: a read grant (a key file,
     // an attachment destination) must not let vault bytes overwrite the file
-    ipcMain.handle('save-to-file', async (_, filePath: string, data: Uint8Array, backup?: BackupRequest) => {
+    handle('save-to-file', async (_, filePath: string, data: Uint8Array, backup?: BackupRequest) => {
         if (!isPathGranted(filePath, { write: true })) {
             return { success: false, error: 'Failed to save file' };
         }
@@ -123,29 +123,29 @@ export function setupIpcHandlers(): void {
     // Backups taken before each overwrite; see electron/src/backups.ts.
     // Gated like save-to-file: both derive filesystem locations from the
     // argument, and only an open vault has backups to ask about
-    ipcMain.handle('get-backup-info', async (_, filePath: string) => {
+    handle('get-backup-info', async (_, filePath: string) => {
         if (!isPathGranted(filePath)) {
             return { directory: '', count: 0, newest: null, totalBytes: 0 };
         }
         return await getBackupInfo(filePath);
     });
 
-    ipcMain.handle('reveal-backups', async (_, filePath: string) => {
+    handle('reveal-backups', async (_, filePath: string) => {
         if (!isPathGranted(filePath)) {
             return { success: false, error: 'Unknown database path' };
         }
         return await revealBackups(filePath);
     });
 
-    ipcMain.handle('save-attachment', async (_, name: string, data: Uint8Array) => {
+    handle('save-attachment', async (_, name: string, data: Uint8Array) => {
         return await saveAttachment(name, data);
     });
 
-    ipcMain.handle('register-dropped-file', async (_, filePath: string) => {
+    handle('register-dropped-file', async (_, filePath: string) => {
         return registerDroppedVault(filePath);
     });
 
-    ipcMain.handle('open-file', async (event) => {
+    handle('open-file', async (event) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? undefined;
         return await openFile(senderWindow);
     });
@@ -153,29 +153,29 @@ export function setupIpcHandlers(): void {
     // Window controls: resolved from the sender so they work with any
     // number of windows
     // Raise the window when a browser-driven dialog needs the user's eyes
-    ipcMain.handle('focus-window', (event) => {
+    handle('focus-window', (event) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win) focusWindow(win);
     });
 
-    ipcMain.handle('minimize-window', (event) => {
+    handle('minimize-window', (event) => {
         BrowserWindow.fromWebContents(event.sender)?.minimize();
     });
 
-    ipcMain.handle('maximize-window', (event) => {
+    handle('maximize-window', (event) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (!win) return;
         if (win.isMaximized()) win.unmaximize();
         else win.maximize();
     });
 
-    ipcMain.handle('close-window', (event) => {
+    handle('close-window', (event) => {
         BrowserWindow.fromWebContents(event.sender)?.close();
     });
 
     // Reported by the renderer whenever an entry's edit form gains or loses
     // unsaved changes, so the window's close handler can ask before they go
-    ipcMain.handle('set-unsaved-changes', (event, dirty: boolean) => {
+    handle('set-unsaved-changes', (event, dirty: boolean) => {
         const win = BrowserWindow.fromWebContents(event.sender);
         if (win) setUnsavedChanges(win, dirty);
     });
@@ -183,7 +183,7 @@ export function setupIpcHandlers(): void {
     // One window per vault: renderers report what they have open. If the
     // vault is already open elsewhere the reply says so and that window is
     // focused; the caller is expected to back off
-    ipcMain.handle('vault-opened', (event, filePath: string) => {
+    handle('vault-opened', (event, filePath: string) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender);
         if (!senderWindow || !filePath) return { duplicate: false };
 
@@ -197,7 +197,7 @@ export function setupIpcHandlers(): void {
         return { duplicate: false };
     });
 
-    ipcMain.handle('vault-closed', (event) => {
+    handle('vault-closed', (event) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender);
         if (senderWindow) unregisterWindow(senderWindow);
     });
@@ -206,18 +206,18 @@ export function setupIpcHandlers(): void {
     // dialogs, file-manager opens, real drops, the last-database record. See
     // path-authority.ts. Without the gate they are arbitrary file read for
     // any renderer bug
-    ipcMain.handle('read-file', async (_, filePath: string) => {
+    handle('read-file', async (_, filePath: string) => {
         if (!isPathGranted(filePath)) {
             return { success: false, error: 'Failed to read file' };
         }
         return await readFile(filePath);
     });
 
-    ipcMain.handle('select-key-file', async () => {
+    handle('select-key-file', async () => {
         return await selectKeyFile();
     });
 
-    ipcMain.handle('stat-file', async (_, filePath: string) => {
+    handle('stat-file', async (_, filePath: string) => {
         if (!isPathGranted(filePath)) {
             return { success: false, error: 'Failed to stat file' };
         }
@@ -225,7 +225,7 @@ export function setupIpcHandlers(): void {
     });
 
     // Database path handlers
-    ipcMain.handle('get-last-database-path', async () => {
+    handle('get-last-database-path', async () => {
         return await loadLastDatabasePath();
     });
 
@@ -234,7 +234,7 @@ export function setupIpcHandlers(): void {
     // grant here (a key file) would launder it into a write grant on the
     // next get-last-database-path call. Every vault-open route grants
     // write, so legitimate saves always pass
-    ipcMain.handle('save-last-database-path', async (_, dbPath: string) => {
+    handle('save-last-database-path', async (_, dbPath: string) => {
         if (!isPathGranted(dbPath, { write: true })) {
             return false;
         }
@@ -242,19 +242,19 @@ export function setupIpcHandlers(): void {
     });
 
     // Biometric handlers
-    ipcMain.handle('is-biometrics-available', async () => {
+    handle('is-biometrics-available', async () => {
         return await isBiometricsAvailable();
     });
 
-    ipcMain.handle('get-biometrics-info', async () => {
+    handle('get-biometrics-info', async () => {
         return await getBiometricsInfo();
     });
 
     // Global, not per-vault, so no path gate: whether Windows Hello unlock
     // survives a restart (persistent blob) or lives only for the session
-    ipcMain.handle('get-biometrics-config', () => getBiometricsConfig());
+    handle('get-biometrics-config', () => getBiometricsConfig());
 
-    ipcMain.handle('set-biometrics-config', async (_, config: unknown) => {
+    handle('set-biometrics-config', async (_, config: unknown) => {
         const strict = (config as { requirePasswordAfterRestart?: unknown } | null)?.requirePasswordAfterRestart;
         if (typeof strict !== 'boolean') return { success: false, error: 'Invalid config' };
         return await setBiometricsConfig({ requirePasswordAfterRestart: strict });
@@ -263,54 +263,54 @@ export function setupIpcHandlers(): void {
     // Gated like the file channels: get-biometric-password hands out a
     // master password for whatever path it is given (the OS prompt shows
     // only a basename), so the path must be one this session actually opened
-    ipcMain.handle('has-biometrics-enabled', async (_, dbPath: string) => {
+    handle('has-biometrics-enabled', async (_, dbPath: string) => {
         if (!isPathGranted(dbPath)) return { success: false, enabled: false, error: 'Unknown database path' };
         return await hasBiometricsEnabled(dbPath);
     });
 
-    ipcMain.handle('enable-biometrics', async (_, dbPath: string, password: string) => {
+    handle('enable-biometrics', async (_, dbPath: string, password: string) => {
         if (!isPathGranted(dbPath)) return { success: false, error: 'Unknown database path' };
         return await enableBiometrics(dbPath, password);
     });
 
-    ipcMain.handle('get-biometric-password', async (_, dbPath: string) => {
+    handle('get-biometric-password', async (_, dbPath: string) => {
         if (!isPathGranted(dbPath)) return { success: false, error: 'Unknown database path' };
         return await getBiometricPassword(dbPath);
     });
 
-    ipcMain.handle('disable-biometrics', async (_, dbPath: string) => {
+    handle('disable-biometrics', async (_, dbPath: string) => {
         if (!isPathGranted(dbPath)) return { success: false, error: 'Unknown database path' };
         return await disableBiometrics(dbPath);
     });
 
     // HIBP handlers. The API key stays in the main process (OS keychain);
     // the renderer sends the address and learns only whether a key is stored
-    ipcMain.handle('check-email-breaches', async (_, email: string) => {
+    handle('check-email-breaches', async (_, email: string) => {
         if (typeof email !== 'string') throw new Error('Invalid email');
         return await checkEmailBreaches(email);
     });
 
-    ipcMain.handle('set-hibp-api-key', async (_, key: unknown) => {
+    handle('set-hibp-api-key', async (_, key: unknown) => {
         if (key !== null && typeof key !== 'string') return { success: false, error: 'Invalid key' };
         return await setHibpApiKey(key);
     });
 
-    ipcMain.handle('has-hibp-api-key', async () => {
+    handle('has-hibp-api-key', async () => {
         return await hasHibpApiKey();
     });
 
     // Favicon download for icon promotion; host validation lives with the fetch
-    ipcMain.handle('fetch-favicon', async (_, host: unknown) => {
+    handle('fetch-favicon', async (_, host: unknown) => {
         return await fetchFavicon(host);
     });
 
     // Screen capture protection
-    ipcMain.handle('get-content-protection', () => ({
+    handle('get-content-protection', () => ({
         supported: isContentProtectionSupported(),
         enabled: isContentProtectionEnabled()
     }));
 
-    ipcMain.handle('set-content-protection', (_, enabled: boolean) => {
+    handle('set-content-protection', (_, enabled: boolean) => {
         return setContentProtectionEnabled(enabled);
     });
 
@@ -319,26 +319,26 @@ export function setupIpcHandlers(): void {
     // and so the main process knows which value is the vault's to take back.
     // The clear countdown is armed here too, so it survives the renderer that
     // started it; the duration is clamped in copySecret
-    ipcMain.handle('copy-secret', async (_, text: string, clearSeconds?: number) => {
+    handle('copy-secret', async (_, text: string, clearSeconds?: number) => {
         return await copySecret(text, clearSeconds);
     });
 
-    ipcMain.handle('clear-clipboard', async () => {
+    handle('clear-clipboard', async () => {
         return await clearClipboard();
     });
 
-    ipcMain.handle('open-external', async (_, url: string) => {
+    handle('open-external', async (_, url: string) => {
         return await openExternal(url);
     });
 
-    ipcMain.handle('get-platform', () => getPlatform());
+    handle('get-platform', () => getPlatform());
 
     // QR screen capture; decoding happens in the renderer. Only a focused,
     // visible window may ask: the legit path is the user clicking the scan
     // button, at which point the window is by definition both. Without the
     // gate this channel hands any renderer full-desktop screenshots, the
     // exact capability the page-level permission handler denies
-    ipcMain.handle('qr-capture-screens', async (event) => {
+    handle('qr-capture-screens', async (event) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender);
         if (!senderWindow || !senderWindow.isVisible() || !senderWindow.isFocused()) {
             return { success: false, error: 'Screen capture requires the requesting window to be active' };
@@ -372,7 +372,7 @@ export function setupIpcHandlers(): void {
     });
 
     // Notification handler
-    ipcMain.handle('show-notification', async (_, { title, body }: { title: string, body: string }) => {
+    handle('show-notification', async (_, { title, body }: { title: string, body: string }) => {
         const notification = new Notification({
             title,
             body,

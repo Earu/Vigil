@@ -1,4 +1,5 @@
-import { app, ipcMain, BrowserWindow, net } from 'electron';
+import { app, BrowserWindow, net } from 'electron';
+import { handle } from './ipc-guard';
 import { autoUpdater, UpdateInfo } from 'electron-updater';
 import { channelFileName, parsePublicKey, releaseAssetUrl, verifyUpdateMetadata } from './update-signature';
 
@@ -147,9 +148,9 @@ async function checkForUpdates(): Promise<UpdateStatus> {
 }
 
 export function setupAutoUpdater(): void {
-    ipcMain.handle('get-update-status', () => status);
-    ipcMain.handle('check-for-updates', () => checkForUpdates());
-    ipcMain.handle('install-update', () => {
+    handle('get-update-status', () => status);
+    handle('check-for-updates', () => checkForUpdates());
+    handle('install-update', () => {
         if (status.state === 'downloaded') {
             autoUpdater.quitAndInstall();
         }

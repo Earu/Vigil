@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { handleFileOpen } from './file-operations';
 import { applyContentProtection } from './content-protection';
+import { isDevBuild } from './utils';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
