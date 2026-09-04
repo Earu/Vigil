@@ -64,12 +64,5 @@
 		},
 		"tar-fs": "^2.1.5"
 	},
-	"main": "dist-electron/main.js",
-	"allowScripts": {
-		"electron@44.2.0": true,
-		"electron-winstaller@5.4.0": true,
-		"esbuild@0.25.12": true,
-		"keytar@7.9.0": true,
-		"@swc/core@1.10.4": true
-	}
+	"main": "dist-electron/main.js"
 }
