@@ -4,6 +4,7 @@ import fs from 'fs';
 import { handleFileOpen } from './file-operations';
 import { applyContentProtection } from './content-protection';
 import { isDevBuild } from './utils';
+import { APP_INDEX_URL } from './app-protocol';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
@@ -125,10 +126,10 @@ export function createWindow(startupFile?: string) {
 
     // Set security-related headers including CSP.
     // Fonts are self-hosted (src/fonts), so no remote font or style host is
-    // allowed. Production names the file: scheme because a packaged build
-    // loads from a file:// document, where 'self' does not reliably match
-    // in Chromium. The remaining google.com / gstatic.com grant is only
-    // for entry favicons, which are off unless the user opts in
+    // allowed. A packaged build loads from vigil://app (app-protocol.ts), so
+    // 'self' is that origin and nothing else: file: in particular is
+    // foreign to it. The google.com / gstatic.com grant is only for entry
+    // favicons, which are off unless the user opts in
     win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
         callback({
             responseHeaders: {
@@ -148,7 +149,7 @@ export function createWindow(startupFile?: string) {
                           "script-src 'self';" +
                           "style-src 'self' 'unsafe-inline';" +
                           "img-src 'self' data: blob: https://www.google.com https://*.gstatic.com;" +
-                          "font-src 'self' file:;" +
+                          "font-src 'self';" +
                           "connect-src 'self' https://api.pwnedpasswords.com https://haveibeenpwned.com;" +
                           "base-uri 'self';" +
                           "form-action 'none';" +
@@ -240,16 +241,11 @@ export function createWindow(startupFile?: string) {
         win.loadURL('http://localhost:5173');
         win.webContents.openDevTools();
     } else {
-        // A packaged build renders from a file:// document, which only gets
-        // localStorage because build.electronFuses pins
-        // grantFileProtocolExtraPrivileges on. Turning that fuse off (the
-        // hardened setting) silently takes storage away from file:// pages,
-        // and with it the user settings, the generator preferences and the
-        // encrypted breach cache. Serving the renderer from a custom protocol
-        // instead is what makes that fuse safe to flip
-        const indexPath = path.join(app.getAppPath(), 'dist', 'index.html');
-        console.log('Loading production file from:', indexPath);
-        win.loadFile(indexPath);
+        // Never a file:// document: that origin is shared with every file
+        // the user can read, and with grantFileProtocolExtraPrivileges off
+        // it has no storage anyway. app-protocol.ts serves dist/ under an
+        // origin of its own
+        win.loadURL(APP_INDEX_URL);
     }
 
     return win;

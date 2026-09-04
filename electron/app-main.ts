@@ -1,4 +1,7 @@
 import { app, BrowserWindow, powerMonitor, session } from 'electron';
+import { refuseDebugSwitches } from './src/launch-guard';
+import { registerAppScheme, installAppProtocol } from './src/app-protocol';
+import { isSmokeBoot, runSmokeBoot } from './src/smoke-boot';
 import { createWindow, findVaultWindow, findIdleWindow, focusWindow } from './src/window';
 import { setupIpcHandlers } from './src/ipc';
 import { setupAutoUpdater } from './src/updater';
@@ -16,6 +19,15 @@ declare global {
         }
     }
 }
+
+// First, and it does not return when it refuses: a packaged build launched
+// with a remote debugging switch must not get as far as taking the
+// single-instance lock, let alone a window
+refuseDebugSwitches();
+
+// The scheme the packaged renderer loads from; registration has to precede
+// app ready
+registerAppScheme();
 
 // In dev the app path has no package.json, so Electron would fall back to
 // "Electron" and put userData in ~/.config/Electron; pin the name so dev and
@@ -83,6 +95,15 @@ app.on('second-instance', (_event, argv) => {
     }
 });
 
+// On X11 a transparent window created right at 'ready' can come up with an
+// opaque visual; a short delay avoids it
+function spawnFirstWindow(): Promise<BrowserWindow> {
+    if (process.platform === 'linux' && !process.env.WAYLAND_DISPLAY) {
+        return new Promise(resolve => setTimeout(() => resolve(createWindow()), 300));
+    }
+    return Promise.resolve(createWindow());
+}
+
 app.whenReady().then(() => {
     // Chromium's default grants most permission requests. The renderer needs
     // exactly two: clipboard read for the scan-QR-from-clipboard flow and
@@ -100,16 +121,13 @@ app.whenReady().then(() => {
     // Before the first window, so no window is ever briefly reachable from a
     // default menu that still has DevTools on it
     applyApplicationMenu();
+    installAppProtocol();
     setupIpcHandlers();
     setupAutoUpdater();
     setupBrowserIntegration();
-    if (process.platform === 'linux' && !process.env.WAYLAND_DISPLAY) {
-        // On X11 a transparent window created right at 'ready' can come up
-        // with an opaque visual; a short delay avoids it
-        setTimeout(createWindow, 300);
-    } else {
-        createWindow();
-    }
+    spawnFirstWindow().then(win => {
+        if (isSmokeBoot()) runSmokeBoot(win);
+    });
 
     ["suspend", "lock-screen", "unlock-screen", "resume"].forEach(evName => {
         powerMonitor.on(evName as any, triggerLock);

@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import path from 'path';
 import { pathToFileURL } from 'url';
 
 // Every IPC channel is registered through ipc-guard, which admits only the
@@ -8,8 +7,7 @@ import { pathToFileURL } from 'url';
 // added later, or a frame that one day loads something else, is refused
 // without anyone having to remember the check.
 
-const APP_PATH = '/opt/vigil/app';
-const INDEX_URL = pathToFileURL(path.join(APP_PATH, 'dist', 'index.html')).href;
+const INDEX_URL = 'vigil://app/index.html';
 
 const handlers = new Map<string, (...args: any[]) => any>();
 const listeners = new Map<string, (...args: any[]) => any>();
@@ -17,7 +15,6 @@ const fromWebContents = vi.fn();
 const devBuild = vi.fn(() => false);
 
 vi.mock('electron', () => ({
-    app: { getAppPath: () => APP_PATH },
     ipcMain: {
         handle: (channel: string, fn: (...args: any[]) => any) => { handlers.set(channel, fn); },
         on: (channel: string, fn: (...args: any[]) => any) => { listeners.set(channel, fn); },
@@ -71,11 +68,16 @@ describe('isTrustedSender', () => {
         expect(isTrustedSender(makeEvent())).toBe(false);
     });
 
-    it('refuses any other document, file or not', () => {
+    it('refuses any other document, on the app scheme or off it', () => {
         expect(isTrustedSender(makeEvent({ frameUrl: 'https://example.com/' }))).toBe(false);
         expect(isTrustedSender(makeEvent({ frameUrl: 'http://localhost:5173/' }))).toBe(false);
-        expect(isTrustedSender(makeEvent({ frameUrl: pathToFileURL('/opt/vigil/app/dist/other.html').href }))).toBe(false);
-        expect(isTrustedSender(makeEvent({ frameUrl: pathToFileURL('/tmp/index.html').href }))).toBe(false);
+        expect(isTrustedSender(makeEvent({ frameUrl: 'vigil://app/other.html' }))).toBe(false);
+        expect(isTrustedSender(makeEvent({ frameUrl: 'vigil://app/' }))).toBe(false);
+        expect(isTrustedSender(makeEvent({ frameUrl: 'vigil://evil/index.html' }))).toBe(false);
+        expect(isTrustedSender(makeEvent({ frameUrl: 'https://app/index.html' }))).toBe(false);
+        // The document the app used to load from; a file: page is
+        // same-origin with every file the user can read
+        expect(isTrustedSender(makeEvent({ frameUrl: pathToFileURL('/opt/vigil/app/dist/index.html').href }))).toBe(false);
         expect(isTrustedSender(makeEvent({ frameUrl: 'not a url' }))).toBe(false);
     });
 

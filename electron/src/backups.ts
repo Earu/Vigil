@@ -35,8 +35,16 @@ export const DEFAULT_BACKUP_OPTIONS: BackupOptions = { enabled: true, keep: 5 };
 // commonly sits in a synced folder, and dropping copies next to it would push
 // every one of them through the sync client and clutter the directory the
 // user actually looks at
+//
+// Keyed on the file itself, links followed, so a vault reached through a
+// symlink and the same vault opened directly share one set of copies
 export function backupDir(vaultPath: string): string {
-    const resolved = path.resolve(vaultPath);
+    let resolved: string;
+    try {
+        resolved = fs.realpathSync(vaultPath);
+    } catch {
+        resolved = path.resolve(vaultPath);
+    }
     const digest = crypto.createHash('sha256').update(resolved).digest('hex').slice(0, 16);
     // Readable enough to recognise, with the digest keeping two vaults of the
     // same name apart

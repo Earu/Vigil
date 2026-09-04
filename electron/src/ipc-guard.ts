@@ -1,7 +1,6 @@
-import { app, BrowserWindow, ipcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { BrowserWindow, ipcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { isDevBuild } from './utils';
+import { APP_HOST, APP_SCHEME } from './app-protocol';
 
 // Every IPC handler runs behind this. The bridge is only ever handed to the
 // document window.ts loads, and nothing else can reach it today (subframes
@@ -12,8 +11,7 @@ import { isDevBuild } from './utils';
 //
 // What counts as Vigil's renderer: the main frame of a window this app
 // created, showing the app's own document. Dev is the Vite origin; packaged
-// builds are the index.html that window.ts loadFile'd, compared as a path
-// rather than a URL string so encoding differences cannot lock the app out
+// builds are the index.html window.ts loads from the app scheme
 
 type IpcEvent = IpcMainEvent | IpcMainInvokeEvent;
 
@@ -27,13 +25,12 @@ function isTrustedDocument(url: string): boolean {
         return false;
     }
     if (isDevBuild()) return parsed.origin === DEV_ORIGIN;
-    if (parsed.protocol !== 'file:') return false;
-    try {
-        const expected = path.resolve(app.getAppPath(), 'dist', 'index.html');
-        return path.resolve(fileURLToPath(parsed)) === expected;
-    } catch {
-        return false;
-    }
+    // Node's URL gives a non-special scheme no origin, so the parts are
+    // compared one by one. Chromium hands over the canonical form (lowercase
+    // scheme and host), the same one it served
+    return parsed.protocol === `${APP_SCHEME}:`
+        && parsed.hostname === APP_HOST
+        && parsed.pathname === '/index.html';
 }
 
 export function isTrustedSender(event: IpcEvent): boolean {

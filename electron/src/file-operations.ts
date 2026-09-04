@@ -97,9 +97,28 @@ async function targetMode(filePath: string): Promise<number | null> {
     }
 }
 
+// The file a save actually replaces. A vault kept behind a symlink (a synced
+// folder linked into place, say) must be written where the link points:
+// renaming over the link itself would swap it for a plain file, and every
+// save after that would land there while the real vault sat untouched. A
+// link with nothing behind it yet is followed too, so the first save
+// creates the target rather than replacing the link
+async function resolveWriteTarget(filePath: string): Promise<string> {
+    try {
+        return await fs.promises.realpath(filePath);
+    } catch { /* nothing there, or a link to nothing */ }
+    try {
+        const target = await fs.promises.readlink(filePath);
+        return path.resolve(path.dirname(filePath), target);
+    } catch {
+        return path.resolve(filePath);
+    }
+}
+
 // Write to a temp file in the same directory, fsync, then rename over the
 // target. A crash mid-write leaves the original database intact
-async function atomicWrite(filePath: string, data: Buffer): Promise<void> {
+async function atomicWrite(requestedPath: string, data: Buffer): Promise<void> {
+    const filePath = await resolveWriteTarget(requestedPath);
     const tmpBase = path.join(path.dirname(filePath), `.${path.basename(filePath)}`);
     const mode = await targetMode(filePath);
 

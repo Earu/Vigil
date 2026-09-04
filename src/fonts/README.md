@@ -13,7 +13,7 @@ outside latin / latin-ext falls through to the stack in `src/index.css`.
 
 `<Family>-<subset>.woff2`, referenced from `fonts.css`, which `src/index.css`
 imports. Vite hashes them into `dist/assets` at build time, and the relative
-`url()` keeps working under the `file://` origin the packaged app loads from.
+`url()` keeps working under the `vigil://app` origin the packaged app loads from.
 
 There is no weight in the filename because both families are variable fonts:
 one file per subset backs every weight. That is why `fonts.css` has ten
