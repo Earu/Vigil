@@ -23,7 +23,10 @@ jobs:
         cache: 'npm'
 
     - name: Install dependencies
-      run: npm ci
+      # --no-audit: the registry advisory endpoint stalling turned every install into a
+      # seven minute wait for a report nobody reads here, and it is the only registry
+      # round trip left once the npm cache hits
+      run: npm ci --no-audit --no-fund
 
     - name: Run tests
       run: npm test
@@ -59,7 +62,10 @@ jobs:
         cache: 'npm'
 
     - name: Install dependencies
-      run: npm ci
+      # --no-audit: the registry advisory endpoint stalling turned every install into a
+      # seven minute wait for a report nobody reads here, and it is the only registry
+      # round trip left once the npm cache hits
+      run: npm ci --no-audit --no-fund
 
     # Install Linux dependencies
     - name: Install Linux dependencies
