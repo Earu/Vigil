@@ -14,10 +14,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: '22'
         cache: 'npm'
@@ -50,10 +50,10 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: '22'
         cache: 'npm'
@@ -66,7 +66,7 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev xvfb
 
     # The provisioning profile is not in the repo: it embeds the team name.
     # Restored from a secret so signed builds still get it. Absent, the build
@@ -148,10 +148,19 @@ jobs:
         # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
         USE_HARD_LINKS: false
 
+    # Runs the bytes that were just packaged: the unit tests mock every
+    # Electron module and the typecheck cannot see a main-process failure
+    # that only happens at runtime, so a build that dies before its first
+    # window passes both. This fails unless the window exists, the unlock
+    # screen rendered and the preload bridge answered an IPC call
+    - name: Boot smoke test
+      if: runner.os == 'Linux'
+      run: xvfb-run -a node scripts/smoke-boot.mjs -- --ozone-platform=x11
+
     # Windows artifacts
     - name: Upload Windows artifacts
       if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: windows-${{ matrix.arch }}-installer
         path: |
@@ -161,7 +170,7 @@ jobs:
     # macOS artifacts
     - name: Upload macOS artifacts
       if: runner.os == 'macOS'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: macos-${{ matrix.arch }}-installer
         path: |
@@ -171,7 +180,7 @@ jobs:
     # Linux artifacts
     - name: Upload Linux artifacts
       if: runner.os == 'Linux'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: linux-${{ matrix.arch }}-installer
         path: |

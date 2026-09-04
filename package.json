@@ -10,7 +10,8 @@
 		"preview": "vite preview",
 		"electron:dev": "node electron/build.mjs && node electron/copy-native-modules.mjs && concurrently \"vite\" \"cross-env NODE_ENV=development electron dist-electron/main.js --ozone-platform-hint=auto\"",
 		"electron:build": "tsc -b && vite build && node electron/build.mjs && node electron/copy-native-modules.mjs && electron-builder --config electron-builder.config.js",
-		"test": "vitest run"
+		"test": "vitest run",
+		"smoke": "node scripts/smoke-boot.mjs"
 	},
 	"dependencies": {
 		"@node-rs/argon2": "^2.0.2",
