@@ -16,7 +16,7 @@
 		"check:fuses": "node scripts/check-fuses.mjs"
 	},
 	"dependencies": {
-		"@node-rs/argon2": "^2.0.2",
+		"@node-rs/argon2": "^2.2.0",
 		"@types/zxcvbn": "^4.4.5",
 		"electron-log": "^5.4.4",
 		"jsqr": "^1.4.0",
@@ -40,11 +40,11 @@
 		"@vitejs/plugin-react": "^4.3.4",
 		"concurrently": "^8.2.2",
 		"cross-env": "^7.0.3",
-		"detect-libc": "^2.0.3",
+		"detect-libc": "^2.1.2",
 		"electron": "^44.2.0",
 		"electron-builder": "^26.15.3",
 		"electron-updater": "^6.8.9",
-		"esbuild": "^0.20.2",
+		"esbuild": "^0.28.2",
 		"fast-check": "^4.9.0",
 		"js-yaml": "^4.3.2",
 		"jsdom": "^30.0.1",
@@ -53,7 +53,7 @@
 		"typescript": "~5.6.2",
 		"vite": "^6.0.3",
 		"vite-plugin-electron": "^0.28.8",
-		"vite-plugin-wasm": "^3.4.1",
+		"vite-plugin-wasm": "^3.6.0",
 		"vitest": "^4.1.11"
 	},
 	"overrides": {
