@@ -8,6 +8,7 @@ import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
 import { AuthenticationView } from './components/Authentication/AuthenticationView';
 import { KeepassDatabaseService } from './services/KeepassDatabaseService';
+import { SshAgentService } from './services/SshAgentService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
 import { BreachCheckService } from './services/BreachCheckService';
@@ -266,6 +267,28 @@ function App() {
 		// on top of the vault that just opened
 		setShowSettings(false);
 		setShowInitialBreachReport(!!showBreachReport);
+
+		// Entries carrying an SSH key that asked to be loaded at open go into
+		// the agent now; they leave it when the vault locks (main process,
+		// on vault-closed). Not awaited: a slow or absent agent must not
+		// hold the vault view back
+		SshAgentService.addKeysOnUnlock(database).then(report => {
+			if (kdbxDbRef.current !== kdbxDb) return;
+			if (report.failed.length > 0) {
+				const detail = report.failed.slice(0, 3).map(f => `${f.title}: ${f.error}`).join('; ');
+				(window as any).showToast?.({
+					message: `SSH keys not added to the agent (${report.failed.length}). ${detail}`,
+					type: 'error',
+					duration: 8000
+				});
+			} else if (report.added > 0) {
+				(window as any).showToast?.({
+					message: `${report.added} SSH ${report.added === 1 ? 'key' : 'keys'} added to the agent`,
+					type: 'success',
+					duration: 3000
+				});
+			}
+		}).catch(() => {});
 	};
 
 	// The vault whose session is current, for callbacks that resume after an

@@ -33,6 +33,8 @@ import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './ha
 import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
 import { logRendererError, revealLogs } from './logger';
 import { isPathGranted } from './path-authority';
+import { agentSocketPath, isAgentRunning, listIdentities, addKeyForWindow, releaseWindow, removeIdentity, forgetKeyForWindow, loadedFingerprints } from './ssh-agent';
+import { parsePrivateKey, publicBlobOf, readPublicInfo, fingerprintOf, SshKeyError } from './ssh-key';
 
 export function setupIpcHandlers(): void {
     // Renderer failures land in the same file as main-process ones. Fire and
@@ -199,7 +201,92 @@ export function setupIpcHandlers(): void {
 
     handle('vault-closed', (event) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender);
-        if (senderWindow) unregisterWindow(senderWindow);
+        if (!senderWindow) return;
+        unregisterWindow(senderWindow);
+        // The vault's SSH keys leave the agent with it
+        releaseWindow(senderWindow.id).catch(() => {});
+    });
+
+    // SSH agent: private keys stored as entry attachments, pushed into the
+    // agent the user already runs (see ssh-agent.ts). The renderer sends the
+    // attachment bytes and the entry password each time; the main process
+    // keeps only the public half of what it added, for taking it out again
+    const MAX_KEY_BYTES = 1024 * 1024;
+    const keyFailure = (error: unknown) => ({
+        success: false as const,
+        error: error instanceof Error ? error.message : String(error),
+        code: error instanceof SshKeyError ? error.code : 'agent',
+    });
+    const keyBytes = (data: unknown): Uint8Array => {
+        if (!(data instanceof Uint8Array) || data.byteLength === 0) throw new SshKeyError('Not a private key file', 'format');
+        if (data.byteLength > MAX_KEY_BYTES) throw new SshKeyError('File too large to be a private key', 'format');
+        return data;
+    };
+
+    handle('ssh-agent-status', async () => {
+        const socketPath = await agentSocketPath();
+        const addedByVigil = loadedFingerprints();
+        if (!await isAgentRunning()) return { running: false, socketPath, identities: [], addedByVigil };
+        try {
+            return { running: true, socketPath, identities: await listIdentities(), addedByVigil };
+        } catch (error) {
+            return { running: true, socketPath, identities: [], addedByVigil, error: error instanceof Error ? error.message : String(error) };
+        }
+    });
+
+    // What the UI shows for a key attachment: type and fingerprint, and
+    // whether the entry password opens it
+    handle('ssh-agent-inspect-key', (_, data: unknown, passphrase?: unknown) => {
+        try {
+            const bytes = keyBytes(data);
+            const secret = typeof passphrase === 'string' ? passphrase : '';
+            try {
+                const key = parsePrivateKey(bytes, secret);
+                key.privateParts.fill(0);
+                return { success: true as const, type: key.type, fingerprint: key.fingerprint, comment: key.comment, encrypted: key.encrypted };
+            } catch (error) {
+                if (!(error instanceof SshKeyError) || error.code !== 'passphrase') throw error;
+                const info = readPublicInfo(bytes);
+                return { success: true as const, ...info, passphraseError: error.message };
+            }
+        } catch (error) {
+            return keyFailure(error);
+        }
+    });
+
+    handle('ssh-agent-add-key', async (event, data: unknown, passphrase: unknown, options: unknown) => {
+        try {
+            const bytes = keyBytes(data);
+            const opts = (options && typeof options === 'object' ? options : {}) as Record<string, unknown>;
+            const lifetime = Number(opts.lifetimeSeconds);
+            const key = parsePrivateKey(bytes, typeof passphrase === 'string' ? passphrase : '');
+            try {
+                await addKeyForWindow(BrowserWindow.fromWebContents(event.sender), key, {
+                    // The key's own comment wins; the entry's is the fallback for keys
+                    // without one, as KeePassXC does (username@filename)
+                    comment: key.comment || (typeof opts.comment === 'string' ? opts.comment : ''),
+                    confirm: opts.confirm === true,
+                    lifetimeSeconds: Number.isFinite(lifetime) && lifetime > 0 ? Math.min(Math.floor(lifetime), 0x7fffffff) : undefined,
+                }, opts.removeAtClose !== false);
+            } finally {
+                key.privateParts.fill(0);
+            }
+            return { success: true as const, fingerprint: key.fingerprint };
+        } catch (error) {
+            return keyFailure(error);
+        }
+    });
+
+    handle('ssh-agent-remove-key', async (event, data: unknown, passphrase?: unknown) => {
+        try {
+            const blob = publicBlobOf(keyBytes(data), typeof passphrase === 'string' ? passphrase : '');
+            const removed = await removeIdentity(blob);
+            const senderWindow = BrowserWindow.fromWebContents(event.sender);
+            forgetKeyForWindow(senderWindow?.id ?? null, fingerprintOf(blob));
+            return removed ? { success: true as const } : { success: false as const, error: 'The agent does not hold this key', code: 'agent' };
+        } catch (error) {
+            return keyFailure(error);
+        }
     });
 
     // read-file and stat-file reach only paths the user pointed the app at:

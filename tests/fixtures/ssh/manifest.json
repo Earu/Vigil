@@ -1,0 +1,86 @@
+{
+  "ecdsa256_enc": {
+    "type": "ecdsa-sha2-nistp256",
+    "fingerprint": "SHA256:yiE9QznhPr/NUWm2xJWPJmwVbuP5MzeSX+6Ppsj36vY",
+    "publicBase64": "AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBG69f13Slvm79Lm0h1xQDeR7EJmCtZBQHwYLs5uz0+EgRLkhbRkO3k5z7OgJm5+6z1+49IV3RAFXFEEV+qj3BcQ=",
+    "comment": "ecdsa-enc"
+  },
+  "ecdsa384_pem": {
+    "type": "ecdsa-sha2-nistp384",
+    "fingerprint": "SHA256:5xXD0zrqwnsMhIOD5Um896NeDJBqeop74+CcApuMAxE",
+    "publicBase64": "AAAAE2VjZHNhLXNoYTItbmlzdHAzODQAAAAIbmlzdHAzODQAAABhBATdBh6/i8iA4rvGvgAtmOilXJPWERkR9tnltghdcUR7RMXALWvHEan/gEhYA+DuWvE/gMOGgNlKZlS1kZStVr/bBZCzsSSmbu1xSwm69vXiVl/i5Zi0Ff2tEz4oeEKqWw==",
+    "comment": "ecdsa-pem"
+  },
+  "ecdsa521_pkcs8_enc": {
+    "type": "ecdsa-sha2-nistp521",
+    "fingerprint": "SHA256:2SoApTNlQ1JtqcYuTFnLE70qp+TzrOkzYD4ze5fw2/8",
+    "publicBase64": "AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjEAAACFBAE1MFOOWrnjhmwk2PRJ3LRFrJ5uvcmwEDcvpyW5iikhnVMlfGCxo83IUsC4dJ2P1Pce37Ngqm5/dbSQ5r4rnAQ17wBY6rhJmszrVBQDI6oePpB3df/ecpkPO2sgf1ivRjfhMi4TDVzfgPTj86wvIigpNbO9+RrYREZ4PNzX3ybMWT5Wug==",
+    "comment": "ecdsa-pkcs8-enc"
+  },
+  "ed25519_cbc": {
+    "type": "ssh-ed25519",
+    "fingerprint": "SHA256:++V68ENLyTEHWBhYN1fJX5Ji6ywm2PRbYjMqGMr4iJg",
+    "publicBase64": "AAAAC3NzaC1lZDI1NTE5AAAAIJ9vlF0BR2BXv4Ef7nBC2nv7MZmAYpwpjIrJkxTMCDsy",
+    "comment": "cbc"
+  },
+  "ed25519_chacha": {
+    "type": "ssh-ed25519",
+    "fingerprint": "SHA256:yjzlsBL2i0YVJB3AV/97akW2lPcENG4XRKWqMPCPn/A",
+    "publicBase64": "AAAAC3NzaC1lZDI1NTE5AAAAIFc6o8eY/BPsIusdgZ+4F1Ki4EvIF0DBc+b6tKk8CNVd",
+    "comment": "chacha"
+  },
+  "ed25519_enc": {
+    "type": "ssh-ed25519",
+    "fingerprint": "SHA256:Gl+8Aeky45YQWS9opcgOtARserIsGHeRcIb7iXqhOaU",
+    "publicBase64": "AAAAC3NzaC1lZDI1NTE5AAAAIH9Va6KTfy5EXaibbcEtPmNi/Ei6sWBFAVrcXiVx/gL2",
+    "comment": "vigil-enc"
+  },
+  "ed25519_enc_default": {
+    "type": "ssh-ed25519",
+    "fingerprint": "SHA256:ZTl6ExkX/5tVen/kbCfpFKU4hqK1ivccgBJLI/nglAQ",
+    "publicBase64": "AAAAC3NzaC1lZDI1NTE5AAAAILcI7wzryywStH75K0HtJW3usL0Shj5KcXdfj4oVitOu",
+    "comment": "default-rounds"
+  },
+  "ed25519_gcm": {
+    "type": "ssh-ed25519",
+    "fingerprint": "SHA256:oru171OJZYsCpSZzYxvMD4JWlNCAPAZdevtj7P852XQ",
+    "publicBase64": "AAAAC3NzaC1lZDI1NTE5AAAAIJTQFeS3dS5YLWdWkPwkPKmvMd050dVPVdUm3cZWUyCm",
+    "comment": "gcm"
+  },
+  "ed25519_pkcs8": {
+    "type": "ssh-ed25519",
+    "fingerprint": "SHA256:mJM04PQEkWGrJ/daIN7W2DjeayCoU41o68K/iH4a4Ds",
+    "publicBase64": "AAAAC3NzaC1lZDI1NTE5AAAAIFkncWq7ObDg71u//74UC0kYefkuQpB7xouHptQy2PhY",
+    "comment": "ed25519-pkcs8"
+  },
+  "ed25519_plain": {
+    "type": "ssh-ed25519",
+    "fingerprint": "SHA256:/lO9BgHvu+ezbrlKKZp/2DdEFXphdEEeWXDhyf2luVc",
+    "publicBase64": "AAAAC3NzaC1lZDI1NTE5AAAAIBAXRuAGdwHmoLTznKyQVPxlxfxaR0trbCnhyGvc01sM",
+    "comment": "vigil-test"
+  },
+  "rsa_openssh": {
+    "type": "ssh-rsa",
+    "fingerprint": "SHA256:+O0T+R5sN1NgN68IwKb7R8SJrQ0WSD04hp/uwoPmEB0",
+    "publicBase64": "AAAAB3NzaC1yc2EAAAADAQABAAABAQDFa7XNjnVBBus0RqyfVbMPc40D2bt/IjznuPnkQ6D/3Cp4KyrsXB63KHro808SbU2PGHscUpykBYqzc9dqUrE/1sxHUqmwGY704UBdxXoOEQj98zAUf6Ql/cPXSlohgRA+rOHZOC7UMXJdPriZ3ADajwx38JkKQ/hOJAz0AbxiluTQYHXD4SiIHQRuAZguTurXWLSemOBlPOtlhYExzGt7mFtVodXjg5KQBsni2LNEdpGUC5+sbTffr2vyZreocCkdXlJ9LMdHeUdHm6L6ph7mlGXJpxzxq/4IMaT0nh1+EpmvJjjnEXj7321XSqU9wCbtD54DYnTC+0+/XD9qAwjt",
+    "comment": "rsa-openssh"
+  },
+  "rsa_pem": {
+    "type": "ssh-rsa",
+    "fingerprint": "SHA256:dCilZijR3ZS8fEBwhkbeUsyExfWijs4787cn39oB/8Y",
+    "publicBase64": "AAAAB3NzaC1yc2EAAAADAQABAAABAQChEek09Q06ivNpOgOK0DJqUe/fc8bzeKtqSzWwdoAlujvRSiphGG47HQlC6z2FuN0yN0tHgVi2X5Q3sLBYJrsmkXP7s4KLkGQY4IVHjugZJ2QTWlsb8C7U9o/r7BCCgN6PdKRgb6Q0iftDuSJFBZXKkcGDg7PuuBgehaxnmZ1gLG6P0ABUcoVBExIFOmDZq1WQucRoaxnzBaJnBLTz6MXpuiSpmfeZCt8sVxNdT69Tg5qmQaxPSEq8A6wlfhh971gi2pPpKBGccR7kqwdpJqUF+fC0u6u/p8V8MlhrbUEt1zBTGWqn/0UvKu0104JraMaZLnntSxgKMvddVn41ufyN",
+    "comment": "rsa-pem"
+  },
+  "rsa_pem_enc": {
+    "type": "ssh-rsa",
+    "fingerprint": "SHA256:EhG5B8buQV/Zwx3/7GfYbAoU7j0Z/fdYTvua25or0Gw",
+    "publicBase64": "AAAAB3NzaC1yc2EAAAADAQABAAABAQCvFKFaDBt8DTIevoFCTuVoV7QgwKFTXxVT3yzYK9tAIHbi56eUmSV6WCcgXxfZJGqFrXQapL2Snz+4d8a4HTKxYVMkfcmQIg+l2soAkgOefH3tBuJzyzS7rX9HYioa3lIIHJp1yPLM/6gRDCW/MdTSIGPJ5rPRIg7nDAPwfYlj/tkO7DZY7RLc1pLKuCd2bZSaUBOk95N+o6OzUw3iJOb5sWsolHHGhGjK3B+HwWiJ6Pz0jY2PgvSMXvmvEstp7mA/Vs/XqYMZCSjbPxADwwU2OMfMrZmsQlor6or+Tcnox+4AZhWXGCd9z6cvks+0aePZ2W5EUheehn6r94RI9MXX",
+    "comment": "rsa-pem-enc"
+  },
+  "rsa_pkcs8": {
+    "type": "ssh-rsa",
+    "fingerprint": "SHA256:78mabA8oLNlrqfzhrv1ALKUcXKMMQ5pJs/E+zZBIxyk",
+    "publicBase64": "AAAAB3NzaC1yc2EAAAADAQABAAABAQDnBV6jq71VO8XLCJaO22zHIvOQdcJKLMCIFMCzM+QfwEIL9kMv+U2XNovyChbokVnQnvMd9UgdauQzJcCiidN6ydEq7ZMetvNUO7Wbf662bNROjbOYee+umxwGBI118j7DY+FoyXQWXthPISC2lJ5PGc93Rt370M2FA6tlSazX9sgDe7oD1drqp/50waYCEs07eD5nm5X9rGJax6PdV3jGaFI9HInk2z63AkfRpPeZ4a7H808/YsovoXd3+P2dFZADvXsblR2u7oIj3w9LLlGj8TBIUwyEym8pPOLIhqjiw4Bqrsetf2YULKdOvcEqUZizXnXk4UhMK/DkUmVypYtb",
+    "comment": "rsa-pkcs8"
+  }
+}

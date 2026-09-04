@@ -633,3 +633,85 @@
 .tag-input::placeholder {
     color: var(--text-muted);
 }
+
+/* SSH key on the entry (view mode row, edit mode configuration) */
+.ssh-key-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.6rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+}
+
+.ssh-key-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.ssh-key-state {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.ssh-key-state.loaded {
+    color: var(--text-primary);
+}
+
+.ssh-key-row .totp-add-button {
+    flex-shrink: 0;
+}
+
+.ssh-key-config {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.ssh-key-select {
+    width: 100%;
+}
+
+/* Specific enough to beat the generic .field-group label styling, as the
+   expiry toggle above does */
+.field-group .ssh-key-config .ssh-option {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0;
+    font-size: 0.8rem;
+    font-weight: 400;
+    color: var(--text-secondary);
+    text-transform: none;
+    letter-spacing: normal;
+    cursor: pointer;
+}
+
+.ssh-option input[type="checkbox"] {
+    width: 0.9rem;
+    height: 0.9rem;
+    margin: 0;
+    cursor: pointer;
+}
+
+.ssh-lifetime {
+    width: 5rem;
+    padding: 0.2rem 0.4rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+}
+
+.ssh-key-hint {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
