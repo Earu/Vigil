@@ -133,6 +133,7 @@ jobs:
       with:
         languages: javascript-typescript
         queries: security-extended
+        config-file: ./.github/codeql/config.yml
 
     - name: Analyze
       uses: github/codeql-action/analyze@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4

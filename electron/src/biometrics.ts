@@ -131,15 +131,26 @@ function generateNewSalt(): string {
     return buffer.toString('hex');
 }
 
+// Read first, create exclusively only when the read says there is nothing:
+// no check-then-act window in which a second call (two vaults unlocking at
+// once) could each write a different salt and key every later lookup wrong
 async function getInstallationSalt(): Promise<string> {
     try {
-        if (fs.existsSync(SALT_PATH)) {
+        try {
             return await fs.promises.readFile(SALT_PATH, 'utf-8');
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
 
         const newSalt = generateNewSalt();
-        await fs.promises.writeFile(SALT_PATH, newSalt, { mode: 0o600 });
-        return newSalt;
+        try {
+            await fs.promises.writeFile(SALT_PATH, newSalt, { mode: 0o600, flag: 'wx' });
+            return newSalt;
+        } catch (error) {
+            // Lost the race to another caller; theirs is the salt now
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+            return await fs.promises.readFile(SALT_PATH, 'utf-8');
+        }
     } catch (error) {
         console.error('Failed to manage installation salt:', error);
         return generateNewSalt();

@@ -1,0 +1,12 @@
+name: Vigil
+# Paths left out of analysis, each for a stated reason. Nothing under src/
+# or electron/ is ever excluded: that is what ships.
+paths-ignore:
+  # Test code: fixtures do things production must not (a SHA-1 of a
+  # password is how HaveIBeenPwned's range API is keyed, so the tests hash
+  # one to build the fixture). Nothing here ships
+  - tests
+  # A one-off developer script that downloads the bundled fonts from Google
+  # Fonts and writes them to disk. Writing fetched bytes to a file is its
+  # entire purpose; it runs by hand, never in a build or at runtime
+  - scripts/fetch-fonts.mjs

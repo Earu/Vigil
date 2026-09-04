@@ -156,17 +156,19 @@ describe('the unsaved-changes flag around a save', () => {
 
         electronMock.setUnsavedChanges.mockClear();
         await saveFromEditForm(entry);
-        await flush();
+        // Serializing the vault takes a KDF pass and a compression; on a
+        // loaded machine (the fuzz suites run alongside) that outlasts a
+        // fixed pause, so wait for the write rather than assume it
+        await waitFor(() => expect(electronMock.saveFile).toHaveBeenCalled(), { timeout: 10_000 });
 
         // The write has not landed; a close right now must still prompt
-        expect(electronMock.saveFile).toHaveBeenCalled();
         expect(neverClearedDirty()).toBe(true);
 
         releaseSave({ success: true, filePath: '/fake.kdbx' });
         await waitFor(() => {
             const calls = electronMock.setUnsavedChanges.mock.calls;
             expect(calls[calls.length - 1]).toEqual([false]);
-        });
+        }, { timeout: 10_000 });
     });
 
     it('stays set when the save fails', async () => {
@@ -178,7 +180,7 @@ describe('the unsaved-changes flag around a save', () => {
         saveFileImpl = async () => ({ success: false, error: 'disk full' });
         electronMock.setUnsavedChanges.mockClear();
         await saveFromEditForm(entry);
-        await waitFor(() => expect(electronMock.saveFile).toHaveBeenCalled());
+        await waitFor(() => expect(electronMock.saveFile).toHaveBeenCalled(), { timeout: 10_000 });
         await flush();
 
         // Nothing between handing the edit over and the failure may have
