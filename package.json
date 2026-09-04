@@ -13,7 +13,8 @@
 		"test": "vitest run",
 		"smoke": "node scripts/smoke-boot.mjs",
 		"test:fuzz": "vitest run tests/fuzz tests/hardening-invariants.test.ts",
-		"check:fuses": "node scripts/check-fuses.mjs"
+		"check:fuses": "node scripts/check-fuses.mjs",
+		"hash:asar": "node scripts/asar-hash.mjs"
 	},
 	"dependencies": {
 		"@node-rs/argon2": "^2.0.2",

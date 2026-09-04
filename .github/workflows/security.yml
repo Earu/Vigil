@@ -15,6 +15,9 @@ name: Security
 #                vulnerabilities or unacceptable licenses block the merge
 #   packaged     builds the Linux app and checks the bytes that ship: the
 #                fuse wire matches the config, the app boots and answers IPC
+#   reproducible builds the app twice, on different runner images and from
+#                different checkout paths, and fails unless both produce
+#                the same app.asar byte for byte
 #
 # Findings from fuzz, invariants, fuses and boot are uploaded as SARIF, so
 # they appear as code scanning alerts in the Security tab beside CodeQL's
@@ -313,3 +316,85 @@ jobs:
       run: |
         echo "fuses: ${{ steps.fuses.outcome }}, boot: ${{ steps.smoke.outcome }}"
         exit 1
+
+  reproducible:
+    name: Reproducible asar (${{ matrix.image }})
+    runs-on: ${{ matrix.image }}
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        include:
+          # Two images and two working directories: a hash that survives
+          # both is one a third party can expect to reproduce
+          - image: ubuntu-latest
+            checkout: .
+          - image: ubuntu-24.04
+            checkout: elsewhere/vigil-rebuild
+    defaults:
+      run:
+        working-directory: ${{ matrix.checkout }}
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        path: ${{ matrix.checkout }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: ${{ matrix.checkout }}/package-lock.json
+
+    - name: Install dependencies
+      run: npm ci --no-audit --no-fund
+
+    - name: Install Linux dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev
+
+    - name: Package
+      run: |
+        npx tsc -b
+        npx vite build
+        node electron/build.mjs
+        node electron/copy-native-modules.mjs
+        npx electron-builder --config electron-builder.config.js --linux dir --publish never
+      env:
+        NODE_ENV: production
+
+    - name: Hash the asar
+      run: node scripts/asar-hash.mjs dist --write asar.sha256
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: asar-hash-${{ matrix.image }}
+        path: ${{ matrix.checkout }}/dist/asar.sha256
+        if-no-files-found: error
+
+  reproducible-compare:
+    name: Reproducible asar (compare)
+    needs: reproducible
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: asar-hash-*
+        path: hashes
+
+    - name: Compare
+      run: |
+        find hashes -name asar.sha256 -exec cat {} +
+        distinct=$(find hashes -name asar.sha256 -exec cat {} + | sort -u | wc -l)
+        {
+          echo "## Reproducible asar"
+          echo
+          echo '```'
+          find hashes -name asar.sha256 -exec cat {} +
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$distinct" != "1" ]; then
+          echo "the two builds produced different app.asar files"
+          exit 1
+        fi

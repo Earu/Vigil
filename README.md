@@ -42,6 +42,26 @@ A modern, secure password manager with a beautiful user interface, built using E
 
 Grab the latest installer from the [releases page](https://github.com/Earu/Vigil/releases): Windows installer (x64), Linux AppImage (x64) or macOS DMG (Apple Silicon). The builds update themselves when a new release is published.
 
+Every release file carries a build provenance attestation: a signed record that it was produced by this repository's release workflow from a given commit. Check a download with the [GitHub CLI](https://cli.github.com/):
+
+```bash
+gh attestation verify vigil-linux-x64-v1.5.0.AppImage --repo Earu/Vigil
+```
+
+### Reproducible builds
+
+The application code inside each release, the `app.asar` archive, is reproducible: the same commit built with the same Node major and on the same platform gives the same bytes. Each release ships a `*.asar.sha256` file per platform, attested like the installers, and CI rebuilds the archive on two runners from two paths and fails if they differ.
+
+To check a release yourself, extract `app.asar` from the installer (`--appimage-extract` on the AppImage, 7-Zip on the Windows installer, the zip on macOS; it sits under `resources/`) and compare its SHA-256 with the shipped file. To go further, rebuild at the release tag and compare against your own output:
+
+```bash
+npm ci
+npm run electron:build -- --dir
+node scripts/asar-hash.mjs
+```
+
+The installer wrappers themselves are not reproducible: they embed timestamps and, on macOS, a signature.
+
 ## Development
 
 ### Prerequisites
