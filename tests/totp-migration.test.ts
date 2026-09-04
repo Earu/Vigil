@@ -25,6 +25,7 @@ interface AccountSpec {
     algorithm?: number;
     digits?: number;
     type?: number;
+    counter?: number;
 }
 
 const otpParameters = (spec: AccountSpec): number[] => [
@@ -34,6 +35,7 @@ const otpParameters = (spec: AccountSpec): number[] => [
     ...(spec.algorithm != null ? varField(4, spec.algorithm) : []),
     ...(spec.digits != null ? varField(5, spec.digits) : []),
     ...(spec.type != null ? varField(6, spec.type) : []),
+    ...(spec.counter != null ? varField(7, spec.counter) : []),
 ];
 
 const migrationUri = (accounts: AccountSpec[], { escape = true } = {}): string => {
@@ -62,7 +64,7 @@ describe('Google Authenticator migration QR', () => {
 
         expect(accounts![0].issuer).toBe('GitHub');
         expect(accounts![0].name).toBe('alice@example.com');
-        expect(accounts![0].config).toEqual({ secret: RFC_SEED_B32, period: 30, digits: 6, algorithm: 'SHA-1' });
+        expect(accounts![0].config).toEqual({ type: 'totp', secret: RFC_SEED_B32, period: 30, digits: 6, algorithm: 'SHA-1' });
 
         expect(accounts![1].issuer).toBe('AWS');
         expect(accounts![1].config.digits).toBe(8);
@@ -79,13 +81,21 @@ describe('Google Authenticator migration QR', () => {
         expect(code).toBe('287082');
     });
 
-    it('skips HOTP accounts and treats unspecified type as TOTP', () => {
+    it('decodes HOTP accounts with their counter and treats unspecified type as TOTP', async () => {
         const accounts = TotpService.parseMigrationUri(migrationUri([
-            { secret: [9, 9, 9], name: 'counter-based', type: 1 },
+            { secret: RFC_SEED, name: 'counter-based', type: 1, counter: 7 },
             { secret: [8, 8, 8], name: 'no-type' },
         ]));
-        expect(accounts!.length).toBe(1);
-        expect(accounts![0].name).toBe('no-type');
+        expect(accounts!.length).toBe(2);
+        expect(accounts![0].config).toEqual({ type: 'hotp', secret: RFC_SEED_B32, digits: 6, algorithm: 'SHA-1', counter: 7 });
+        // RFC 4226 vector for counter 7
+        expect(await TotpService.generateCode(accounts![0].config)).toBe('162583');
+        expect(accounts![1].config).toMatchObject({ type: 'totp', period: 30 });
+    });
+
+    it('reads a missing counter as 0', () => {
+        const accounts = TotpService.parseMigrationUri(migrationUri([{ secret: RFC_SEED, name: 'x', type: 1 }]));
+        expect(accounts![0].config).toMatchObject({ type: 'hotp', counter: 0 });
     });
 
     it('accepts a data parameter with unescaped base64', () => {
@@ -108,6 +118,7 @@ describe('Google Authenticator migration QR', () => {
         expect(accounts![0].name).toBe('Example:alice@google.com');
         expect(accounts![0].issuer).toBe('Example');
         expect(accounts![0].config).toEqual({
+            type: 'totp',
             secret: 'JBSWY3DPEHPK3PXP',
             period: 30,
             digits: 6,

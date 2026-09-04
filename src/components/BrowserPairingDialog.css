@@ -89,6 +89,11 @@
     font-weight: 600;
 }
 
+.pairing-allow-button:hover:not(:disabled) {
+    background-color: var(--accent-hover);
+    color: var(--accent-contrast);
+}
+
 .pairing-allow-button:disabled {
     opacity: 0.5;
     cursor: not-allowed;

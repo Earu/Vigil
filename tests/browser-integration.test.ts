@@ -453,6 +453,80 @@ describe('set-login', () => {
     });
 });
 
+// HOTP counters are state: a code costs one, so get-logins (every page
+// load) leaves them alone and get-totp (user-triggered) advances and saves
+describe('hotp', () => {
+    const RFC_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+    const uuidOf = (entry: kdbxweb.KdbxEntry) => [...kdbxweb.ByteUtils.base64ToBytes(entry.uuid.id)]
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    const hotpDb = (fields: Record<string, string>) => {
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db.setVersion(3);
+        db.meta.customData.set('KPXC_BROWSER_FF', { value: 'good' });
+        const entry = db.createEntry(db.getDefaultGroup());
+        entry.fields.set('Title', 'Counter');
+        entry.fields.set('UserName', 'user');
+        entry.fields.set('Password', kdbxweb.ProtectedValue.fromString('pw'));
+        entry.fields.set('URL', 'https://counter.example');
+        for (const [key, value] of Object.entries(fields)) {
+            entry.fields.set(key, key === 'otp' ? kdbxweb.ProtectedValue.fromString(value) : value);
+        }
+        entry.times.lastModTime = new Date(0);
+        return { db, entry };
+    };
+    const otpText = (entry: kdbxweb.KdbxEntry) => (entry.fields.get('otp') as kdbxweb.ProtectedValue).getText();
+
+    it('get-logins offers the entry without a code', async () => {
+        const { db } = hotpDb({ otp: `otpauth://hotp/Counter?secret=${RFC_SECRET}&counter=0` });
+        const result = await Svc.handleRequest('get-logins', {
+            url: 'https://counter.example', keys: [{ id: 'FF', key: 'good' }],
+        }, ctxFor(db));
+        expect(result.entries).toHaveLength(1);
+        expect(result.entries[0].password).toBe('pw');
+        expect(result.entries[0].totp).toBeUndefined();
+    });
+
+    it('get-totp serves the code, advances the counter in the otp URI and saves', async () => {
+        const { db, entry } = hotpDb({ otp: `otpauth://hotp/Counter?secret=${RFC_SECRET}&issuer=Ex&counter=0` });
+        const ctx = ctxFor(db);
+        // RFC 4226 vectors for counters 0 and 1
+        expect(await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx)).toEqual({ totp: '755224' });
+        expect(otpText(entry)).toContain('counter=1');
+        expect(otpText(entry)).toContain('issuer=Ex');
+        expect(entry.fields.get('otp')).toBeInstanceOf(kdbxweb.ProtectedValue);
+        expect(entry.times.lastModTime!.getTime()).toBeGreaterThan(0);
+        expect(ctx.saveDatabase).toHaveBeenCalledTimes(1);
+
+        expect(await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx)).toEqual({ totp: '287082' });
+        expect(otpText(entry)).toContain('counter=2');
+    });
+
+    it('get-totp advances HmacOtp-Counter in place for a KeePass-style entry', async () => {
+        const { db, entry } = hotpDb({ 'HmacOtp-Secret-Base32': RFC_SECRET, 'HmacOtp-Counter': '3' });
+        const ctx = ctxFor(db);
+        expect(await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx)).toEqual({ totp: '969429' });
+        expect(entry.fields.get('HmacOtp-Counter')).toBe('4');
+        expect(entry.fields.has('otp')).toBe(false);
+        expect(ctx.saveDatabase).toHaveBeenCalledTimes(1);
+    });
+
+    it('get-totp still answers the code when the save fails', async () => {
+        const { db, entry } = hotpDb({ otp: `otpauth://hotp/Counter?secret=${RFC_SECRET}&counter=0` });
+        const ctx = { ...ctxFor(db), saveDatabase: vi.fn(async () => { throw new Error('disk full'); }) };
+        expect(await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx)).toEqual({ totp: '755224' });
+        expect(otpText(entry)).toContain('counter=1');
+    });
+
+    it('get-totp does not save for a TOTP entry', async () => {
+        const { db, entry } = hotpDb({ otp: `otpauth://totp/Counter?secret=${RFC_SECRET}` });
+        const ctx = ctxFor(db);
+        const result = await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx);
+        expect(result.totp).toMatch(/^\d{6}$/);
+        expect(ctx.saveDatabase).not.toHaveBeenCalled();
+        expect(entry.times.lastModTime!.getTime()).toBe(0);
+    });
+});
+
 describe('get-totp', () => {
     it('refuses a code from an entry in the recycle bin', async () => {
         const db = kdbxweb.Kdbx.create(cred(), 'Vault');

@@ -190,3 +190,28 @@ describe('spreadsheet formula detection', () => {
         expect(csv).not.toContain(`"'=`);
     });
 });
+
+describe('hotp export', () => {
+    const RFC_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+
+    it('emits an hotp URI carrying the current counter for both conventions', async () => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db0.setVersion(3);
+        const root = db0.getDefaultGroup();
+
+        const uri = db0.createEntry(root);
+        uri.fields.set('Title', 'UriStyle');
+        uri.fields.set('otp', kdbxweb.ProtectedValue.fromString(`otpauth://hotp/UriStyle?secret=${RFC_SECRET}&counter=5`));
+
+        const kp = db0.createEntry(root);
+        kp.fields.set('Title', 'KeePassStyle');
+        kp.fields.set('HmacOtp-Secret-Base32', RFC_SECRET);
+        kp.fields.set('HmacOtp-Counter', '9');
+
+        const db = await kdbxweb.Kdbx.load(await db0.save(), cred());
+        const rows = ImportService.parseCsv(ExportService.toCsv(db));
+
+        expect(rows.find(r => r[1] === 'UriStyle')![6]).toMatch(/^otpauth:\/\/hotp\/.*counter=5/);
+        expect(rows.find(r => r[1] === 'KeePassStyle')![6]).toMatch(/^otpauth:\/\/hotp\/.*counter=9/);
+    });
+});

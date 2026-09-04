@@ -166,3 +166,25 @@ describe('writing into the database', () => {
         expect(TotpService.getConfig(workGroup.entries[0].customFields)).not.toBeNull();
     });
 });
+
+describe('hotp import', () => {
+    it('keeps a Bitwarden hotp URI and reads its counter back', async () => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db0.setVersion(3);
+        const kdbxDb = await kdbxweb.Kdbx.load(await db0.save(), cred());
+
+        const result = await ImportService.parseFile(fileOf('export.json', JSON.stringify({
+            items: [{
+                type: 1, name: 'Counter',
+                login: { username: 'u', password: 'p', totp: 'otpauth://hotp/Counter?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&counter=9' },
+            }],
+        })));
+        expect(await ImportService.importToDatabase(result, kdbxDb)).toBe(1);
+
+        const reloaded = await loadSaved(env);
+        const database = Svc.convertKdbxToDatabase(reloaded);
+        const imported = database.root.groups.find(g => g.name === 'Imported (Bitwarden)')!;
+        const { TotpService } = await import('../src/services/TotpService');
+        expect(TotpService.getConfig(imported.entries[0].customFields)).toMatchObject({ type: 'hotp', counter: 9 });
+    });
+});

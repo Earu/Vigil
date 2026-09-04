@@ -3,6 +3,7 @@ import { Database, Group, Entry, EntryVersion, Attachment, CustomField } from '.
 import { userSettingsService } from './UserSettingsService';
 import { HistoryNotesService } from './HistoryNotesService';
 import { BreachStatusStore } from './BreachStatusStore';
+import { TotpService } from './TotpService';
 
 interface SaveResult {
     success: boolean;
@@ -1109,7 +1110,13 @@ export class KeepassDatabaseService {
         return false;
     }
 
-    private static entryChanged(kdbxEntry: kdbxweb.KdbxEntry, entry: Entry): boolean {
+    // existingCustomFields stands in for the kdbx entry's own custom fields
+    // when the caller wants to compare against an adjusted view of them
+    private static entryChanged(
+        kdbxEntry: kdbxweb.KdbxEntry,
+        entry: Entry,
+        existingCustomFields: CustomField[] = this.kdbxCustomFields(kdbxEntry)
+    ): boolean {
         // Through standardField, so a protected field is compared as its text
         // rather than as the base64 of its obfuscated bytes; comparing the
         // latter against the model would call every such entry changed on
@@ -1135,7 +1142,7 @@ export class KeepassDatabaseService {
         if ((kdbxEntry.customIcon?.toString() ?? '') !== (entry.customIcon ?? '')) return true;
         if (this.readSuppressFavicon(kdbxEntry) !== !!entry.suppressFavicon) return true;
 
-        if (this.customFieldsChanged(kdbxEntry, entry.customFields ?? [])) return true;
+        if (this.customFieldsChanged(existingCustomFields, entry.customFields ?? [])) return true;
 
         const tags = this.normalizeTags(entry.tags ?? []);
         if (kdbxEntry.tags.length !== tags.length) return true;
@@ -1155,21 +1162,38 @@ export class KeepassDatabaseService {
         return oldPassword !== this.getPasswordString(entry.password);
     }
 
-    private static customFieldsChanged(kdbxEntry: kdbxweb.KdbxEntry, customFields: CustomField[]): boolean {
-        const existing = [...kdbxEntry.fields].filter(([key]) => !this.STANDARD_FIELDS.includes(key));
+    private static kdbxCustomFields(kdbxEntry: kdbxweb.KdbxEntry): CustomField[] {
+        return [...kdbxEntry.fields]
+            .filter(([key]) => !this.STANDARD_FIELDS.includes(key))
+            .map(([key, value]) => ({ key, value, protected: value instanceof kdbxweb.ProtectedValue }));
+    }
+
+    private static customFieldsChanged(existing: CustomField[], customFields: CustomField[]): boolean {
         if (existing.length !== customFields.length) return true;
 
         for (let i = 0; i < customFields.length; i++) {
-            const [key, value] = existing[i];
+            const { key, value, protected: wasProtected } = existing[i];
             const field = customFields[i];
             if (key !== field.key) return true;
-            if ((value instanceof kdbxweb.ProtectedValue) !== field.protected) return true;
+            if (wasProtected !== field.protected) return true;
             // Identity first: unchanged protected values compare without a
             // decrypt (see the password check in entryChanged)
             if (value !== field.value && this.getFieldString(value) !== this.getFieldString(field.value)) return true;
         }
 
         return false;
+    }
+
+    // A HOTP generation moves the counter and nothing else. That is use, not
+    // an edit: with retention trimming the oldest revisions, a run of codes
+    // would push the real edits out of the history, so it records none
+    private static onlyCounterMoved(kdbxEntry: kdbxweb.KdbxEntry, entry: Entry): boolean {
+        const target = TotpService.getConfig(entry.customFields ?? []);
+        if (target?.type !== 'hotp') return false;
+        const existing = this.kdbxCustomFields(kdbxEntry);
+        const aligned = TotpService.withCounter(existing, target.counter);
+        if (aligned === existing) return false;
+        return !this.entryChanged(kdbxEntry, entry, aligned);
     }
 
     // Every entry and group in the file, by UUID. The save walk resolves
@@ -1316,7 +1340,7 @@ export class KeepassDatabaseService {
                     const databasePath = this.getPath();
                     if (databasePath) BreachStatusStore.clearStatus(databasePath, entry.id);
                 }
-                kdbxEntry.pushHistory();
+                if (!this.onlyCounterMoved(kdbxEntry, entry)) kdbxEntry.pushHistory();
                 // Same reasoning as in reparent: a rewrite inside the same
                 // millisecond as the last one (retention can hold history
                 // length constant too) must not leave a stale cached model

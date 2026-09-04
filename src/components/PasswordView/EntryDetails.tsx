@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Entry, EntryVersion, Attachment, CustomField } from '../../types/database';
-import { TotpService, MigrationAccount, TotpConfig } from '../../services/TotpService';
+import { TotpService, MigrationAccount, OtpConfig } from '../../services/TotpService';
 import { QrScanService } from '../../services/QrScanService';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
@@ -132,6 +132,9 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// leaving edit mode folds it away
 	useEffect(() => {
 		if (!isEditing) setShowIconPicker(false);
+		// A generated HOTP code belongs to the view it was clicked in
+		if (isEditing) setHotpCode('');
+		setHotpCounterDraft(null);
 	}, [isEditing, entry?.id]);
 
 	// Removing an icon from an entry with a URL also opts it out of website
@@ -168,6 +171,13 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	const [totpSecondsLeft, setTotpSecondsLeft] = useState<number>(0);
 	const [totpInput, setTotpInput] = useState('');
 	const [totpError, setTotpError] = useState('');
+	// The last HOTP code generated for this entry; it stays until the user
+	// leaves the entry or enters edit mode, since every generation is a
+	// counter burned on the server side
+	const [hotpCode, setHotpCode] = useState('');
+	const [hotpBusy, setHotpBusy] = useState(false);
+	// Edit-mode counter text while it is not a valid number
+	const [hotpCounterDraft, setHotpCounterDraft] = useState<string | null>(null);
 
 	// SSH key on this entry (see SshAgentService): the record in the
 	// KeeAgent.settings attachment, what the main process can say about the
@@ -197,6 +207,13 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	useEffect(() => {
 		const sameEntry = !isNew && entry !== undefined && entry?.id === prevEntryIdRef.current;
 		prevEntryIdRef.current = entry?.id;
+		// Generating a HOTP code saves the advanced counter, and that save
+		// refreshes this same entry: the code must survive that refresh and
+		// only clear on a real selection change
+		if (!sameEntry) {
+			setHotpCode('');
+			setHotpCounterDraft(null);
+		}
 		// The same entry arriving as a new object is a model refresh, not a
 		// selection: history grew after our own save, or a background save
 		// landed (a browser set-login). Mid-edit, that refresh must not
@@ -577,24 +594,28 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		onClose();
 	};
 
-	const totpConfig = useMemo(
+	const otpConfig = useMemo(
 		() => TotpService.getConfig(editedEntry.customFields),
 		[editedEntry.customFields]
 	);
+	const totpConfig = otpConfig?.type === 'totp' ? otpConfig : null;
+	const hotpConfig = otpConfig?.type === 'hotp' ? otpConfig : null;
 
 	const passkeyInfo = useMemo(
 		() => PasskeyService.passkeyFromFields(editedEntry.customFields),
 		[editedEntry.customFields]
 	);
 
-	// TOTP and passkey fields get dedicated UI; keep them out of the generic
-	// custom field list but preserve original indices for the handlers
+	// OTP and passkey fields get dedicated UI; keep them out of the generic
+	// custom field list but preserve original indices for the handlers. OTP
+	// keys stay listed when they did not parse, so an unreadable otp value
+	// is visible and can be repaired rather than silently hidden
 	const visibleCustomFields = useMemo(
 		() => editedEntry.customFields
 			.map((field, index) => ({ field, index }))
-			.filter(({ field }) => !TotpService.isTotpKey(field.key)
+			.filter(({ field }) => !(otpConfig && TotpService.isTotpKey(field.key))
 				&& !(passkeyInfo && PasskeyService.isPasskeyFieldKey(field.key))),
-		[editedEntry.customFields, passkeyInfo]
+		[editedEntry.customFields, otpConfig, passkeyInfo]
 	);
 
 	const handleRemovePasskey = () => {
@@ -605,6 +626,40 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		};
 		setEditedEntry(cleaned);
 		onSave(KeepassDatabaseService.prepareEntryForSave(cleaned));
+	};
+
+	// One click: the code is shown and copied, and the counter it consumed
+	// is advanced and saved right away (the same view-mode write path as
+	// removing a passkey). If the browser extension advanced the counter
+	// out-of-model moments ago, this click may reuse it: the kdbx keeps the
+	// higher value (registerUnmodeledEdits), the user gets one rejected code
+	const handleGenerateHotp = async () => {
+		if (!hotpConfig || hotpBusy) return;
+		setHotpBusy(true);
+		try {
+			const code = await TotpService.generateCode(hotpConfig);
+			setHotpCode(code);
+			copyToClipboard(code, 'One-time code');
+			const advanced = {
+				...editedEntry,
+				customFields: TotpService.withCounter(editedEntry.customFields, hotpConfig.counter + 1),
+			};
+			setEditedEntry(advanced);
+			onSave(KeepassDatabaseService.prepareEntryForSave(advanced));
+		} catch {
+			setHotpCode('');
+		} finally {
+			setHotpBusy(false);
+		}
+	};
+
+	// Resync with the service: the next counter value, saved with the form
+	const handleHotpCounterChange = (raw: string) => {
+		setHotpCounterDraft(raw);
+		const counter = parseInt(raw, 10);
+		if (!Number.isSafeInteger(counter) || counter < 0 || String(counter) !== raw.trim()) return;
+		setEditedEntry(prev => ({ ...prev, customFields: TotpService.withCounter(prev.customFields, counter) }));
+		setHotpCounterDraft(null);
 	};
 
 	useEffect(() => {
@@ -632,7 +687,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		};
 	}, [totpConfig]);
 
-	const applyTotpConfig = (config: TotpConfig) => {
+	const applyTotpConfig = (config: OtpConfig) => {
 		setEditedEntry(prev => ({
 			...prev,
 			customFields: [
@@ -712,6 +767,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			...prev,
 			customFields: prev.customFields.filter(f => !TotpService.isTotpKey(f.key)),
 		}));
+		setHotpCode('');
 	};
 
 	const handleRestoreVersion = (version: EntryVersion) => {
@@ -976,14 +1032,65 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					</div>
 				)}
 
+				{!isEditing && hotpConfig && (
+					<div className="field-group">
+						<label>One-Time Code</label>
+						<div className="field-value-container">
+							<div className="totp-display">
+								{hotpCode ? (
+									<span className="totp-code">
+										{hotpCode.slice(0, Math.ceil(hotpCode.length / 2))}&thinsp;{hotpCode.slice(Math.ceil(hotpCode.length / 2))}
+									</span>
+								) : (
+									<span className="hotp-placeholder">Counter-based, generated on demand</span>
+								)}
+								<span className="totp-countdown" title="Next counter value">
+									#{hotpConfig.counter}
+								</span>
+							</div>
+							<button
+								className="generate-button"
+								onClick={handleGenerateHotp}
+								disabled={hotpBusy}
+								title="Generate the next code, copy it and advance the counter"
+								type="button"
+							>
+								<GenerateActionIcon />
+							</button>
+							{hotpCode && renderCopyButton(
+								() => copyToClipboard(hotpCode, 'One-time code'),
+								'Copy one-time code',
+								'One-time code'
+							)}
+						</div>
+					</div>
+				)}
+
 				{isEditing && (
 					<div className="field-group">
 						<label>One-Time Password</label>
-						{totpConfig ? (
+						{otpConfig ? (
 							<div className="totp-configured-row">
-								<span className="totp-configured-text">
-									TOTP configured ({totpConfig.digits} digits, {totpConfig.period}s, {totpConfig.algorithm})
-								</span>
+								{otpConfig.type === 'totp' ? (
+									<span className="totp-configured-text">
+										TOTP configured ({otpConfig.digits} digits, {otpConfig.period}s, {otpConfig.algorithm})
+									</span>
+								) : (
+									<span className="totp-configured-text hotp-configured">
+										HOTP configured ({otpConfig.digits} digits, {otpConfig.algorithm}, counter
+										<input
+											type="number"
+											className="hotp-counter-input"
+											min={0}
+											step={1}
+											value={hotpCounterDraft ?? String(otpConfig.counter)}
+											onChange={(e) => handleHotpCounterChange(e.target.value)}
+											onBlur={() => setHotpCounterDraft(null)}
+											title="Next counter value. Change it to resync with the service"
+										/>
+										)
+									</span>
+								)}
 								<button
 									className="field-remove-button"
 									onClick={handleRemoveTotp}

@@ -1,5 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { Database } from '../types/database';
+import { CustomField, Database } from '../types/database';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
 import { PlaceholderService, uuidBase64ToHex } from './PlaceholderService';
 import { TotpService } from './TotpService';
@@ -278,18 +278,24 @@ export class BrowserIntegrationService {
             uuid: this.uuidHex(entry.uuid),
             group: entry.parentGroup?.name ?? '',
         };
-        const customFields = [...entry.fields]
-            .filter(([key]) => !['Title', 'UserName', 'Password', 'URL', 'Notes'].includes(key))
-            .map(([key, value]) => ({ key, value, protected: value instanceof kdbxweb.ProtectedValue }));
-        const totpConfig = TotpService.getConfig(customFields);
-        if (totpConfig) {
+        const otpConfig = TotpService.getConfig(this.customFieldsOf(entry));
+        // Time-based only: get-logins runs on every page load, and a HOTP
+        // code handed out here would burn a counter each time. HOTP is
+        // served by get-totp, which the user triggers
+        if (otpConfig?.type === 'totp') {
             try {
-                login.totp = await TotpService.generateCode(totpConfig);
+                login.totp = await TotpService.generateCode(otpConfig);
             } catch {
                 // unusable TOTP config; leave the field out
             }
         }
         return login;
+    }
+
+    private static customFieldsOf(entry: kdbxweb.KdbxEntry): CustomField[] {
+        return [...entry.fields]
+            .filter(([key]) => !['Title', 'UserName', 'Password', 'URL', 'Notes'].includes(key))
+            .map(([key, value]) => ({ key, value, protected: value instanceof kdbxweb.ProtectedValue }));
     }
 
     static async handleRequest(action: string, payload: any, ctx: BrowserRequestContext): Promise<any> {
@@ -529,9 +535,37 @@ export class BrowserIntegrationService {
                 const entry = [...this.allEntries(kdbxDb.getDefaultGroup(), recycleBinUuid)]
                     .find(e => this.uuidHex(e.uuid) === payload.uuid);
                 if (!entry) return { errorCode: ERROR_NO_LOGINS_FOUND };
-                const login = await this.entryToLogin(entry, kdbxDb);
-                if (!login.totp) return { errorCode: ERROR_NO_LOGINS_FOUND };
-                return { totp: login.totp };
+                const customFields = this.customFieldsOf(entry);
+                const otpConfig = TotpService.getConfig(customFields);
+                if (!otpConfig) return { errorCode: ERROR_NO_LOGINS_FOUND };
+                let totp: string;
+                try {
+                    totp = await TotpService.generateCode(otpConfig);
+                } catch {
+                    return { errorCode: ERROR_NO_LOGINS_FOUND };
+                }
+                if (otpConfig.type === 'hotp') {
+                    // The counter moves outside any UI model, as set-login
+                    // does: lastModTime feeds the convert cache key, and the
+                    // unmodeled-edit registration keeps a save from a stale
+                    // model from pushing the old counter back. No history
+                    // revision: one whose only difference is an older
+                    // counter is a replay hazard on restore, not a credential
+                    const next = TotpService.counterField(customFields, otpConfig.counter + 1);
+                    if (next) {
+                        const value = this.fieldString(next.value);
+                        entry.fields.set(next.key, next.protected ? kdbxweb.ProtectedValue.fromString(value) : value);
+                        entry.times.lastModTime = new Date();
+                        KeepassDatabaseService.registerUnmodeledEdits([entry.uuid.toString()]);
+                        // Not awaited: the code goes back whatever the save
+                        // does (the bump is in memory and rides the next
+                        // save; an error here would make the user burn
+                        // another counter), and the extension's 5 s timeout
+                        // must not depend on the KDF
+                        ctx.saveDatabase().catch(() => {});
+                    }
+                }
+                return { totp };
             }
 
             default:
