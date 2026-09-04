@@ -22,13 +22,13 @@ export type GeneratorMode = 'characters' | 'words';
 
 export interface GeneratorSettings {
     mode: GeneratorMode;
-    password: PasswordOptions;
-    passphrase: PassphraseOptions;
+    characters: PasswordOptions;
+    words: PassphraseOptions;
 }
 
 const STORAGE_KEY = 'vigil-generator-settings';
 
-export const DEFAULT_PASSWORD_OPTIONS: PasswordOptions = {
+export const DEFAULT_CHARACTER_OPTIONS: PasswordOptions = {
     length: 20,
     upperCase: true,
     lowerCase: true,
@@ -42,7 +42,7 @@ export const DEFAULT_PASSWORD_OPTIONS: PasswordOptions = {
     customChars: '',
 };
 
-export const DEFAULT_PASSPHRASE_OPTIONS: PassphraseOptions = {
+export const DEFAULT_WORD_OPTIONS: PassphraseOptions = {
     wordCount: 5,
     separator: '-',
     capitalize: false,
@@ -96,15 +96,15 @@ export class PasswordGeneratorService {
     static loadSettings(): GeneratorSettings {
         const defaults: GeneratorSettings = {
             mode: 'characters',
-            password: { ...DEFAULT_PASSWORD_OPTIONS },
-            passphrase: { ...DEFAULT_PASSPHRASE_OPTIONS },
+            characters: { ...DEFAULT_CHARACTER_OPTIONS },
+            words: { ...DEFAULT_WORD_OPTIONS },
         };
         try {
             const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
             return {
                 mode: stored.mode === 'words' ? 'words' : 'characters',
-                password: { ...defaults.password, ...stored.password },
-                passphrase: { ...defaults.passphrase, ...stored.passphrase },
+                characters: { ...defaults.characters, ...stored.characters },
+                words: { ...defaults.words, ...stored.words },
             };
         } catch {
             return defaults;
@@ -123,12 +123,12 @@ export class PasswordGeneratorService {
     // fallback to defaults if the saved character pool is somehow empty
     static generateFromSettings(settings: GeneratorSettings = this.loadSettings()): string {
         if (settings.mode === 'words') {
-            return PassphraseService.generate(settings.passphrase);
+            return PassphraseService.generate(settings.words);
         }
         try {
-            return this.generate(settings.password);
+            return this.generate(settings.characters);
         } catch {
-            return this.generate(DEFAULT_PASSWORD_OPTIONS);
+            return this.generate(DEFAULT_CHARACTER_OPTIONS);
         }
     }
 }
