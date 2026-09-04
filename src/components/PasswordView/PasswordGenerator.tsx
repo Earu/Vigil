@@ -23,6 +23,26 @@ interface PasswordGeneratorProps {
     currentPassword?: string;
 }
 
+// The generator options that would produce a password shaped like this one:
+// same length, same character classes. Used to seed the generator when it
+// opens on an existing entry, so a regenerated password fits the site's
+// rules the old one met
+function optionsMatching(password: string): PasswordOptions {
+    return {
+        length: password.length,
+        upperCase: /[A-Z]/.test(password),
+        lowerCase: /[a-z]/.test(password),
+        digits: /[0-9]/.test(password),
+        special: /[!@#$%^&*()_+=\[\]{}|;:,.<>?]/.test(password),
+        brackets: /[\[\]{}()]/.test(password),
+        space: /\s/.test(password),
+        minus: /-/.test(password),
+        underline: /_/.test(password),
+        latin1: /[À-ÿ]/.test(password),
+        customChars: '',
+    };
+}
+
 export const PasswordGenerator = ({ onClose, onSave, currentPassword }: PasswordGeneratorProps) => {
     // Settings persist so the next open (and the browser extension's
     // generate-password) uses what the user last picked
@@ -33,34 +53,15 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     const [mode, setMode] = useState<GeneratorMode>(savedSettings.mode);
     const [passphraseOptions, setPassphraseOptions] = useState<PassphraseOptions>(savedSettings.passphrase);
     const [passphraseBits, setPassphraseBits] = useState<number | null>(null);
-    const [options, setOptions] = useState<PasswordOptions>(() => {
-        if (!currentPassword) return savedSettings.password;
-
-        // Analyze current password to determine used character sets
-        const hasUpperCase = /[A-Z]/.test(currentPassword);
-        const hasLowerCase = /[a-z]/.test(currentPassword);
-        const hasDigits = /[0-9]/.test(currentPassword);
-        const hasSpecial = /[!@#$%^&*()_+=\[\]{}|;:,.<>?]/.test(currentPassword);
-        const hasBrackets = /[\[\]{}()]/.test(currentPassword);
-        const hasSpace = /\s/.test(currentPassword);
-        const hasMinus = /-/.test(currentPassword);
-        const hasUnderline = /_/.test(currentPassword);
-        const hasLatin1 = /[À-ÿ]/.test(currentPassword);
-
-        return {
-            length: currentPassword.length,
-            upperCase: hasUpperCase,
-            lowerCase: hasLowerCase,
-            digits: hasDigits,
-            special: hasSpecial,
-            brackets: hasBrackets,
-            space: hasSpace,
-            minus: hasMinus,
-            underline: hasUnderline,
-            latin1: hasLatin1,
-            customChars: '',
-        };
-    });
+    // Options seeded from an existing password describe that password: its
+    // length and which character classes it uses. They are held apart from
+    // the remembered options and never reach storage, where they would say
+    // that much about the last edited entry in the clear. What is remembered
+    // is only ever what was picked in a generator opened fresh
+    const [seededOptions, setSeededOptions] = useState<PasswordOptions | null>(
+        () => currentPassword ? optionsMatching(currentPassword) : null);
+    const [rememberedOptions, setRememberedOptions] = useState<PasswordOptions>(savedSettings.password);
+    const options = seededOptions ?? rememberedOptions;
 
     useEffect(() => {
         // Generate with the remembered mode when the modal opens
@@ -76,18 +77,12 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
         };
     } | null>(null);
 
-    // Options seeded from an existing password describe that password: its
-    // length and which character classes it uses. They serve this one
-    // regeneration and stay out of storage, where they would say that much
-    // about the last edited entry in the clear. The remembered options are
-    // only ever the ones picked from a fresh generator
     const persistSettings = (patch: Partial<GeneratorSettings>) => {
-        const { password: patchedPassword, ...rest } = patch;
         PasswordGeneratorService.saveSettings({
             mode,
+            password: rememberedOptions,
             passphrase: passphraseOptions,
-            ...rest,
-            password: currentPassword ? savedSettings.password : (patchedPassword ?? options),
+            ...patch,
         });
     };
 
@@ -133,8 +128,13 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     };
 
     const updateOptions = (patch: Partial<PasswordOptions>) => {
-        const next = { ...options, ...patch };
-        setOptions(next);
+        // A change to seeded options stays with them, and with this session
+        if (seededOptions) {
+            setSeededOptions({ ...seededOptions, ...patch });
+            return;
+        }
+        const next = { ...rememberedOptions, ...patch };
+        setRememberedOptions(next);
         persistSettings({ password: next });
     };
 

@@ -101,14 +101,25 @@ async function prune(vaultPath: string, keep: number): Promise<void> {
 export async function backupBeforeWrite(vaultPath: string, options: BackupRequest): Promise<void> {
     if (!options.enabled) return;
 
-    let source: fs.Stats;
+    // One handle for the stat and the read, so the mode and the bytes are
+    // taken from the same file rather than from whatever the path names at
+    // each of two moments
+    let handle: fs.promises.FileHandle;
     try {
-        source = await fs.promises.stat(vaultPath);
+        handle = await fs.promises.open(vaultPath, 'r');
     } catch {
         // Nothing there yet; the first write to a path has nothing to preserve
         return;
     }
-    if (!source.isFile()) return;
+    let source: fs.Stats;
+    let data: Buffer;
+    try {
+        source = await handle.stat();
+        if (!source.isFile()) return;
+        data = await handle.readFile();
+    } finally {
+        await handle.close();
+    }
 
     const existing = await listBackups(vaultPath);
     const newest = existing[existing.length - 1];
@@ -134,7 +145,6 @@ export async function backupBeforeWrite(vaultPath: string, options: BackupReques
     // mode means the umask can only ever subtract permissions; the chmod
     // then restores the exact mode
     const mode = process.platform === 'win32' ? undefined : source.mode & 0o777;
-    const data = await fs.promises.readFile(vaultPath);
     const target = await writeFreshBackup(dir, name, timestamp(new Date()), data, mode);
     if (mode !== undefined) {
         await fs.promises.chmod(target, mode).catch(() => { /* created no wider than mode */ });
