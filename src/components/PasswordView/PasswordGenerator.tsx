@@ -51,7 +51,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     // Shows how long before the copied password leaves the clipboard
     const clipboard = useSyncExternalStore(ClipboardService.subscribe, ClipboardService.getSnapshot);
     const [mode, setMode] = useState<GeneratorMode>(savedSettings.mode);
-    const [passphraseOptions, setPassphraseOptions] = useState<PassphraseOptions>(savedSettings.passphrase);
+    const [wordOptions, setWordOptions] = useState<PassphraseOptions>(savedSettings.words);
     const [passphraseBits, setPassphraseBits] = useState<number | null>(null);
     // Options seeded from an existing password describe that password: its
     // length and which character classes it uses. They are held apart from
@@ -60,7 +60,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     // is only ever what was picked in a generator opened fresh
     const [seededOptions, setSeededOptions] = useState<PasswordOptions | null>(
         () => currentPassword ? optionsMatching(currentPassword) : null);
-    const [rememberedOptions, setRememberedOptions] = useState<PasswordOptions>(savedSettings.password);
+    const [rememberedOptions, setRememberedOptions] = useState<PasswordOptions>(savedSettings.characters);
     const options = seededOptions ?? rememberedOptions;
 
     useEffect(() => {
@@ -80,8 +80,8 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     const persistSettings = (patch: Partial<GeneratorSettings>) => {
         PasswordGeneratorService.saveSettings({
             mode,
-            password: rememberedOptions,
-            passphrase: passphraseOptions,
+            characters: rememberedOptions,
+            words: wordOptions,
             ...patch,
         });
     };
@@ -103,7 +103,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
         setPasswordStrength(HaveIBeenPwnedService.checkPasswordStrength(password));
     };
 
-    const generatePassphrase = async (opts: PassphraseOptions = passphraseOptions) => {
+    const generatePassphrase = async (opts: PassphraseOptions = wordOptions) => {
         // Wordlist is a lazy chunk; instant once cached
         await PassphraseService.preload();
         const phrase = PassphraseService.generate(opts);
@@ -135,13 +135,13 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
         }
         const next = { ...rememberedOptions, ...patch };
         setRememberedOptions(next);
-        persistSettings({ password: next });
+        persistSettings({ characters: next });
     };
 
-    const updatePassphraseOptions = (patch: Partial<PassphraseOptions>) => {
-        const next = { ...passphraseOptions, ...patch };
-        setPassphraseOptions(next);
-        persistSettings({ passphrase: next });
+    const updateWordOptions = (patch: Partial<PassphraseOptions>) => {
+        const next = { ...wordOptions, ...patch };
+        setWordOptions(next);
+        persistSettings({ words: next });
         generatePassphrase(next);
     };
 
@@ -242,17 +242,17 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                         type="range"
                                         min="3"
                                         max="12"
-                                        value={passphraseOptions.wordCount}
-                                        onChange={(e) => updatePassphraseOptions({ wordCount: parseInt(e.target.value) })}
+                                        value={wordOptions.wordCount}
+                                        onChange={(e) => updateWordOptions({ wordCount: parseInt(e.target.value) })}
                                     />
                                     <input
                                         type="number"
                                         min="3"
                                         max="12"
-                                        value={passphraseOptions.wordCount}
+                                        value={wordOptions.wordCount}
                                         onChange={(e) => {
                                             const n = parseInt(e.target.value);
-                                            if (!isNaN(n)) updatePassphraseOptions({ wordCount: Math.min(12, Math.max(3, n)) });
+                                            if (!isNaN(n)) updateWordOptions({ wordCount: Math.min(12, Math.max(3, n)) });
                                         }}
                                     />
                                 </div>
@@ -263,8 +263,8 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                     type="text"
                                     className="generator-separator-input"
                                     maxLength={4}
-                                    value={passphraseOptions.separator}
-                                    onChange={(e) => updatePassphraseOptions({ separator: e.target.value })}
+                                    value={wordOptions.separator}
+                                    onChange={(e) => updateWordOptions({ separator: e.target.value })}
                                     placeholder="-"
                                 />
                             </div>
@@ -274,16 +274,16 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                     <label>
                                         <input
                                             type="checkbox"
-                                            checked={passphraseOptions.capitalize}
-                                            onChange={(e) => updatePassphraseOptions({ capitalize: e.target.checked })}
+                                            checked={wordOptions.capitalize}
+                                            onChange={(e) => updateWordOptions({ capitalize: e.target.checked })}
                                         />
                                         Capitalize words
                                     </label>
                                     <label>
                                         <input
                                             type="checkbox"
-                                            checked={passphraseOptions.includeNumber}
-                                            onChange={(e) => updatePassphraseOptions({ includeNumber: e.target.checked })}
+                                            checked={wordOptions.includeNumber}
+                                            onChange={(e) => updateWordOptions({ includeNumber: e.target.checked })}
                                         />
                                         Include a number
                                     </label>

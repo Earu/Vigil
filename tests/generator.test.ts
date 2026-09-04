@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import {
     PasswordGeneratorService as Gen,
-    DEFAULT_PASSWORD_OPTIONS,
-    DEFAULT_PASSPHRASE_OPTIONS,
+    DEFAULT_CHARACTER_OPTIONS,
+    DEFAULT_WORD_OPTIONS,
 } from '../src/services/PasswordGeneratorService';
 import { PassphraseService } from '../src/services/PassphraseService';
 import { BrowserIntegrationService } from '../src/services/BrowserIntegrationService';
@@ -20,7 +20,7 @@ const store = new Map<string, string>();
 beforeEach(() => store.clear());
 
 const digitsOnly = {
-    ...DEFAULT_PASSWORD_OPTIONS,
+    ...DEFAULT_CHARACTER_OPTIONS,
     upperCase: false, lowerCase: false, special: false, digits: true,
 };
 
@@ -46,7 +46,7 @@ describe('character pool deduplication', () => {
     it('does not repeat characters the sets share', () => {
         // brackets/minus/underline all repeat characters from the special set
         const pool = Gen.characterPool({
-            ...DEFAULT_PASSWORD_OPTIONS,
+            ...DEFAULT_CHARACTER_OPTIONS,
             upperCase: false, lowerCase: false, digits: false,
             special: true, brackets: true, minus: true, underline: true,
         });
@@ -63,7 +63,7 @@ describe('character pool deduplication', () => {
 
     it('keeps every selected set represented', () => {
         const pool = Gen.characterPool({
-            ...DEFAULT_PASSWORD_OPTIONS, latin1: true, space: true,
+            ...DEFAULT_CHARACTER_OPTIONS, latin1: true, space: true,
         });
         expect(pool).toMatch(/[A-Z]/);
         expect(pool).toMatch(/[a-z]/);
@@ -81,7 +81,7 @@ describe('generate: pools larger than 256 characters', () => {
     const bigCustom = Array.from({ length: 400 }, (_, i) => String.fromCodePoint(0x100 + i)).join('');
 
     it('terminates and honors length', () => {
-        const options = { ...DEFAULT_PASSWORD_OPTIONS, length: 24, customChars: bigCustom };
+        const options = { ...DEFAULT_CHARACTER_OPTIONS, length: 24, customChars: bigCustom };
         expect(Gen.characterPool(options).length).toBeGreaterThan(256);
         const password = Gen.generate(options);
         expect([...password]).toHaveLength(24);
@@ -99,7 +99,7 @@ describe('generate: distribution', () => {
         // '(' is in both special and brackets; before dedupe it came up about
         // twice as often as a character unique to the special set
         const options = {
-            ...DEFAULT_PASSWORD_OPTIONS,
+            ...DEFAULT_CHARACTER_OPTIONS,
             upperCase: false, lowerCase: false, digits: false,
             special: true, brackets: true, length: 4000,
         };
@@ -123,20 +123,20 @@ describe('settings persistence', () => {
     it('round-trips through storage', () => {
         Gen.saveSettings({
             mode: 'words',
-            password: { ...DEFAULT_PASSWORD_OPTIONS, length: 33 },
-            passphrase: { ...DEFAULT_PASSPHRASE_OPTIONS, wordCount: 7 },
+            characters: { ...DEFAULT_CHARACTER_OPTIONS, length: 33 },
+            words: { ...DEFAULT_WORD_OPTIONS, wordCount: 7 },
         });
         const loaded = Gen.loadSettings();
         expect(loaded.mode).toBe('words');
-        expect(loaded.password.length).toBe(33);
-        expect(loaded.passphrase.wordCount).toBe(7);
+        expect(loaded.characters.length).toBe(33);
+        expect(loaded.words.wordCount).toBe(7);
     });
 
     it('falls back to defaults on corrupt or missing storage', () => {
         expect(Gen.loadSettings()).toEqual({
             mode: 'characters',
-            password: DEFAULT_PASSWORD_OPTIONS,
-            passphrase: DEFAULT_PASSPHRASE_OPTIONS,
+            characters: DEFAULT_CHARACTER_OPTIONS,
+            words: DEFAULT_WORD_OPTIONS,
         });
         store.set('vigil-generator-settings', 'not json');
         expect(Gen.loadSettings().mode).toBe('characters');
@@ -147,8 +147,8 @@ describe('generateFromSettings', () => {
     it('uses the saved character options', () => {
         Gen.saveSettings({
             mode: 'characters',
-            password: { ...digitsOnly, length: 12 },
-            passphrase: DEFAULT_PASSPHRASE_OPTIONS,
+            characters: { ...digitsOnly, length: 12 },
+            words: DEFAULT_WORD_OPTIONS,
         });
         expect(Gen.generateFromSettings()).toMatch(/^[0-9]{12}$/);
     });
@@ -156,8 +156,8 @@ describe('generateFromSettings', () => {
     it('generates a passphrase when words mode is saved', () => {
         Gen.saveSettings({
             mode: 'words',
-            password: DEFAULT_PASSWORD_OPTIONS,
-            passphrase: { wordCount: 4, separator: '.', capitalize: false, includeNumber: false },
+            characters: DEFAULT_CHARACTER_OPTIONS,
+            words: { wordCount: 4, separator: '.', capitalize: false, includeNumber: false },
         });
         expect(Gen.generateFromSettings()).toMatch(/^[a-z]+(\.[a-z]+){3}$/);
     });
@@ -165,10 +165,10 @@ describe('generateFromSettings', () => {
     it('recovers with defaults when the saved pool is empty', () => {
         Gen.saveSettings({
             mode: 'characters',
-            password: { ...digitsOnly, digits: false, length: 12 },
-            passphrase: DEFAULT_PASSPHRASE_OPTIONS,
+            characters: { ...digitsOnly, digits: false, length: 12 },
+            words: DEFAULT_WORD_OPTIONS,
         });
-        expect(Gen.generateFromSettings().length).toBe(DEFAULT_PASSWORD_OPTIONS.length);
+        expect(Gen.generateFromSettings().length).toBe(DEFAULT_CHARACTER_OPTIONS.length);
     });
 });
 
@@ -176,8 +176,8 @@ describe('browser generate-password', () => {
     it('answers with a password shaped by the saved settings', async () => {
         Gen.saveSettings({
             mode: 'characters',
-            password: { ...digitsOnly, length: 10 },
-            passphrase: DEFAULT_PASSPHRASE_OPTIONS,
+            characters: { ...digitsOnly, length: 10 },
+            words: DEFAULT_WORD_OPTIONS,
         });
         const result = await BrowserIntegrationService.handleRequest('generate-password', {}, {} as any);
         expect(result.password).toMatch(/^[0-9]{10}$/);
