@@ -15,12 +15,12 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.inputs.version || github.ref_name }}
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: '22'
         cache: 'npm'
@@ -50,12 +50,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         ref: ${{ github.event.inputs.version || github.ref_name }}
 
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: '22'
         cache: 'npm'
@@ -67,7 +67,7 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev xvfb
 
     # The provisioning profile is not in the repo: it embeds the team name.
     # Restored from a secret so signed builds still get it. Absent, the build
@@ -150,6 +150,12 @@ jobs:
         # See: https://github.com/electron-userland/electron-builder/issues/3179#issuecomment-408347702
         USE_HARD_LINKS: false
 
+    # Before signing and uploading: a release that cannot open a window
+    # must never reach the update feed. See build.yml for what is checked
+    - name: Boot smoke test
+      if: runner.os == 'Linux'
+      run: xvfb-run -a node scripts/smoke-boot.mjs -- --ozone-platform=x11
+
     # Installed builds refuse an update whose metadata does not carry this
     # signature (electron/src/update-signature.ts), so a release without it
     # is one nobody receives. The script fails the job when the secret is
@@ -165,7 +171,7 @@ jobs:
     # signatures over the yml bytes, so those may not be regenerated either
     - name: Upload Windows artifacts
       if: runner.os == 'Windows'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: windows-${{ matrix.arch }}-installer
         path: |
@@ -179,7 +185,7 @@ jobs:
     # alone is a manual download and the updater cannot use it at all
     - name: Upload macOS artifacts
       if: runner.os == 'macOS'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: macos-${{ matrix.arch }}-installer
         path: |
@@ -192,7 +198,7 @@ jobs:
 
     - name: Upload Linux artifacts
       if: runner.os == 'Linux'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: linux-${{ matrix.arch }}-installer
         path: |
@@ -209,7 +215,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: artifacts
           merge-multiple: true
@@ -218,7 +224,7 @@ jobs:
         run: ls -la artifacts
 
       - name: Create Draft Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ github.event.inputs.version || github.ref_name }}
           name: Release ${{ github.event.inputs.version || github.ref_name }}
