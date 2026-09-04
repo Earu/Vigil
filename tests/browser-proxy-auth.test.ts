@@ -110,6 +110,73 @@ beforeEach(() => {
     fs.rmSync(tokenPath, { force: true });
 });
 
+describe('connection pool', () => {
+    type Raw = Awaited<ReturnType<typeof rawClient>>;
+
+    const prove = async (client: Raw, token: string) => {
+        client.send({ action: PROXY_AUTH_ACTION, challenge: 'c' });
+        const { challenge } = await client.next();
+        client.send({
+            action: PROXY_AUTH_ACTION,
+            response: crypto.createHmac('sha256', token).update(CLIENT_PROOF_LABEL + challenge).digest('hex'),
+        });
+    };
+
+    // Whether the server still answers this client: the handshake gives no
+    // acknowledgement, so a protocol message is what tells
+    const answers = async (client: Raw) => {
+        client.send({ action: 'change-public-keys', publicKey: 'AA==', nonce: 'AA==', clientID: 'x' });
+        const reply = await Promise.race([client.next(), client.closed().then(() => null)]);
+        return reply !== null;
+    };
+
+    it('a pool full of unproven connections does not keep the proxy out', async () => {
+        // On Windows the pipe takes connections from any local account. A
+        // stranger holding idle connections open used to fill the pool and
+        // have the user's own proxy refused on accept
+        expect((await startServer()).success).toBe(true);
+        const token = fs.readFileSync(tokenPath, 'utf8').trim();
+
+        const idle: Raw[] = [];
+        for (let i = 0; i < 64; i++) idle.push(await rawClient());
+
+        const proxy = await rawClient();
+        await prove(proxy, token);
+        expect(await answers(proxy)).toBe(true);
+
+        // The newcomer took the oldest idle connection's place
+        expect(await idle[0].closed()).toBe(true);
+        proxy.destroy();
+        idle.forEach(c => c.destroy());
+    });
+
+    it('caps proven connections at the honest ceiling', async () => {
+        expect((await startServer()).success).toBe(true);
+        const token = fs.readFileSync(tokenPath, 'utf8').trim();
+
+        const proven: Raw[] = [];
+        for (let i = 0; i < 32; i++) {
+            const client = await rawClient();
+            await prove(client, token);
+            proven.push(client);
+        }
+        expect(await answers(proven[31])).toBe(true);
+
+        const extra = await rawClient();
+        await prove(extra, token);
+        expect(await extra.closed()).toBe(true);
+
+        // A slot frees when a proven connection goes
+        proven[0].destroy();
+        await proven[0].closed();
+        const replacement = await rawClient();
+        await prove(replacement, token);
+        expect(await answers(replacement)).toBe(true);
+        replacement.destroy();
+        proven.forEach(c => c.destroy());
+    });
+});
+
 describe('proxy-server handshake', () => {
     it('the real server answers the challenge with the token HMAC and poses its own', async () => {
         expect((await startServer()).success).toBe(true);

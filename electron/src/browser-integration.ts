@@ -87,13 +87,25 @@ let server: net.Server | null = null;
 const clients = new Set<net.Socket>();
 // The subset of clients that has completed the handshake; signals go only
 // to these, since an unproven connection is nobody's browser yet
-const authenticated = new WeakSet<net.Socket>();
+const authenticated = new Set<net.Socket>();
 // How long a connection gets to prove itself before it is dropped
 const AUTH_TIMEOUT_MS = 5000;
 
 // Firefox and Chrome each hold one connection per browser; a handful of
-// browsers is the honest ceiling, and the rest is somebody looping connect()
+// browsers is the honest ceiling, and the rest is somebody looping connect().
+// Counted over proven connections only: on Windows the pipe's default DACL
+// lets every local account connect, and if unproven connections counted, a
+// stranger holding a few dozen idle ones open (renewed as the deadline
+// dropped them) kept the user's own proxy out
 const MAX_CLIENTS = 32;
+// Unproven connections are bounded too, or a flood exhausts descriptors.
+// A full set evicts its oldest member rather than refusing the newcomer:
+// the connection that has sat unproven longest is the least likely to be
+// the user's proxy, whose handshake takes milliseconds. Keeping the real
+// proxy out then takes a sustained flood rather than a trickle, and the
+// pipe DACL (which Node cannot set) is what would close that
+const MAX_PENDING = 64;
+const unproven = new Set<net.Socket>();
 // Sessions belong to the connection that opened them, so they die with it and
 // cannot be reached by clientID from a second connection: an association is
 // something a client earned on the socket it earned it on. Within one
@@ -482,10 +494,15 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
     try {
         removeSocketFile();
         server = net.createServer((socket) => {
-            if (clients.size >= MAX_CLIENTS) {
-                socket.destroy();
-                return;
+            if (unproven.size >= MAX_PENDING) {
+                // Sets iterate in insertion order: the first is the oldest
+                const oldest = unproven.values().next().value;
+                if (oldest) {
+                    unproven.delete(oldest);
+                    oldest.destroy();
+                }
             }
+            unproven.add(socket);
             clients.add(socket);
             // Scoped to this connection and dropped with it
             const sessions = new Map<string, Session>();
@@ -502,6 +519,8 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
             }, AUTH_TIMEOUT_MS);
             socket.on('close', () => {
                 clearTimeout(authDeadline);
+                unproven.delete(socket);
+                authenticated.delete(socket);
                 clients.delete(socket);
                 sessions.clear();
             });
@@ -551,6 +570,11 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
                                 return;
                             }
                             if (!clientProofValid(envelope.response, serverChallenge)) {
+                                socket.destroy();
+                                return;
+                            }
+                            unproven.delete(socket);
+                            if (authenticated.size >= MAX_CLIENTS) {
                                 socket.destroy();
                                 return;
                             }
