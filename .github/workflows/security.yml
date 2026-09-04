@@ -19,8 +19,10 @@ name: Security
 # Findings from fuzz, invariants, fuses and boot are uploaded as SARIF, so
 # they appear as code scanning alerts in the Security tab beside CodeQL's
 # and resolve on their own once a later run no longer reports them.
-# Dependency alerts come from Dependabot (.github/dependabot.yml plus the
-# repository's alert setting) and live in the same tab.
+# Dependency alerts come from Dependabot, a repository setting rather than
+# a workflow, and live in the same tab. There is no dependabot.yml on
+# purpose: version-update pull requests are not wanted, and alerts do not
+# need one.
 
 on:
   push:
