@@ -13,7 +13,7 @@ import { BrowserIntegrationService } from '../../services/BrowserIntegrationServ
 import { KeepassDatabaseService, KdfInfo } from '../../services/KeepassDatabaseService';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
-import { UpdateStatus, BackupInfo } from '../../types/electron';
+import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
 import './Settings.css';
 
 interface SettingsProps {
@@ -58,6 +58,8 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [clipboardClearSeconds, setClipboardClearSeconds] = useState<number>(userSettingsService.getClipboardClearSeconds());
     const [allowPasskeysLocalhost, setAllowPasskeysLocalhost] = useState<boolean>(userSettingsService.getAllowPasskeysLocalhost());
     const [alwaysAllowBrowserAccess, setAlwaysAllowBrowserAccess] = useState<boolean>(userSettingsService.getAlwaysAllowBrowserAccess());
+    const [sshAgentEnabled, setSshAgentEnabled] = useState<boolean>(userSettingsService.getSshAgentEnabled());
+    const [sshAgent, setSshAgent] = useState<SshAgentStatus | null>(null);
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
     const [dbName, setDbName] = useState('');
     const [dbDesc, setDbDesc] = useState('');
@@ -108,6 +110,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             .then(status => setBrowserIntegration({ supported: status.supported, enabled: status.enabled, running: status.running }))
             .catch(() => {});
         window.electron.getContentProtection().then(setContentProtection).catch(() => {});
+        window.electron.sshAgentStatus?.().then(setSshAgent).catch(() => {});
         window.electron.getBiometricsConfig?.()
             .then(config => setBiometricsRestartLock(config.requirePasswordAfterRestart))
             .catch(() => {});
@@ -1055,6 +1058,49 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         </div>
                     )}
 
+                    {currentTab === 'security' && window.electron && (
+                        <div className="settings-section">
+                            <h3>SSH Agent</h3>
+                            <div className="database-controls">
+                                <div className="auto-lock-toggle">
+                                    <label htmlFor="ssh-agent-enabled">Add stored SSH keys to the agent on unlock</label>
+                                    <input
+                                        type="checkbox"
+                                        id="ssh-agent-enabled"
+                                        checked={sshAgentEnabled}
+                                        onChange={(e) => {
+                                            setSshAgentEnabled(e.target.checked);
+                                            userSettingsService.setSshAgentEnabled(e.target.checked);
+                                        }}
+                                    />
+                                </div>
+                                <p className="database-help">
+                                    Private keys attached to entries and marked for the agent are loaded into
+                                    the ssh-agent this machine already runs when a vault opens, and removed
+                                    when it locks. The entry password is the key passphrase. Entries are set
+                                    up in their SSH Agent field.
+                                    {sshAgent && (sshAgent.running
+                                        ? ` Agent found${sshAgent.socketPath ? ` at ${sshAgent.socketPath}` : ''}.`
+                                        : ' No agent found: SSH_AUTH_SOCK is not set or the socket is gone.')}
+                                </p>
+                                {sshAgent && sshAgent.identities.length > 0 && (
+                                    <div className="browser-associations">
+                                        <label>Keys in the agent</label>
+                                        {sshAgent.identities.map((identity) => (
+                                            <div key={identity.fingerprint} className="browser-association-row ssh-agent-identity">
+                                                <span title={identity.fingerprint}>{identity.comment || identity.type}</span>
+                                                {!sshAgent.addedByVigil.includes(identity.fingerprint) && (
+                                                    <span className="ssh-agent-origin" title="Loaded by something other than Vigil; a lock leaves it alone">not from Vigil</span>
+                                                )}
+                                                <span className="ssh-agent-fingerprint" title={identity.fingerprint}>{identity.fingerprint}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {currentTab === 'general' && kdbxDb && (
                         <div className="settings-section">
                             <h3>Import</h3>
@@ -1090,7 +1136,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     <DownloadActionIcon className="import-icon" />
                                     Export to CSV
                                 </button>
-                                <p className="database-help">Writes a KeePassXC-compatible CSV file. The file is unencrypted: every password in it is readable as plain text</p>
+                                <p className="database-help">Writes a CSV file. The file is unencrypted: every password in it is readable as plain text</p>
                             </div>
                         </div>
                     )}

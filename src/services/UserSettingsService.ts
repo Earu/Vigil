@@ -33,6 +33,10 @@ interface UserSettings {
     // on, an association key alone reads credentials. Entries with a
     // remembered refusal stay withheld either way
     alwaysAllowBrowserAccess?: boolean;
+    // Push private keys stored on entries into the running ssh-agent when a
+    // vault opens (see SshAgentService). Off by default, as in KeePassXC:
+    // it hands secrets to another process
+    sshAgentEnabled?: boolean;
     // Copies of the vault kept before it is overwritten. On by default: the
     // save path merges external changes, and a merge that resolves badly
     // would otherwise take the only copy with it
@@ -110,6 +114,15 @@ class UserSettingsService {
 
     setFetchFavicons(enabled: boolean): void {
         this.current.fetchFavicons = enabled;
+        this.saveSettings();
+    }
+
+    getSshAgentEnabled(): boolean {
+        return this.current.sshAgentEnabled ?? false;
+    }
+
+    setSshAgentEnabled(enabled: boolean): void {
+        this.current.sshAgentEnabled = enabled;
         this.saveSettings();
     }
 

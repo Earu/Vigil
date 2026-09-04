@@ -7,6 +7,48 @@ export type UpdateStatus =
 	| { state: 'downloaded'; version: string }
 	| { state: 'error'; message: string };
 
+export interface SshAgentIdentity {
+	type: string;
+	fingerprint: string;
+	comment: string;
+}
+
+export interface SshAgentStatus {
+	running: boolean;
+	socketPath: string | null;
+	identities: SshAgentIdentity[];
+	// Fingerprints Vigil itself put in the agent, across all open vaults
+	addedByVigil: string[];
+	error?: string;
+}
+
+export interface SshKeyFailure {
+	success: false;
+	error: string;
+	// format: not a key file; passphrase: the entry password does not open
+	// it; unsupported: a key type or cipher this build cannot handle; agent:
+	// the agent refused or is not there
+	code: 'format' | 'passphrase' | 'unsupported' | 'agent';
+}
+
+export type SshKeyInspection = {
+	success: true;
+	type: string;
+	fingerprint: string;
+	comment: string;
+	encrypted: boolean;
+	// Set when the key is protected and the passphrase given does not open
+	// it; type and fingerprint may still be known from the file's clear part
+	passphraseError?: string;
+} | SshKeyFailure;
+
+export interface SshAgentAddOptions {
+	comment: string;
+	confirm: boolean;
+	lifetimeSeconds?: number;
+	removeAtClose: boolean;
+}
+
 export interface HardwareKeyInfo {
 	path: string;
 	product: string;
@@ -103,6 +145,10 @@ export interface IElectronAPI {
 	showNotification: (options: { title: string, body: string }) => Promise<void>;
 	reportVaultOpened: (filePath: string) => Promise<{ duplicate: boolean }>;
 	reportVaultClosed: () => Promise<void>;
+	sshAgentStatus: () => Promise<SshAgentStatus>;
+	sshAgentInspectKey: (data: Uint8Array, passphrase?: string) => Promise<SshKeyInspection>;
+	sshAgentAddKey: (data: Uint8Array, passphrase: string, options: SshAgentAddOptions) => Promise<{ success: true; fingerprint: string } | SshKeyFailure>;
+	sshAgentRemoveKey: (data: Uint8Array, passphrase?: string) => Promise<{ success: true } | SshKeyFailure>;
 	qrCaptureScreens: () => Promise<{ success: boolean; images?: string[]; error?: string }>;
 	browserIntegrationRespond: (id: number, result: unknown) => void;
 	getBrowserIntegrationStatus: () => Promise<{ supported: boolean; enabled: boolean; running: boolean; socketPath: string }>;

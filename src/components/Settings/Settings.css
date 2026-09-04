@@ -741,3 +741,30 @@ select.db-input {
     font-size: 0.8rem;
     line-height: normal;
 }
+
+.ssh-agent-identity {
+    gap: 0.6rem;
+}
+
+.ssh-agent-identity span:first-child {
+    flex: 1;
+    min-width: 0;
+}
+
+.ssh-agent-origin {
+    flex-shrink: 0;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm, 2px);
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+.ssh-agent-fingerprint {
+    flex-shrink: 1;
+    max-width: 55%;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}

@@ -5,6 +5,8 @@ import { TotpService, MigrationAccount, TotpConfig } from '../../services/TotpSe
 import { QrScanService } from '../../services/QrScanService';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
+import { SshAgentService, ENABLED_KEEAGENT_SETTINGS, KeeAgentSettings } from '../../services/SshAgentService';
+import type { SshKeyInspection } from '../../types/electron';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
 import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon, LinkActionIcon } from '../../icons/actions/ActionIcons';
@@ -166,6 +168,14 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	const [totpSecondsLeft, setTotpSecondsLeft] = useState<number>(0);
 	const [totpInput, setTotpInput] = useState('');
 	const [totpError, setTotpError] = useState('');
+
+	// SSH key on this entry (see SshAgentService): the record in the
+	// KeeAgent.settings attachment, what the main process can say about the
+	// chosen key, and whether the agent currently holds it
+	const [sshKeyInfo, setSshKeyInfo] = useState<SshKeyInspection | null>(null);
+	const [sshLoaded, setSshLoaded] = useState<boolean | null>(null);
+	const [sshBusy, setSshBusy] = useState(false);
+	const [sshError, setSshError] = useState('');
 	// Non-null while a multi-account Google Authenticator export awaits a pick
 	const [migrationAccounts, setMigrationAccounts] = useState<MigrationAccount[] | null>(null);
 	const [migrationSelected, setMigrationSelected] = useState(0);
@@ -328,6 +338,99 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			setEditedEntry(entry || KeepassDatabaseService.createNewEntry());
 			setIsEditing(false);
 		}
+	};
+
+	const sshSettings = useMemo(() => SshAgentService.readSettings(editedEntry), [editedEntry.attachments]);
+	const sshCandidates = useMemo(() => SshAgentService.keyCandidates(editedEntry), [editedEntry.attachments]);
+	const sshAttachment = useMemo(() => SshAgentService.keyAttachment(editedEntry, sshSettings), [editedEntry.attachments, sshSettings]);
+	const sshFingerprint = sshKeyInfo?.success ? sshKeyInfo.fingerprint : '';
+
+	// Type and fingerprint of the chosen key. While editing, the password
+	// field changes with every keystroke, so the passphrase is only tried
+	// against a saved entry; the clear part of an OpenSSH file still names
+	// the key without it
+	useEffect(() => {
+		if (!sshAttachment || !window.electron?.sshAgentInspectKey) {
+			setSshKeyInfo(null);
+			return;
+		}
+		let cancelled = false;
+		window.electron.sshAgentInspectKey(
+			KeepassDatabaseService.getAttachmentBytes(sshAttachment),
+			isEditing ? undefined : SshAgentService.passphraseOf(editedEntry)
+		).then(info => { if (!cancelled) setSshKeyInfo(info); })
+			.catch(() => { if (!cancelled) setSshKeyInfo(null); });
+		return () => { cancelled = true; };
+	}, [sshAttachment, isEditing, editedEntry.password]);
+
+	const refreshSshLoaded = async (fingerprint: string) => {
+		if (!window.electron?.sshAgentStatus) return;
+		try {
+			const status = await window.electron.sshAgentStatus();
+			setSshLoaded(status.running && status.identities.some(identity => identity.fingerprint === fingerprint));
+		} catch {
+			setSshLoaded(null);
+		}
+	};
+
+	useEffect(() => {
+		if (isEditing || !sshFingerprint) {
+			setSshLoaded(null);
+			return;
+		}
+		refreshSshLoaded(sshFingerprint);
+	}, [sshFingerprint, isEditing]);
+
+	const updateSshSettings = (patch: Partial<KeeAgentSettings> | null) => {
+		setEditedEntry(prev => {
+			const current = SshAgentService.readSettings(prev);
+			const next = patch === null ? null : { ...(current ?? ENABLED_KEEAGENT_SETTINGS(patch.attachmentName ?? '')), ...patch };
+			return { ...prev, attachments: SshAgentService.attachmentsWithSettings(prev.attachments, next) };
+		});
+	};
+
+	const handleSshChooseKey = (name: string) => {
+		setSshError('');
+		if (!name) {
+			updateSshSettings(null);
+			return;
+		}
+		updateSshSettings({ ...ENABLED_KEEAGENT_SETTINGS(name), ...(sshSettings?.selectedType === 'attachment' ? {
+			addAtDatabaseOpen: sshSettings.addAtDatabaseOpen,
+			removeAtDatabaseClose: sshSettings.removeAtDatabaseClose,
+			useConfirmConstraintWhenAdding: sshSettings.useConfirmConstraintWhenAdding,
+			useLifetimeConstraintWhenAdding: sshSettings.useLifetimeConstraintWhenAdding,
+			lifetimeConstraintDuration: sshSettings.lifetimeConstraintDuration,
+		} : {}), attachmentName: name });
+	};
+
+	const handleSshToggleAgent = async () => {
+		if (sshBusy) return;
+		setSshBusy(true);
+		setSshError('');
+		try {
+			const result = sshLoaded
+				? await SshAgentService.removeEntryKey(editedEntry, sshSettings)
+				: await SshAgentService.addEntryKey(editedEntry, sshSettings);
+			if (!result.success) setSshError(result.error ?? 'Failed');
+			if (sshFingerprint) await refreshSshLoaded(sshFingerprint);
+		} finally {
+			setSshBusy(false);
+		}
+	};
+
+	const sshKeyDescription = (): string => {
+		if (!sshKeyInfo) return '';
+		if (!sshKeyInfo.success) return sshKeyInfo.error;
+		const name = sshKeyInfo.type && sshKeyInfo.fingerprint ? `${sshKeyInfo.type} ${sshKeyInfo.fingerprint}` : '';
+		if (!sshKeyInfo.passphraseError) return name;
+		// While editing the passphrase is not tried, so this only says the key
+		// has one; in view mode the entry password was tried and did not fit
+		if (isEditing) return name ? `${name}, opened with the entry password` : 'Passphrase-protected key, opened with the entry password';
+		const why = /needs a passphrase/i.test(sshKeyInfo.passphraseError)
+			? 'the entry password is empty and this key needs one'
+			: 'the entry password does not open this key';
+		return name ? `${name}, ${why}` : `Passphrase-protected key, ${why}`;
 	};
 
 	const handleAddAttachments = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1161,6 +1264,103 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								<AddActionIcon />
 								Add field
 							</button>
+						</div>
+					</div>
+				)}
+
+				{!isEditing && sshSettings?.allowUseOfSshKey && (
+					<div className="field-group">
+						<label>SSH Key</label>
+						{sshSettings.selectedType !== 'attachment' ? (
+							<div className="ssh-key-row">
+								<span className="ssh-key-text">
+									Key file outside the vault{sshSettings.fileName ? ` (${sshSettings.fileName})` : ''}. Vigil loads keys from attachments only
+								</span>
+							</div>
+						) : (
+							<div className="ssh-key-row">
+								<span className="ssh-key-text" title={sshFingerprint || undefined}>
+									{sshAttachment ? sshKeyDescription() || sshAttachment.name : `Attachment ${sshSettings.attachmentName} is missing`}
+								</span>
+								{sshAttachment && sshLoaded !== null && (
+									<span className={`ssh-key-state ${sshLoaded ? 'loaded' : ''}`}>{sshLoaded ? 'in agent' : 'not in agent'}</span>
+								)}
+								{sshAttachment && (
+									<button
+										className="totp-add-button"
+										onClick={handleSshToggleAgent}
+										disabled={sshBusy || !window.electron}
+										type="button"
+									>
+										{sshLoaded ? 'Remove from agent' : 'Add to agent'}
+									</button>
+								)}
+							</div>
+						)}
+						{sshError && <div className="totp-error">{sshError}</div>}
+					</div>
+				)}
+
+				{isEditing && (sshCandidates.length > 0 || sshSettings) && (
+					<div className="field-group">
+						<label>SSH Agent</label>
+						<div className="ssh-key-config">
+							{sshSettings?.selectedType === 'file' && sshSettings.allowUseOfSshKey ? (
+								<div className="ssh-key-row">
+									<span className="ssh-key-text">
+										Key file outside the vault{sshSettings.fileName ? ` (${sshSettings.fileName})` : ''}. Vigil loads keys from attachments only and leaves this as is
+									</span>
+									<button className="field-remove-button" onClick={() => updateSshSettings(null)} title="Forget this key" type="button">
+										<CloseActionIcon />
+									</button>
+								</div>
+							) : (
+								<select
+									className="field-value ssh-key-select"
+									value={sshSettings?.selectedType === 'attachment' ? sshSettings.attachmentName : ''}
+									onChange={(e) => handleSshChooseKey(e.target.value)}
+								>
+									<option value="">No SSH key</option>
+									{sshCandidates.map(candidate => (
+										<option key={candidate.name} value={candidate.name}>{candidate.name}</option>
+									))}
+									{sshSettings?.selectedType === 'attachment' && sshSettings.attachmentName && !sshCandidates.some(c => c.name === sshSettings.attachmentName) && (
+										<option value={sshSettings.attachmentName}>{sshSettings.attachmentName} (missing)</option>
+									)}
+								</select>
+							)}
+							{sshSettings?.selectedType === 'attachment' && sshSettings.allowUseOfSshKey && (
+								<>
+									<label className="ssh-option">
+										<input type="checkbox" checked={sshSettings.addAtDatabaseOpen} onChange={(e) => updateSshSettings({ addAtDatabaseOpen: e.target.checked })} />
+										Add to the agent when the vault opens
+									</label>
+									<label className="ssh-option">
+										<input type="checkbox" checked={sshSettings.removeAtDatabaseClose} onChange={(e) => updateSshSettings({ removeAtDatabaseClose: e.target.checked })} />
+										Remove from the agent when the vault locks
+									</label>
+									<label className="ssh-option">
+										<input type="checkbox" checked={sshSettings.useConfirmConstraintWhenAdding} onChange={(e) => updateSshSettings({ useConfirmConstraintWhenAdding: e.target.checked })} />
+										Ask for confirmation on every use
+									</label>
+									<label className="ssh-option">
+										<input type="checkbox" checked={sshSettings.useLifetimeConstraintWhenAdding} onChange={(e) => updateSshSettings({ useLifetimeConstraintWhenAdding: e.target.checked })} />
+										Forget the key after
+										<input
+											type="number"
+											className="ssh-lifetime"
+											min={1}
+											value={sshSettings.lifetimeConstraintDuration}
+											disabled={!sshSettings.useLifetimeConstraintWhenAdding}
+											onChange={(e) => updateSshSettings({ lifetimeConstraintDuration: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+										/>
+										seconds
+									</label>
+									<div className="ssh-key-hint">
+										{sshKeyDescription() || 'The entry password is used as the key passphrase'}
+									</div>
+								</>
+							)}
 						</div>
 					</div>
 				)}
