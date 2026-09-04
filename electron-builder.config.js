@@ -32,7 +32,15 @@ module.exports = {
     "files": [
         "dist/**/*",
         "dist-electron/**/*",
-        "package.json"
+        "package.json",
+        // The packaged app loads node-hid through the prebuilt binary that
+        // copy-native-modules.mjs puts in dist-electron. electron-builder's
+        // dependency rebuild also compiles the module from source, and a
+        // compiled binary carries its build path, which made the archive
+        // differ between checkouts. Neither the compiled output nor the
+        // per-platform prebuilds are loaded from here, so they stay out
+        "!node_modules/node-hid/build/**",
+        "!node_modules/node-hid/prebuilds/**"
     ],
     "asar": true,
     "asarUnpack": [
