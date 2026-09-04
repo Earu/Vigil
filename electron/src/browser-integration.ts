@@ -1,4 +1,5 @@
-import { app, ipcMain, BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
+import { handle, on } from './ipc-guard';
 import { spawnSync } from 'child_process';
 import net from 'net';
 import fs from 'fs';
@@ -787,7 +788,7 @@ export function setupBrowserIntegration(): void {
         vaultCount = count;
     });
 
-    ipcMain.on('browser-integration-response', (event, { id, result }: { id: number; result: any }) => {
+    on('browser-integration-response', (event, { id, result }: { id: number; result: any }) => {
         const pending = pendingRendererRequests.get(id);
         // Only the window that was asked may answer; a response from any
         // other renderer is dropped and the request keeps waiting for the
@@ -797,14 +798,14 @@ export function setupBrowserIntegration(): void {
         pending.resolve(result ?? {});
     });
 
-    ipcMain.handle('browser-integration-status', () => ({
+    handle('browser-integration-status', () => ({
         supported: true,
         enabled: isEnabled(),
         running: server !== null,
         socketPath: getSocketPath(),
     }));
 
-    ipcMain.handle('browser-integration-set-enabled', async (_event, enabled: boolean) => {
+    handle('browser-integration-set-enabled', async (_event, enabled: boolean) => {
         persistEnabled(enabled);
         if (enabled) {
             const result = await startServer();
@@ -817,7 +818,7 @@ export function setupBrowserIntegration(): void {
         return { success: true, running: false, written: [] };
     });
 
-    ipcMain.handle('browser-integration-install-manifests', () => {
+    handle('browser-integration-install-manifests', () => {
         return installManifests();
     });
 

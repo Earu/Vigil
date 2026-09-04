@@ -24,6 +24,13 @@ vi.mock('electron', () => ({
     screen: { getAllDisplays: vi.fn(() => []) },
 }));
 
+// The sender check has its own tests (ipc-guard.test.ts); here every fake
+// event is the trusted renderer, so the wrapper is the bare ipcMain
+vi.mock('../electron/src/ipc-guard', async () => {
+    const { ipcMain } = await import('electron');
+    return { handle: ipcMain.handle, on: ipcMain.on, isTrustedSender: () => true };
+});
+
 vi.mock('../electron/src/window', () => ({
     findVaultWindow: vi.fn(),
     registerVault: vi.fn(),
