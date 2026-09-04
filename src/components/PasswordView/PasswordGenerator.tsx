@@ -76,12 +76,18 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
         };
     } | null>(null);
 
+    // Options seeded from an existing password describe that password: its
+    // length and which character classes it uses. They serve this one
+    // regeneration and stay out of storage, where they would say that much
+    // about the last edited entry in the clear. The remembered options are
+    // only ever the ones picked from a fresh generator
     const persistSettings = (patch: Partial<GeneratorSettings>) => {
+        const { password: patchedPassword, ...rest } = patch;
         PasswordGeneratorService.saveSettings({
             mode,
-            password: options,
             passphrase: passphraseOptions,
-            ...patch,
+            ...rest,
+            password: currentPassword ? savedSettings.password : (patchedPassword ?? options),
         });
     };
 

@@ -58,15 +58,20 @@ function timestamp(date: Date): string {
 // Names sort lexicographically into chronological order, which is what
 // listBackups relies on. The tie breaker uses '_' rather than '-' because it
 // sorts after '.', keeping a disambiguated name next to the one it clashed
-// with instead of ahead of it
-async function freeName(dir: string, base: string, stamp: string): Promise<string> {
+// with instead of ahead of it.
+//
+// The exclusive create is the existence check: a name is free if the create
+// succeeds, and a clash moves to the next suffix. Checking first and
+// creating second would leave a window for another writer to take the name
+async function writeFreshBackup(dir: string, base: string, stamp: string, data: Buffer, mode: number | undefined): Promise<string> {
     for (let attempt = 0; ; attempt++) {
         const suffix = attempt === 0 ? '' : `_${attempt + 1}`;
         const candidate = path.join(dir, `${base}.${stamp}${suffix}.kdbx`);
         try {
-            await fs.promises.access(candidate);
-        } catch {
+            await fs.promises.writeFile(candidate, data, { mode: mode ?? 0o666, flag: 'wx' });
             return candidate;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         }
     }
 }
@@ -121,7 +126,6 @@ export async function backupBeforeWrite(vaultPath: string, options: BackupReques
     const dir = backupDir(vaultPath);
     await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
     const name = path.basename(vaultPath, path.extname(vaultPath));
-    const target = await freeName(dir, name, timestamp(new Date()));
 
     // A copy of the database must not be readable by more people than the
     // database is, at any point: copyFile creates the target at the umask
@@ -131,7 +135,7 @@ export async function backupBeforeWrite(vaultPath: string, options: BackupReques
     // then restores the exact mode
     const mode = process.platform === 'win32' ? undefined : source.mode & 0o777;
     const data = await fs.promises.readFile(vaultPath);
-    await fs.promises.writeFile(target, data, { mode: mode ?? 0o666, flag: 'wx' });
+    const target = await writeFreshBackup(dir, name, timestamp(new Date()), data, mode);
     if (mode !== undefined) {
         await fs.promises.chmod(target, mode).catch(() => { /* created no wider than mode */ });
     }
