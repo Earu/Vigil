@@ -51,6 +51,12 @@ jobs:
           - os: macos-latest
             arch: arm64
     runs-on: ${{ matrix.os }}
+    # id-token and attestations are what the provenance step below needs;
+    # nothing else in this job writes anywhere
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,6 +177,33 @@ jobs:
       env:
         UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
 
+    # The asar is the reproducible part of the build (see
+    # scripts/asar-hash.mjs and README > Reproducible builds); its hash ships
+    # with the release so a rebuild from the same commit can be compared
+    - name: Record the app.asar hash
+      shell: bash
+      run: |
+        version="${{ github.event.inputs.version || github.ref_name }}"
+        platform="$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')"
+        node scripts/asar-hash.mjs dist --write "vigil-${platform}-${{ matrix.arch }}-${version}.asar.sha256"
+
+    # Build provenance: a signed statement, kept in the Sigstore log and on
+    # the repository, that these exact bytes came out of this workflow run
+    # at this commit. Anyone can check a download against it with
+    #   gh attestation verify <file> --repo Earu/Vigil
+    # It ties the artifact to the source; it does not make the build
+    # reproducible, which is a separate property
+    - name: Attest build provenance
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-path: |
+          dist/*.exe
+          dist/*.AppImage
+          dist/*.dmg
+          dist/*.zip
+          dist/latest*.yml
+          dist/*.asar.sha256
+
     # The latest*.yml files and .blockmap are the metadata electron-updater
     # reads from the GitHub release; they reference the installer filenames,
     # so nothing may be renamed after this point. The .sig files are the
@@ -185,6 +218,7 @@ jobs:
           dist/*.blockmap
           dist/latest.yml
           dist/latest.yml.sig
+          dist/*.asar.sha256
         if-no-files-found: error
 
     # The zip and latest-mac.yml are what electron-updater consumes; the dmg
@@ -200,6 +234,7 @@ jobs:
           dist/*.blockmap
           dist/latest-mac.yml
           dist/latest-mac.yml.sig
+          dist/*.asar.sha256
         if-no-files-found: error
 
     - name: Upload Linux artifacts
@@ -211,6 +246,7 @@ jobs:
           dist/*.AppImage
           dist/latest-linux*.yml
           dist/latest-linux*.yml.sig
+          dist/*.asar.sha256
         if-no-files-found: error
 
   release:
