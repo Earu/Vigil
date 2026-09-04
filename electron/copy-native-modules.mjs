@@ -1,7 +1,9 @@
 import { familySync, GLIBC } from 'detect-libc';
 import { execFileSync } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { checkNativeModule, UNPINNED_OVERRIDE } from './native-pins.mjs';
 
 const modulesToCopy = ['keytar', '@node-rs/argon2', 'node-hid'];
 if (process.platform === 'win32') {
@@ -42,64 +44,56 @@ function buildTouchIdAddon() {
 // Modules whose prebuild file name says nothing about the module
 const outputNames = { 'node-hid': 'node-hid.node' };
 
-// Get the platform-specific path for node native modules
-function getModulePath(moduleName) {
+// Where a module's binary for this host is, which package.json states its
+// version, and the target name its pin is filed under (native-pins.mjs)
+function locateModule(moduleName) {
     const basePath = path.join(process.cwd(), 'node_modules', moduleName);
+    const platform = process.platform;
+    const arch = process.arch;
 
-    // Special handling for @node-rs/argon2
     if (moduleName === '@node-rs/argon2') {
-        const platform = process.platform;
-        const arch = process.arch;
         let variant;
-
         // Linux has two mainstream libcs for some odd reason
         // Too bad!
-        if (platform === "linux")
-            variant = familySync() === GLIBC ? "-gnu" : "-musl";
+        if (platform === 'linux')
+            variant = familySync() === GLIBC ? '-gnu' : '-musl';
         else
             variant = platform === 'win32' ? '-msvc' : '';
 
-        const nativeModuleName = `argon2-${platform}-${arch}${variant}`;
-        const nativeModulePath = path.join(process.cwd(), 'node_modules', '@node-rs', nativeModuleName);
-        const files = fs.readdirSync(nativeModulePath);
-        const nativeFile = files.find(file => file.endsWith('.node'));
-        return path.join(nativeModulePath, nativeFile);
+        const target = `${platform}-${arch}${variant}`;
+        const packageDir = path.join(process.cwd(), 'node_modules', '@node-rs', `argon2-${target}`);
+        const nativeFile = fs.readdirSync(packageDir).find(file => file.endsWith('.node'));
+        return { file: path.join(packageDir, nativeFile), packageDir, target };
     }
 
-    // Special handling for passport-desktop
     if (moduleName === 'passport-desktop') {
-        const platform = process.platform;
-        const arch = process.arch;
         const variant = platform === 'win32' ? '-msvc' : '';
-        const nativeModuleName = `passport-desktop-${platform}-${arch}${variant}`;
-        const nativeModulePath = path.join(process.cwd(), 'node_modules', nativeModuleName);
-        const files = fs.readdirSync(nativeModulePath);
-        const nativeFile = files.find(file => file.endsWith('.node'));
-        return path.join(nativeModulePath, nativeFile);
+        const target = `${platform}-${arch}${variant}`;
+        const packageDir = path.join(process.cwd(), 'node_modules', `passport-desktop-${target}`);
+        const nativeFile = fs.readdirSync(packageDir).find(file => file.endsWith('.node'));
+        return { file: path.join(packageDir, nativeFile), packageDir, target };
     }
 
     // node-hid ships prebuilds per platform; on Linux the hidraw variant is
     // the one the wrapper selects by default
     if (moduleName === 'node-hid') {
-        const platform = process.platform;
-        const arch = process.arch;
         let name;
+        let target;
         if (platform === 'linux') {
             const muslSuffix = familySync() === GLIBC ? '' : '-musl';
-            name = `HID_hidraw-linux-${arch}${muslSuffix}`;
-        } else if (platform === 'win32') {
-            name = `HID-win32-${arch}`;
+            target = `linux-${arch}${muslSuffix}`;
+            name = `HID_hidraw-${target}`;
         } else {
-            name = `HID-darwin-${arch}`;
+            target = `${platform}-${arch}`;
+            name = `HID-${target}`;
         }
-        return path.join(basePath, 'prebuilds', name, 'node-napi-v4.node');
+        return { file: path.join(basePath, 'prebuilds', name, 'node-napi-v4.node'), packageDir: basePath, target };
     }
 
-    // Default handling for other modules
+    // keytar: whatever prebuild-install fetched (or node-gyp built)
     const buildPath = path.join(basePath, 'build', 'Release');
-    const files = fs.readdirSync(buildPath);
-    const nativeFile = files.find(file => file.endsWith('.node'));
-    return path.join(buildPath, nativeFile);
+    const nativeFile = fs.readdirSync(buildPath).find(file => file.endsWith('.node'));
+    return { file: path.join(buildPath, nativeFile), packageDir: basePath, target: `${platform}-${arch}` };
 }
 
 // Create the destination directory if it doesn't exist
@@ -108,10 +102,32 @@ if (!fs.existsSync(destDir)) {
     fs.mkdirSync(destDir, { recursive: true });
 }
 
+// Every binary that ships unpacked is checked against its pin right before
+// it is copied: the last moment anything could still have swapped it. See
+// electron/native-pins.mjs for why the lockfile is not enough
+function verifyPinned(moduleName, { file, packageDir, target }) {
+    const { version } = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8'));
+    const sha256 = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+    const result = checkNativeModule({ module: moduleName, version, target, sha256 });
+    if (result.ok) {
+        console.log(`${moduleName} ${version} matches its pin for ${target}`);
+        return;
+    }
+    if (process.env[UNPINNED_OVERRIDE] === '1') {
+        console.warn(`WARNING: shipping an unpinned ${moduleName} binary (${UNPINNED_OVERRIDE}=1): ${result.reason}`);
+        return;
+    }
+    console.error(`Refusing to ship ${moduleName}: ${result.reason}`);
+    console.error(`For a local build from source, set ${UNPINNED_OVERRIDE}=1; a release must match the pin`);
+    process.exit(1);
+}
+
 // Copy node native modules
 for (const moduleName of modulesToCopy) {
     try {
-        const modulePath = getModulePath(moduleName);
+        const located = locateModule(moduleName);
+        verifyPinned(moduleName, located);
+        const modulePath = located.file;
         const fileName = outputNames[moduleName] ?? path.basename(modulePath);
         const targetPath = path.join(process.cwd(), 'dist-electron', fileName);
         fs.copyFileSync(modulePath, targetPath);
