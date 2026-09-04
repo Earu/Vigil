@@ -815,10 +815,11 @@ export class KeepassDatabaseService {
     }
 
     static moveGroup(database: Database, groupToMove: Group, newParent: Group): Database {
-        // Don't allow moving to itself, root, or a descendant
+        // Don't allow moving to itself, a descendant, or where it already is.
+        // Root is a valid parent: that is where top-level groups live
         if (groupToMove.id === newParent.id ||
-            newParent.id === database.root.id ||
-            this.isGroupInHierarchy(newParent, groupToMove)) {
+            this.isGroupInHierarchy(newParent, groupToMove) ||
+            newParent.groups.some(g => g.id === groupToMove.id)) {
             return database;
         }
 
