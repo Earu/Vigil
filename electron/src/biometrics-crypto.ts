@@ -14,6 +14,14 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto'
 // stored rather than reconstructed. (KeePassXC's TouchID quick unlock does the same
 // thing, with the sealed key held in memory instead of the keychain.)
 //
+// session (Windows, "require master password after restart"): the same
+// envelope as v4, held in process memory only, never written anywhere. The
+// HKDF salt is a random value kept beside the ciphertext in memory and the
+// key is the Hello signature over the challenge, so reading this process's
+// memory (a debugger, a crash dump, swap) yields ciphertext and a challenge:
+// releasing the password still takes a live Hello signature, and a restart
+// takes even that away. This is KeePassXC's Windows Hello quick-unlock model.
+//
 // v4 (Windows): the AES key is HKDF of a Windows Hello signature over a
 // random challenge stored alongside the ciphertext, with a DPAPI-protected
 // random entropy value as the salt. The RSA PKCS#1 v1.5 signature is
@@ -29,6 +37,7 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto'
 
 const V3_PREFIX = 'v3:';
 const V4_PREFIX = 'v4:';
+const SESSION_PREFIX = 'session:';
 const CHALLENGE_LENGTH = 32;
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
@@ -90,6 +99,25 @@ export function challengeFromV4Blob(blob: string): Buffer {
 
 export function openPasswordV4(blob: string, key: Buffer): string {
     return openWithPrefix(V4_PREFIX, blob, key);
+}
+
+// session: the salt is random per arming and lives only in memory, so the
+// signature alone (deterministic, re-derivable after any Hello prompt)
+// derives nothing without it, and the sealed copy dies with the process
+export function deriveSessionKey(signature: Buffer, salt: Buffer): Buffer {
+    return Buffer.from(hkdfSync('sha256', signature, salt, 'vigil-biometric-session', 32));
+}
+
+export function sealPasswordSession(password: string, challenge: Buffer, key: Buffer): string {
+    return sealWithPrefix(SESSION_PREFIX, password, challenge, key);
+}
+
+export function challengeFromSessionBlob(blob: string): Buffer {
+    return challengeWithPrefix(SESSION_PREFIX, blob);
+}
+
+export function openPasswordSession(blob: string, key: Buffer): string {
+    return openWithPrefix(SESSION_PREFIX, blob, key);
 }
 
 // v3: seal under a key that only a passed biometric check can produce.

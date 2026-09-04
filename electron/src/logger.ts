@@ -14,6 +14,10 @@ import path from 'path';
 export function setupLogging(): void {
     log.transports.file.level = 'info';
     log.transports.file.maxSize = 5 * 1024 * 1024;
+    // Owner-only rather than electron-log's 0666-minus-umask: the file holds
+    // no secrets, but it does hold vault paths and error text, and on a
+    // shared machine with a loose umask that is nobody else's business
+    log.transports.file.writeOptions = { encoding: 'utf8', flag: 'a', mode: 0o600 };
     // In dev the terminal is the log; packaged builds have no terminal
     log.transports.console.level = app.isPackaged ? false : 'info';
 

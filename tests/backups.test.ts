@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
     BrowserWindow: {},
 }));
 
-const { backupBeforeWrite, listBackups, backupDir, getBackupInfo } =
+const { backupBeforeWrite, listBackups, backupDir, getBackupInfo, revealBackups } =
     await import('../electron/src/backups');
 const { saveToFile } = await import('../electron/src/file-operations');
 
@@ -160,6 +160,15 @@ describe('vault backups', () => {
         const vault = newVault();
 
         await backupBeforeWrite(vault, ON);
+
+        expect((fs.statSync(backupDir(vault)).mode & 0o777).toString(8)).toBe('700');
+    });
+
+    it('reveal creates the directory owner-only too', async () => {
+        process.umask(0o022);
+        const vault = newVault();
+
+        expect(await revealBackups(vault)).toEqual({ success: true });
 
         expect((fs.statSync(backupDir(vault)).mode & 0o777).toString(8)).toBe('700');
     });

@@ -60,6 +60,13 @@ export interface Session {
     // own are gated on it, the way KeePassXC gates them on m_associated.
     // Scoped to the session, so it dies with the connection
     associated: boolean;
+    // The database the association was proven against (its protocol hash),
+    // recorded by associate and test-associate. Writes that carry no key of
+    // their own (set-login) go to the vault with this hash and no other: the
+    // first window to answer is not necessarily the one the browser paired
+    // with. The extension re-runs test-associate before writing, so this
+    // tracks whichever vault it currently holds a key for
+    databaseHash?: string;
 }
 
 const b64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
@@ -209,6 +216,16 @@ function askRenderer(win: BrowserWindow, action: string, payload: any, timeoutMs
     });
 }
 
+// The open vault whose protocol hash is `hash`, found by asking each
+// window; one window per vault, so at most one answers with it
+async function findVaultWindow(hash: string): Promise<BrowserWindow | null> {
+    for (const win of getVaultWindows()) {
+        const result = await askRenderer(win, 'get-databasehash', {}, 5000);
+        if (!result.errorCode && result.hash === hash) return win;
+    }
+    return null;
+}
+
 // Sequentially ask every vault window until one succeeds; get-logins merges
 async function askVaults(action: string, payload: any, timeoutMs: number): Promise<any> {
     const windows = getVaultWindows();
@@ -275,12 +292,18 @@ export async function handleDecryptedMessage(action: string, rawMessage: any, se
             return await askVaults('get-databasehash', {}, 5000);
         case 'associate': {
             const result = await askVaults('associate', { key: message.key, idKey: message.idKey }, 120000);
-            if (!result.errorCode) session.associated = true;
+            if (!result.errorCode) {
+                session.associated = true;
+                session.databaseHash = typeof result.hash === 'string' ? result.hash : undefined;
+            }
             return result;
         }
         case 'test-associate': {
             const result = await askVaults('test-associate', { id: message.id, key: message.key }, 5000);
-            if (!result.errorCode) session.associated = true;
+            if (!result.errorCode) {
+                session.associated = true;
+                session.databaseHash = typeof result.hash === 'string' ? result.hash : undefined;
+            }
             return result;
         }
         case 'get-logins':
@@ -296,8 +319,13 @@ export async function handleDecryptedMessage(action: string, rawMessage: any, se
             // Carries no key of its own, so the session is what vouches for
             // the caller. The renderer still asks the user to confirm the
             // write; KeePassXC requires both here too
-            if (!session.associated) return { errorCode: ERROR_ASSOCIATION_FAILED };
-            return await askVaults('set-login', {
+            if (!session.associated || !session.databaseHash) return { errorCode: ERROR_ASSOCIATION_FAILED };
+            // Only the vault the session associated with may take the write;
+            // asking every window would land it in whichever answered first
+            // (KeePassXC pops a database picker here instead)
+            const target = await findVaultWindow(session.databaseHash);
+            if (!target) return { errorCode: ERROR_DATABASE_NOT_OPENED };
+            return await askRenderer(target, 'set-login', {
                 url: message.url,
                 submitUrl: message.submitUrl,
                 login: message.login,

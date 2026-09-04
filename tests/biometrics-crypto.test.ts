@@ -83,3 +83,27 @@ describe('biometrics sealing (v4, Hello signature + DPAPI entropy)', () => {
         expect(() => openPasswordV4(blob, deriveKeyWithEntropy(randomBytes(256), randomBytes(32)))).toThrow();
     });
 });
+
+describe('session envelope', async () => {
+    const c = await import('../electron/src/biometrics-crypto');
+    const signature = Buffer.alloc(256, 7);
+    const salt = Buffer.alloc(32, 1);
+
+    it('round-trips under the key the signature and salt derive', () => {
+        const challenge = c.makeChallenge();
+        const sealed = c.sealPasswordSession('hunter2', challenge, c.deriveSessionKey(signature, salt));
+        expect(sealed.startsWith('session:')).toBe(true);
+        expect(c.challengeFromSessionBlob(sealed)).toEqual(challenge);
+        expect(c.openPasswordSession(sealed, c.deriveSessionKey(signature, salt))).toBe('hunter2');
+    });
+
+    it('opens under neither a different salt nor a different signature', () => {
+        const sealed = c.sealPasswordSession('hunter2', c.makeChallenge(), c.deriveSessionKey(signature, salt));
+        expect(() => c.openPasswordSession(sealed, c.deriveSessionKey(signature, Buffer.alloc(32, 2)))).toThrow();
+        expect(() => c.openPasswordSession(sealed, c.deriveSessionKey(Buffer.alloc(256, 8), salt))).toThrow();
+    });
+
+    it('derives a key unrelated to the persistent one from the same inputs', () => {
+        expect(c.deriveSessionKey(signature, salt)).not.toEqual(c.deriveKeyWithEntropy(signature, salt));
+    });
+});

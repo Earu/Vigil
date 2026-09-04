@@ -13,14 +13,18 @@ import {
     challengeFromV4Blob,
     openPasswordV4,
     sealWithKeychainKey,
-    openWithKeychainKey
+    openWithKeychainKey,
+    deriveSessionKey,
+    sealPasswordSession,
+    challengeFromSessionBlob,
+    openPasswordSession
 } from './biometrics-crypto';
 
 // Biometry-gated keychain addon (macOS). Reports 'unavailable' on every call
 // when the binary is missing, so the import is safe on every platform
 import * as touchid from '../native/touchid';
 
-import { Passport, VerificationResult as PassportVerification } from './get-passport';
+import { Passport } from './get-passport';
 
 const SERVICE_NAME = 'Vigil Password Manager';
 const SALT_PATH = path.join(app.getPath('userData'), '.salt');
@@ -29,6 +33,12 @@ const SALT_PATH = path.join(app.getPath('userData'), '.salt');
 const ENTITLEMENT_PROBE_ACCOUNT = '__vigil_entitlement_probe__';
 
 let biometricsAvailableCache: boolean | null = null;
+
+// What the session mode retains in memory, for the test that checks the
+// password is not among it
+export function sessionStateForTests(): unknown {
+    return [...sessionPasswords.entries()];
+}
 
 // Tests exercise both macOS backends in one process
 export function resetForTests(): void {
@@ -69,14 +79,54 @@ function loadOrCreateEntropy(): Buffer | null {
 }
 
 // The session-scoped mode ("require master password after restart"): the
-// keytar record is only the marker below, saying biometric unlock is wanted;
-// the password itself lives in this process's memory and dies with it, so
-// nothing on disk can release it and a phished Hello prompt from another
-// process yields nothing. This is KeePassXC's quick-unlock model. The
-// per-vault entries hold the dbPath too, so turning the setting off can
-// re-seal each armed vault persistently without a restart
+// keytar record is only the marker below, saying biometric unlock is wanted.
+// The password lives in this process's memory, sealed under a key that only
+// a Hello signature over its challenge derives (see biometrics-crypto.ts),
+// so nothing on disk can release it, a phished Hello prompt from another
+// process yields nothing, and neither does reading this process's memory.
+// This is KeePassXC's quick-unlock model. The per-vault entries hold the
+// dbPath too, so turning the setting off can re-seal each armed vault
+// persistently without a restart
 const SESSION_MARKER = 'v4-session:';
-const sessionPasswords = new Map<string, { dbPath: string; password: string }>();
+interface SessionEntry { dbPath: string; sealed: string; salt: Buffer }
+const sessionPasswords = new Map<string, SessionEntry>();
+
+// Arms a vault for the session: one Hello signature (the prompt is the
+// consent) over a fresh challenge, and the password is sealed under it
+async function armSession(key: string, dbPath: string, password: string): Promise<void> {
+    const challenge = makeChallenge();
+    const signature = await getWindowsHelloSignature(dbPath, challenge);
+    const salt = randomBytes(32);
+    const sealed = sealPasswordSession(password, challenge, deriveSessionKey(signature, salt));
+    sessionPasswords.set(key, { dbPath, sealed, salt });
+}
+
+// Why a session copy did not open: 'prompt' is a cancelled or failed Hello
+// check and the copy stays; 'stale' is a signature that no longer derives
+// the key (Hello was reset), so the copy can never open again
+class SessionOpenError extends Error {
+    constructor(public readonly reason: 'prompt' | 'stale', cause: unknown) {
+        super(cause instanceof Error ? cause.message : String(cause));
+    }
+}
+
+// The Hello signature over the entry's challenge opens it; the same
+// signature is what the caller needs to re-seal persistently, so it is
+// returned alongside rather than asked for twice
+async function openSession(entry: SessionEntry): Promise<{ password: string; signature: Buffer }> {
+    const challenge = challengeFromSessionBlob(entry.sealed);
+    let signature: Buffer;
+    try {
+        signature = await getWindowsHelloSignature(entry.dbPath, challenge);
+    } catch (error) {
+        throw new SessionOpenError('prompt', error);
+    }
+    try {
+        return { password: openPasswordSession(entry.sealed, deriveSessionKey(signature, entry.salt)), signature };
+    } catch (error) {
+        throw new SessionOpenError('stale', error);
+    }
+}
 
 interface BiometricsConfig { requirePasswordAfterRestart: boolean }
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'biometrics-config.json');
@@ -102,20 +152,22 @@ export async function setBiometricsConfig(config: BiometricsConfig): Promise<{ s
         return { success: false, error: 'Failed to store the setting' };
     }
 
-    // Turning the requirement off while session entries are armed: the
-    // passwords are in hand, so re-seal each one persistently now (one Hello
-    // prompt per vault, which is the consent to store it) instead of asking
-    // for the master password again after the next restart. A vault whose
-    // prompt is refused simply stays session-scoped
+    // Turning the requirement off while session entries are armed: re-seal
+    // each one persistently now (one Hello prompt per vault, which both opens
+    // the session copy and is the consent to store it) instead of asking for
+    // the master password again after the next restart. A vault whose prompt
+    // is refused simply stays session-scoped
     if (!config.requirePasswordAfterRestart && process.platform === 'win32') {
         for (const [key, entry] of [...sessionPasswords]) {
             try {
                 const entropy = loadOrCreateEntropy();
                 if (!entropy) break;
-                const challenge = makeChallenge();
-                const signature = await getWindowsHelloSignature(entry.dbPath, challenge);
+                // One signature serves both: it opens the session copy, and
+                // over the same challenge it is the persistent key too
+                const { password, signature } = await openSession(entry);
+                const challenge = challengeFromSessionBlob(entry.sealed);
                 const helloKey = deriveKeyWithEntropy(signature, entropy);
-                await keytar?.setPassword(SERVICE_NAME, key, sealPasswordV4(entry.password, challenge, helloKey));
+                await keytar?.setPassword(SERVICE_NAME, key, sealPasswordV4(password, challenge, helloKey));
                 sessionPasswords.delete(key);
             } catch (error) {
                 console.error('Keeping a vault session-scoped, the re-seal was refused:', error);
@@ -275,19 +327,7 @@ async function getWindowsHelloSignature(dbPath: string, challenge: Buffer): Prom
     return await passport.sign(challenge);
 }
 
-// The Hello check for releasing a session-scoped password: an access-control
-// decision rather than key derivation, since the password never leaves this
-// process's memory either way
-async function verifyWindowsHello(message: string): Promise<boolean> {
-    const result = await Passport.requestVerification(message);
-    return result === PassportVerification.Verified;
-}
-
 const REARM_MESSAGE = 'Enter the master password once after a restart to re-arm Windows Hello unlock';
-
-function windowsDbName(dbPath: string): string {
-    return dbPath.split(/[\\/]/).pop() || dbPath;
-}
 
 // A blob in any outdated format is a convenience secret the current code
 // no longer reads: it is discarded and the user re-enables, per the policy
@@ -352,17 +392,18 @@ export async function enableBiometrics(dbPath: string, password: string): Promis
 
         if (process.platform === 'win32') {
             if (getBiometricsConfig().requirePasswordAfterRestart) {
-                // Session-scoped: the password stays in this process's memory
-                // and keytar holds only the intent marker. The first enable
-                // proves the user can pass Hello; a re-arm after a restart
-                // just proved it better, by typing the master password
-                const existing = await keytar?.getPassword(SERVICE_NAME, key);
-                if (existing !== SESSION_MARKER) {
-                    if (!await verifyWindowsHello(`Enable Windows Hello unlock for ${windowsDbName(dbPath)}`)) {
-                        return { success: false, error: 'Windows Hello verification failed' };
-                    }
+                // Session-scoped: the password stays in this process's memory,
+                // sealed under a Hello signature, and keytar holds only the
+                // intent marker. The signature is the Hello prompt, on first
+                // enable and on every re-arm after a restart alike: a copy
+                // sealed without it would be one anything in this process's
+                // memory could open
+                try {
+                    await armSession(key, dbPath, password);
+                } catch (error) {
+                    console.error('Windows Hello signing failed while arming:', error);
+                    return { success: false, error: 'Windows Hello verification failed' };
                 }
-                sessionPasswords.set(key, { dbPath, password });
                 await keytar?.setPassword(SERVICE_NAME, key, SESSION_MARKER);
                 return { success: true };
             }
@@ -438,10 +479,20 @@ export async function getBiometricPassword(dbPath: string):
                     // by design. The password unlock re-arms this session
                     return { success: false, retry: true, error: REARM_MESSAGE };
                 }
-                if (!await verifyWindowsHello(`Unlock ${windowsDbName(dbPath)} in Vigil`)) {
+                try {
+                    return { success: true, password: (await openSession(entry)).password };
+                } catch (error) {
+                    // A cancelled or failed prompt keeps the session copy. A
+                    // copy the signature no longer opens (Hello was reset)
+                    // never will, so it goes and the next password unlock
+                    // re-arms
+                    if (error instanceof SessionOpenError && error.reason === 'stale') {
+                        sessionPasswords.delete(key);
+                        return { success: false, retry: true, error: REARM_MESSAGE };
+                    }
+                    console.error('Windows Hello authentication failed:', error);
                     return { success: false, retry: true, error: 'Biometric authentication failed' };
                 }
-                return { success: true, password: entry.password };
             }
 
             if (strict && isV4Blob(stored)) {

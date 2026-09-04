@@ -186,7 +186,9 @@ export async function getBackupInfo(vaultPath: string): Promise<{
 export async function revealBackups(vaultPath: string): Promise<{ success: boolean; error?: string }> {
     const dir = backupDir(vaultPath);
     try {
-        await fs.promises.mkdir(dir, { recursive: true });
+        // Owner-only, the same as the write path creates it: the copies
+        // that land here later are as sensitive as the vault
+        await fs.promises.mkdir(dir, { recursive: true, mode: 0o700 });
         const error = await shell.openPath(dir);
         return error ? { success: false, error } : { success: true };
     } catch (error) {

@@ -461,7 +461,9 @@ export const PasswordForm = ({
 
             // A session-scoped biometric setup (require password after
             // restart) is re-armed by exactly this: the typed master
-            // password. Silent, no prompt; the Hello check happens at release
+            // password. The Hello prompt that follows signs the key the
+            // password is sealed under for the session (as KeePassXC does);
+            // declining it just leaves the vault unarmed until next time
             if (isBiometricsEnabled && !biometricsArmed && databasePath && window.electron) {
                 void window.electron.enableBiometrics(databasePath, password)
                     .then(result => { if (result.success) setBiometricsArmed(true); })
