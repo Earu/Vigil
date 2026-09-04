@@ -211,6 +211,15 @@ describe('packaged build configuration', () => {
         }
     });
 
+    it('ships a native binary only when it matches its pin, and no workflow opts out', () => {
+        const copy = read('electron/copy-native-modules.mjs');
+        // Every module in the copy loop goes through the check, unconditionally
+        expect(copy).toMatch(/for \(const moduleName of modulesToCopy\) \{\s*try \{\s*const located = locateModule\(moduleName\);\s*verifyPinned\(moduleName, located\);/);
+        for (const file of listFiles('.github/workflows', /\.ya?ml$/)) {
+            expect(read(file), file).not.toContain('VIGIL_ALLOW_UNPINNED_NATIVE');
+        }
+    });
+
     it('pins every workflow action to a commit', () => {
         for (const file of listFiles('.github/workflows', /\.ya?ml$/)) {
             // The key itself, not a word ending in "uses:" inside a run script
