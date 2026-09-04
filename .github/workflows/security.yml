@@ -116,8 +116,11 @@ jobs:
 
     - name: Fail on findings
       if: steps.invariants.outcome == 'failure' || steps.fuzz.outcome == 'failure'
+      env:
+        INVARIANTS: ${{ steps.invariants.outcome }}
+        FUZZ: ${{ steps.fuzz.outcome }}
       run: |
-        echo "hardening invariants: ${{ steps.invariants.outcome }}, fuzz: ${{ steps.fuzz.outcome }}"
+        echo "hardening invariants: $INVARIANTS, fuzz: $FUZZ"
         exit 1
 
   codeql:
@@ -313,8 +316,11 @@ jobs:
 
     - name: Fail on findings
       if: steps.fuses.outcome == 'failure' || steps.smoke.outcome == 'failure'
+      env:
+        FUSES: ${{ steps.fuses.outcome }}
+        BOOT: ${{ steps.smoke.outcome }}
       run: |
-        echo "fuses: ${{ steps.fuses.outcome }}, boot: ${{ steps.smoke.outcome }}"
+        echo "fuses: $FUSES, boot: $BOOT"
         exit 1
 
   reproducible:

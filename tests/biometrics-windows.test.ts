@@ -8,22 +8,25 @@ import path from 'path';
 // - persistent (v4): blob in Credential Manager, key = HKDF(Hello signature,
 //   salt = DPAPI-wrapped entropy). Survives restarts.
 // - session-scoped ("require master password after restart"): keytar holds
-//   only a marker, the password lives in process memory, a restart disarms
-//   it until the next password unlock. Nothing on disk can release it.
+//   only a marker, the password lives in process memory sealed under a key
+//   only a Hello signature derives, a restart disarms it until the next
+//   password unlock. Nothing on disk can release it, and neither can
+//   reading the process's memory.
 // A vi.resetModules() plays the part of a restart: module state (the session
 // map, config cache) dies, the keytar store and files survive.
 
 const state = vi.hoisted(() => ({
     keytarStore: new Map<string, string>(),
     userData: `${process.env.TMPDIR || '/tmp'}/vigil-bio-test-${process.pid}`,
-    verifyResult: 0, // Verified
-    verifyCalls: [] as string[],
+    signCalls: 0,
     signThrows: false,
+    // Bumped to play a Hello reset: every signature changes
+    keyEpoch: 0,
 }));
 
 // Deterministic per (account, challenge), like the real RSA PKCS#1 v1.5 one
 const fakeSignature = (accountId: string, challenge: Buffer): Buffer =>
-    crypto.createHash('sha512').update(`sig:${accountId}:`).update(challenge).digest();
+    crypto.createHash('sha512').update(`sig:${state.keyEpoch}:${accountId}:`).update(challenge).digest();
 
 vi.mock('../electron/src/get-passport', () => ({
     VerificationResult: { Verified: 0, Canceled: 6 },
@@ -32,15 +35,12 @@ vi.mock('../electron/src/get-passport', () => ({
         get accountExists() { return true; }
         async createAccount() {}
         async sign(challenge: Buffer) {
+            state.signCalls++;
             if (state.signThrows) throw new Error('Hello prompt dismissed');
             return fakeSignature(this.id, challenge);
         }
         async deleteAccount() {}
         static available() { return true; }
-        static async requestVerification(message: string) {
-            state.verifyCalls.push(message);
-            return state.verifyResult;
-        }
     },
 }));
 
@@ -93,9 +93,9 @@ const keytarKeyFor = (dbPath: string): string => {
 
 beforeEach(() => {
     state.keytarStore.clear();
-    state.verifyCalls.length = 0;
-    state.verifyResult = 0;
+    state.signCalls = 0;
     state.signThrows = false;
+    state.keyEpoch = 0;
     for (const file of ['biometric-entropy.bin', 'biometrics-config.json']) {
         fs.rmSync(path.join(state.userData, file), { force: true });
     }
@@ -110,8 +110,8 @@ describe('persistent mode (v4)', () => {
         bio = await freshBiometrics();
         const result = await bio.getBiometricPassword(DB);
         expect(result).toMatchObject({ success: true, password: 'hunter2' });
-        // The sign IS the Hello check; no separate verification prompt
-        expect(state.verifyCalls).toEqual([]);
+        // The sign IS the Hello check: one at enable, one at unlock
+        expect(state.signCalls).toBe(2);
     });
 
     it('cannot open the blob without the DPAPI entropy', async () => {
@@ -158,18 +158,18 @@ describe('persistent mode (v4)', () => {
 });
 
 describe('session-scoped mode (require master password after restart)', () => {
-    it('stores only the marker, releases after a verification, and a restart disarms it', async () => {
+    it('stores only the marker, releases after a Hello signature, and a restart disarms it', async () => {
         let bio = await freshBiometrics();
         await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
 
         expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(true);
         // Nothing on disk but the intent marker
         expect(state.keytarStore.get(keytarKeyFor(DB))).toBe('v4-session:');
-        expect(state.verifyCalls).toHaveLength(1); // the enable consent
+        expect(state.signCalls).toBe(1); // the arming signature, which is the consent
 
         const unlocked = await bio.getBiometricPassword(DB);
         expect(unlocked).toMatchObject({ success: true, password: 'hunter2' });
-        expect(state.verifyCalls).toHaveLength(2); // the release check
+        expect(state.signCalls).toBe(2); // the release signature
 
         // Restart: the memory half is gone, by design
         bio = await freshBiometrics();
@@ -178,23 +178,68 @@ describe('session-scoped mode (require master password after restart)', () => {
         expect(disarmed.success).toBe(false);
         expect(disarmed.retry).toBe(true); // the setup must survive
 
-        // The password unlock re-arms without a prompt
-        const before = state.verifyCalls.length;
+        // The password unlock re-arms; the signature it takes is what seals
+        // the copy, so there is one prompt (as in KeePassXC)
+        const before = state.signCalls;
         expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(true);
-        expect(state.verifyCalls).toHaveLength(before);
+        expect(state.signCalls).toBe(before + 1);
         expect(await bio.hasBiometricsEnabled(DB)).toMatchObject({ enabled: true, armed: true });
         expect((await bio.getBiometricPassword(DB)).password).toBe('hunter2');
     });
 
-    it('a refused verification releases nothing and keeps the setup', async () => {
+    it('a refused Hello prompt releases nothing and keeps the setup', async () => {
         const bio = await freshBiometrics();
         await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
         await bio.enableBiometrics(DB, 'hunter2');
 
-        state.verifyResult = 6; // Canceled
+        state.signThrows = true;
         const result = await bio.getBiometricPassword(DB);
         expect(result).toMatchObject({ success: false, retry: true });
         expect(result.password).toBeUndefined();
+
+        state.signThrows = false;
+        expect((await bio.getBiometricPassword(DB)).password).toBe('hunter2');
+    });
+
+    it('a refused Hello prompt while arming leaves the vault unarmed', async () => {
+        const bio = await freshBiometrics();
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
+
+        state.signThrows = true;
+        expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(false);
+        expect(state.keytarStore.has(keytarKeyFor(DB))).toBe(false);
+    });
+
+    it('a Hello reset disarms the session copy instead of releasing it', async () => {
+        const bio = await freshBiometrics();
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
+        await bio.enableBiometrics(DB, 'hunter2');
+
+        state.keyEpoch = 1;
+        const result = await bio.getBiometricPassword(DB);
+        expect(result).toMatchObject({ success: false, retry: true });
+        expect(result.password).toBeUndefined();
+        expect(await bio.hasBiometricsEnabled(DB)).toMatchObject({ enabled: true, armed: false });
+
+        // The next password unlock re-arms under the new key
+        expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(true);
+        expect((await bio.getBiometricPassword(DB)).password).toBe('hunter2');
+    });
+
+    it('holds no plaintext password in memory between arming and release', async () => {
+        const bio = await freshBiometrics();
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
+        const secret = 'correct horse battery staple ' + crypto.randomBytes(8).toString('hex');
+        await bio.enableBiometrics(DB, secret);
+
+        // Everything the module retained, serialised: the password must
+        // appear in none of it, in any of the encodings a string could take
+        const retained = JSON.stringify(bio.sessionStateForTests(), (_key, value) =>
+            Buffer.isBuffer(value) ? value.toString('base64') : value);
+        expect(retained).not.toContain(secret);
+        expect(retained).not.toContain(Buffer.from(secret).toString('base64'));
+        expect(retained).not.toContain(Buffer.from(secret).toString('hex'));
+        expect((await bio.getBiometricPassword(DB)).password).toBe(secret);
     });
 
     it('freezes a pre-existing persistent blob instead of releasing it', async () => {
@@ -216,8 +261,11 @@ describe('session-scoped mode (require master password after restart)', () => {
         await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
         await bio.enableBiometrics(DB, 'hunter2');
 
+        const before = state.signCalls;
         await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
         expect(cryptoMod.isV4Blob(state.keytarStore.get(keytarKeyFor(DB))!)).toBe(true);
+        // One signature opens the session copy and seals the persistent one
+        expect(state.signCalls).toBe(before + 1);
 
         // And it survives a restart, as persistence promises
         bio = await freshBiometrics();

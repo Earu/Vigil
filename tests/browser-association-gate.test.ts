@@ -80,7 +80,7 @@ describe('association gate', () => {
         });
 
         it('reaches the vault once the session is associated', async () => {
-            const session = { ...Session(), associated: true };
+            const session = { ...Session(), associated: true, databaseHash: 'deadbeef' };
 
             const result = await handleDecryptedMessage(action, { uuid: 'abc' }, session);
 
@@ -109,6 +109,51 @@ describe('association gate', () => {
     );
 });
 
+describe('where set-login lands', () => {
+    // A window that answers per action: its own hash to get-databasehash,
+    // and records every set-login it is asked to take
+    const vault = (webContentsId: number, hash: string, taken: unknown[]) => ({
+        webContents: {
+            id: webContentsId,
+            send: (_channel: string, request: { id: number; action: string; payload: unknown }) => {
+                const result = request.action === 'get-databasehash' ? { hash }
+                    : request.action === 'test-associate' ? (hash === 'work' ? { hash, id: 'Firefox' } : { errorCode: ERROR_ASSOCIATION_FAILED })
+                    : request.action === 'set-login' ? (taken.push(request.payload), { hash })
+                    : { errorCode: ERROR_ASSOCIATION_FAILED };
+                queueMicrotask(() => respond?.({ sender: { id: webContentsId } }, { id: request.id, result }));
+            },
+        },
+    });
+
+    it('goes to the vault the session associated with, not the first window', async () => {
+        const personal: unknown[] = [];
+        const work: unknown[] = [];
+        // Personal vault opened first, the browser is paired with the work vault
+        windows = [vault(1, 'personal', personal), vault(2, 'work', work)];
+        const session = Session();
+
+        await handleDecryptedMessage('test-associate', { id: 'Firefox', key: 'k' }, session);
+        expect(session.databaseHash).toBe('work');
+
+        const result = await handleDecryptedMessage('set-login', { url: 'https://x.test', login: 'me', password: 'pw' }, session);
+
+        expect(result).toEqual({ hash: 'work' });
+        expect(work).toHaveLength(1);
+        expect(personal).toEqual([]);
+    });
+
+    it('refuses when the associated vault is no longer open', async () => {
+        const personal: unknown[] = [];
+        windows = [vault(1, 'personal', personal)];
+        const session = { ...Session(), associated: true, databaseHash: 'work' };
+
+        const result = await handleDecryptedMessage('set-login', { url: 'https://x.test', login: 'me', password: 'pw' }, session);
+
+        expect(result.errorCode).toBe(ERROR_DATABASE_NOT_OPENED);
+        expect(personal).toEqual([]);
+    });
+});
+
 describe('what sets the association flag', () => {
     it('associate marks the session associated when it succeeds', async () => {
         windows = [fakeWindow()];
@@ -128,6 +173,7 @@ describe('what sets the association flag', () => {
         await handleDecryptedMessage('test-associate', { id: 'Vigil', key: 'k' }, session);
 
         expect(session.associated).toBe(true);
+        expect(session.databaseHash).toBe('deadbeef');
     });
 
     it('a rejected test-associate leaves the session unassociated', async () => {

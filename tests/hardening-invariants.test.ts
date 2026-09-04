@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
+import yaml from 'js-yaml';
 
 // The hardening this app relies on is a handful of settings and conventions
 // spread across the codebase, each one a single line away from being undone
@@ -119,6 +120,10 @@ describe('main process trust boundary', () => {
             .toEqual(['http:', 'https:', 'mailto:']);
     });
 
+    it('the log file is created owner-only', () => {
+        expect(read('electron/src/logger.ts')).toMatch(/writeOptions = \{[^}]*mode: 0o600/);
+    });
+
     it('path-taking IPC channels are gated on a grant', () => {
         const ipc = read('electron/src/ipc.ts');
         for (const channel of ['read-file', 'stat-file', 'save-to-file', 'get-biometric-password', 'enable-biometrics', 'disable-biometrics', 'has-biometrics-enabled', 'save-last-database-path', 'get-backup-info', 'reveal-backups']) {
@@ -161,14 +166,37 @@ describe('packaged build configuration', () => {
         expect(config.asar).toBe(true);
     });
 
-    it('signs update metadata in the release workflow before anything is uploaded', () => {
-        const release = read('.github/workflows/release.yml');
-        const sign = release.indexOf('sign-update-metadata.mjs');
-        const upload = release.indexOf('upload-artifact');
-        expect(sign).toBeGreaterThan(0);
-        expect(sign).toBeLessThan(upload);
+    it('signs update metadata in a job of its own that installs nothing, and the release waits for it', () => {
+        const release = yaml.load(read('.github/workflows/release.yml')) as {
+            jobs: Record<string, { needs?: string | string[]; steps: Array<{ run?: string; uses?: string; env?: Record<string, string> }> }>;
+        };
+        const sign = release.jobs.sign;
+        expect(sign).toBeDefined();
+        const signStep = sign.steps.find(step => step.run?.includes('sign-update-metadata.mjs'));
+        expect(signStep?.env?.UPDATE_SIGNING_KEY).toBeDefined();
+        // The key never shares a process tree with third-party code: no
+        // dependency install in this job, and no other job sees the secret
+        for (const step of sign.steps) expect(step.run ?? '').not.toMatch(/npm (ci|install|i)\b|npx /);
+        for (const [name, job] of Object.entries(release.jobs)) {
+            if (name === 'sign') continue;
+            expect(JSON.stringify(job), name).not.toContain('UPDATE_SIGNING_KEY');
+        }
+        expect([release.jobs.release.needs].flat()).toContain('sign');
         expect(read('electron/src/updater.ts')).toMatch(/autoUpdater\.autoDownload = false/);
         expect(read('electron/src/updater.ts')).toMatch(/UPDATE_PUBLIC_KEY = '[A-Za-z0-9+/=]{20,}'/);
+    });
+
+    it('never substitutes a workflow expression into a shell script', () => {
+        for (const file of listFiles('.github/workflows', /\.ya?ml$/)) {
+            const workflow = yaml.load(read(file)) as { jobs: Record<string, { steps: Array<{ run?: string }> }> };
+            for (const job of Object.values(workflow.jobs)) {
+                for (const step of job.steps) {
+                    // Values reach a script through env, where the shell
+                    // quotes them; substituted into the script they are code
+                    expect(step.run ?? '', file).not.toMatch(/\$\{\{/);
+                }
+            }
+        }
     });
 
     it('pins every workflow action to a commit', () => {
