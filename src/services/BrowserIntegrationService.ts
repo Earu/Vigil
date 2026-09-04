@@ -126,6 +126,22 @@ export class BrowserIntegrationService {
         }
     }
 
+    private static readonly DEFAULT_PORTS: Record<string, string> = {
+        'http:': '80', 'https:': '443', 'ws:': '80', 'wss:': '443', 'ftp:': '21',
+    };
+
+    private static effectivePort(url: URL): string {
+        return url.port || this.DEFAULT_PORTS[url.protocol] || '';
+    }
+
+    // Whether the text spells out a port: the authority, after any userinfo,
+    // ends in ':digits'. A bracketed IPv6 host without a port ends in ']'
+    private static namesPort(url: string): boolean {
+        const authority = url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').split(/[/?#]/, 1)[0];
+        const hostPort = authority.slice(authority.lastIndexOf('@') + 1);
+        return /:\d+$/.test(hostPort);
+    }
+
     static hostOf(url: string): string {
         const parsed = this.parseUrl(url);
         return (parsed?.hostname ?? url).toLowerCase().replace(/^www\./, '');
@@ -169,8 +185,11 @@ export class BrowserIntegrationService {
         const siteHost = site.hostname.toLowerCase().replace(/^www\./, '');
         if (!entryHost || !siteHost) return false;
 
-        // Only when the entry names one; a default port normalises to empty
-        if (entry.port && entry.port !== site.port) return false;
+        // Only when the entry names one. The parser drops a default port
+        // (https://host:443 reads back with no port), so whether the entry
+        // named one is read off its text, and the comparison is on the port
+        // each side is actually on
+        if (this.namesPort(entryUrl) && this.effectivePort(entry) !== this.effectivePort(site)) return false;
 
         // An entry saved for https is not handed to an http page
         if (entry.protocol !== site.protocol) return false;

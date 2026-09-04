@@ -84,6 +84,11 @@ describe('url matching', () => {
         expect(Svc.urlMatches('https://example.com:8443', 'https://example.com:9000')).toBe(false);
         // No port on the entry means any port on the site
         expect(Svc.urlMatches('https://example.com', 'https://example.com:8443')).toBe(true);
+        // An explicit default port is still a named port, even though the
+        // parser reads it back as none (fuzz seed 1843005606)
+        expect(Svc.urlMatches('https://example.com:443', 'https://example.com:9000')).toBe(false);
+        expect(Svc.urlMatches('https://example.com:443', 'https://example.com')).toBe(true);
+        expect(Svc.urlMatches('https://user:pw@example.com:443', 'https://example.com:9000')).toBe(false);
     });
 
     it('rejects an entry url carrying characters a url cannot hold', () => {
