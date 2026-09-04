@@ -17,6 +17,12 @@ import { KeepassDatabaseService } from './KeepassDatabaseService';
 // same way everywhere instead of autofilling what the UI says is gone.
 
 const MAX_DEPTH = 10;
+// Depth alone does not bound the work: a field holding k references to
+// itself expands to k^MAX_DEPTH resolutions, and a shared vault can carry
+// such a field. Each top-level resolve gets this many token resolutions;
+// past it, tokens are left as their text. Real vaults use a handful
+const MAX_TOKENS = 500;
+interface Budget { left: number }
 
 type FieldCode = 'T' | 'U' | 'P' | 'A' | 'N';
 
@@ -114,18 +120,20 @@ function searchMatches(view: RefEntryView, searchIn: string, text: string): bool
     return view.field(searchIn as FieldCode).toLowerCase().includes(needle);
 }
 
-function resolveToken(token: string, source: RefSource, depth: number): string | undefined {
+function resolveToken(token: string, source: RefSource, depth: number, budget: Budget): string | undefined {
+    if (budget.left <= 0) return undefined;
+    budget.left--;
     const inner = token.slice(1, -1);
     const upper = inner.toUpperCase();
 
     const local = LOCAL_PLACEHOLDERS[upper];
     if (local) {
-        return resolveIn(source.self.field(local), source, depth + 1);
+        return resolveIn(source.self.field(local), source, depth + 1, budget);
     }
 
     if (upper.startsWith('S:')) {
         const value = source.self.custom(inner.slice(2));
-        return value === undefined ? undefined : resolveIn(value, source, depth + 1);
+        return value === undefined ? undefined : resolveIn(value, source, depth + 1, budget);
     }
 
     const ref = REF_PATTERN.exec(inner);
@@ -140,7 +148,7 @@ function resolveToken(token: string, source: RefSource, depth: number): string |
                 : candidate.field(wanted as FieldCode);
             // Resolved in the found entry's context: its own placeholders
             // refer to its fields, and it may reference onward in turn
-            return resolveIn(value, { self: candidate, all: source.all }, depth + 1);
+            return resolveIn(value, { self: candidate, all: source.all }, depth + 1, budget);
         }
         return undefined;
     }
@@ -148,7 +156,7 @@ function resolveToken(token: string, source: RefSource, depth: number): string |
     return undefined;
 }
 
-function resolveIn(text: string, source: RefSource, depth: number): string {
+function resolveIn(text: string, source: RefSource, depth: number, budget: Budget): string {
     if (depth > MAX_DEPTH || !text.includes('{')) return text;
 
     let result = '';
@@ -181,7 +189,7 @@ function resolveIn(text: string, source: RefSource, depth: number): string {
         }
 
         const token = text.slice(open, close + 1);
-        const resolved = resolveToken(token, source, depth);
+        const resolved = resolveToken(token, source, depth, budget);
         result += resolved ?? token;
         i = close + 1;
     }
@@ -271,7 +279,7 @@ export class PlaceholderService {
         const all = function* () {
             for (const e of KeepassDatabaseService.getAllEntriesFromGroup(root)) yield modelView(e);
         };
-        const result = resolveIn(text, { self: modelView(entry), all }, 0);
+        const result = resolveIn(text, { self: modelView(entry), all }, 0, { left: MAX_TOKENS });
         cache.set(key, result);
         return result;
     }
@@ -281,7 +289,7 @@ export class PlaceholderService {
         const all = function* () {
             for (const e of kdbxEntries(root, recycleBinUuid)) yield kdbxView(e);
         };
-        return resolveIn(text, { self: kdbxView(entry), all }, 0);
+        return resolveIn(text, { self: kdbxView(entry), all }, 0, { left: MAX_TOKENS });
     }
 }
 

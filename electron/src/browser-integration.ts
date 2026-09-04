@@ -268,7 +268,8 @@ function generatePassword(): string {
 }
 
 // Exported for tests: this is where the association gate lives
-export async function handleDecryptedMessage(action: string, message: any, session: Session): Promise<any> {
+export async function handleDecryptedMessage(action: string, rawMessage: any, session: Session): Promise<any> {
+    const message: any = rawMessage && typeof rawMessage === 'object' ? rawMessage : {};
     switch (action) {
         case 'get-databasehash':
             return await askVaults('get-databasehash', {}, 5000);
@@ -354,6 +355,12 @@ function errorResponse(action: string, errorCode: number, nonce?: Uint8Array): a
 }
 
 export async function handleEnvelope(envelope: any, sessions: Map<string, Session>): Promise<any> {
+    // A line that parses to something other than an object (null, a number,
+    // a string) is answered rather than thrown on, or the client waits for
+    // a reply that never comes
+    if (!envelope || typeof envelope !== 'object') {
+        return errorResponse('', ERROR_CANNOT_DECRYPT);
+    }
     const action = envelope.action;
     const clientId = envelope.clientID ?? '';
 
@@ -393,6 +400,10 @@ export async function handleEnvelope(envelope: any, sessions: Map<string, Sessio
     try {
         message = JSON.parse(Buffer.from(opened).toString('utf8'));
     } catch {
+        return errorResponse(action, ERROR_CANNOT_DECRYPT);
+    }
+    // Same for the decrypted payload: the handlers read fields off it
+    if (!message || typeof message !== 'object') {
         return errorResponse(action, ERROR_CANNOT_DECRYPT);
     }
 

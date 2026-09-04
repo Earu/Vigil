@@ -1,0 +1,296 @@
+name: Security
+
+# The security report: every check that says something about whether this
+# build can be trusted, in one run with one summary. Pushes and pull requests
+# get the fast pass; the weekly schedule and a manual run raise the fuzz
+# budget by two orders of magnitude and go through the packaged binary.
+#
+# Jobs:
+#   fuzz         property-based fuzzing of every parser at a trust boundary
+#                (tests/fuzz) plus the hardening invariants pinned in
+#                tests/hardening-invariants.test.ts
+#   codeql       GitHub's static analysis, results land in the Security tab
+#   audit        known vulnerabilities in the dependencies that ship
+#   dependency-review  on pull requests: new dependencies with known
+#                vulnerabilities or unacceptable licenses block the merge
+#   packaged     builds the Linux app and checks the bytes that ship: the
+#                fuse wire matches the config, the app boots and answers IPC
+#
+# Findings from fuzz, invariants, fuses and boot are uploaded as SARIF, so
+# they appear as code scanning alerts in the Security tab beside CodeQL's
+# and resolve on their own once a later run no longer reports them.
+# Dependency alerts come from Dependabot (.github/dependabot.yml plus the
+# repository's alert setting) and live in the same tab.
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Mondays, 06:00 UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      fuzz_runs:
+        description: 'Iterations per fuzz property'
+        required: false
+        default: '20000'
+
+permissions:
+  contents: read
+
+env:
+  # Deep on the schedule and on demand; a push gets a budget that keeps the
+  # job under a few minutes but still runs every property
+  FUZZ_RUNS: ${{ github.event_name == 'schedule' && '20000' || github.event.inputs.fuzz_runs || '2000' }}
+
+jobs:
+  fuzz:
+    name: Fuzz and hardening invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Setup Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci --no-audit --no-fund
+
+    # Both runs write a JSON report alongside the console output; a failure
+    # is recorded and the job carries on so the report reaches the Security
+    # tab, then fails at the end
+    - name: Hardening invariants
+      id: invariants
+      run: npx vitest run tests/hardening-invariants.test.ts --reporter=verbose --reporter=json --outputFile=invariants.json --includeTaskLocation
+      continue-on-error: true
+
+    - name: Fuzz
+      id: fuzz
+      run: |
+        echo "fuzz budget: $FUZZ_RUNS runs per property"
+        npx vitest run tests/fuzz --reporter=verbose --reporter=json --outputFile=fuzz.json --includeTaskLocation 2>&1 | tee fuzz.log
+        exit "${PIPESTATUS[0]}"
+      continue-on-error: true
+
+    - name: Convert findings to SARIF
+      if: always()
+      run: node scripts/sarif-report.mjs vitest invariants.json fuzz.json --out fuzz.sarif
+
+    # Alerts land under Security > Code scanning with this category; an
+    # upload with no results resolves the previous run's alerts. Forks
+    # cannot write security events, so the upload is allowed to fail there
+    - name: Upload to the Security tab
+      if: always()
+      uses: github/codeql-action/upload-sarif@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+      with:
+        sarif_file: fuzz.sarif
+        category: fuzz-and-invariants
+      continue-on-error: true
+
+    - name: Report
+      if: always()
+      run: |
+        {
+          echo "## Fuzz and hardening invariants"
+          echo
+          echo "Budget: \`$FUZZ_RUNS\` runs per property. Seeds are printed on failure; reproduce with \`FUZZ_SEED=<seed> FUZZ_RUNS=$FUZZ_RUNS npx vitest run <file>\`. Failures are also filed under Security > Code scanning, category \`fuzz-and-invariants\`."
+          echo
+          echo '```'
+          grep -E "✓|✗|×|Test Files|Tests |Counterexample|seed" fuzz.log | sed 's/\x1b\[[0-9;]*m//g' | head -120
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Fail on findings
+      if: steps.invariants.outcome == 'failure' || steps.fuzz.outcome == 'failure'
+      run: |
+        echo "hardening invariants: ${{ steps.invariants.outcome }}, fuzz: ${{ steps.fuzz.outcome }}"
+        exit 1
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+      with:
+        languages: javascript-typescript
+        queries: security-extended
+
+    - name: Analyze
+      uses: github/codeql-action/analyze@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+      with:
+        category: /language:javascript-typescript
+
+    - name: Report
+      if: always()
+      run: |
+        {
+          echo "## CodeQL"
+          echo
+          echo "Findings, if any, are in the Security tab under Code scanning (category \`/language:javascript-typescript\`, query suite \`security-extended\`)."
+        } >> "$GITHUB_STEP_SUMMARY"
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    # The advisory endpoint has stalled for minutes at a time; a hung audit
+    # must not hold the report open for hours
+    timeout-minutes: 10
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Setup Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci --no-audit --no-fund
+
+    # Only what ships: the renderer bundle, the main process bundle and the
+    # native modules. Build tooling is reviewed by dependency-review on the
+    # pull request that changes it
+    - name: Audit shipped dependencies
+      run: |
+        set +e
+        npm audit --omit=dev --audit-level=high --json > audit.json
+        status=$?
+        set -e
+        node -e '
+          const report = JSON.parse(require("fs").readFileSync("audit.json", "utf8"));
+          const v = report.metadata?.vulnerabilities ?? {};
+          const lines = ["## Dependency audit (shipped dependencies)", ""];
+          lines.push(`critical: ${v.critical ?? 0}, high: ${v.high ?? 0}, moderate: ${v.moderate ?? 0}, low: ${v.low ?? 0}`);
+          for (const [name, item] of Object.entries(report.vulnerabilities ?? {})) {
+            lines.push(`- **${name}** ${item.severity}: ${(item.via || []).map(x => typeof x === "string" ? x : x.title).join("; ")}`);
+          }
+          require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n") + "\n\n");
+        '
+        exit $status
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Review dependency changes
+      uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      with:
+        fail-on-severity: high
+        comment-summary-in-pr: on-failure
+
+  packaged:
+    name: Packaged binary
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Setup Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '22'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci --no-audit --no-fund
+
+    - name: Install Linux dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev xvfb
+
+    # An unpacked directory is enough to inspect and boot; the AppImage
+    # wrapping adds minutes and changes nothing these checks look at
+    - name: Package
+      run: |
+        npx tsc -b
+        npx vite build
+        node electron/build.mjs
+        node electron/copy-native-modules.mjs
+        npx electron-builder --config electron-builder.config.js --linux dir --publish never
+      env:
+        NODE_ENV: production
+
+    - name: Fuse wire matches the configuration
+      id: fuses
+      run: |
+        node scripts/check-fuses.mjs 2>&1 | tee fuses.log
+        exit "${PIPESTATUS[0]}"
+      continue-on-error: true
+
+    - name: Boot smoke test
+      id: smoke
+      run: |
+        xvfb-run -a node scripts/smoke-boot.mjs -- --ozone-platform=x11 2>&1 | tee smoke.log
+        exit "${PIPESTATUS[0]}"
+      continue-on-error: true
+
+    - name: Convert findings to SARIF
+      if: always()
+      run: |
+        node scripts/sarif-report.mjs fuses fuses.log --out fuses.sarif
+        node scripts/sarif-report.mjs smoke smoke.log --out smoke.sarif
+
+    - name: Upload fuse findings to the Security tab
+      if: always()
+      uses: github/codeql-action/upload-sarif@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+      with:
+        sarif_file: fuses.sarif
+        category: packaged-fuses
+      continue-on-error: true
+
+    - name: Upload boot findings to the Security tab
+      if: always()
+      uses: github/codeql-action/upload-sarif@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+      with:
+        sarif_file: smoke.sarif
+        category: packaged-boot
+      continue-on-error: true
+
+    - name: Report
+      if: always()
+      run: |
+        {
+          echo "## Packaged binary"
+          echo
+          echo "Failures are also filed under Security > Code scanning, categories \`packaged-fuses\` and \`packaged-boot\`."
+          echo
+          echo '```'
+          cat fuses.log 2>/dev/null || echo "fuse check did not run"
+          echo
+          cat smoke.log 2>/dev/null || echo "smoke test did not run"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Fail on findings
+      if: steps.fuses.outcome == 'failure' || steps.smoke.outcome == 'failure'
+      run: |
+        echo "fuses: ${{ steps.fuses.outcome }}, boot: ${{ steps.smoke.outcome }}"
+        exit 1
