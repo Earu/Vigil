@@ -50,6 +50,14 @@ export function getSocketPath(): string | null {
 // same-user could already replace the proxy via the manifest registration.
 export const PROXY_AUTH_ACTION = 'vigil-proxy-auth';
 
+// The handshake runs both ways: the server answers the proxy's challenge,
+// then the proxy answers the server's, so a connection from another local
+// user (Windows pipes let anyone connect) is dropped before a protocol
+// message is read. Each direction HMACs under its own label, so one side's
+// answer can never be replayed as the other's
+export const SERVER_PROOF_LABEL = 'vigil-server:';
+export const CLIENT_PROOF_LABEL = 'vigil-client:';
+
 export function getProxyTokenPath(): string | null {
     if (process.platform === 'win32') {
         const localAppData = process.env.LOCALAPPDATA

@@ -130,6 +130,32 @@ describe('rpId validation', () => {
         const res = await PasskeyService.register(db, creationOptions({ rp: { id: 'evil.com', name: 'x' } }), origin, undefined);
         expect(res.response.errorCode).toBe(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
     });
+    it('rejects an rpId that is a public suffix, private section included', async () => {
+        const db = makeDb();
+        for (const [rp, from] of [
+            ['com', 'https://example.com'],
+            ['co.uk', 'https://site.co.uk'],
+            ['github.io', 'https://user.github.io'],
+        ]) {
+            const res = await PasskeyService.register(db, creationOptions({ rp: { id: rp, name: 'x' } }), from, undefined);
+            expect(res.response.errorCode, rp).toBe(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
+        }
+    });
+    it('rejects a suffix of an IP address', async () => {
+        const db = makeDb();
+        const res = await PasskeyService.register(db, creationOptions({ rp: { id: '3.4', name: 'x' } }), 'https://1.2.3.4', undefined);
+        expect(res.response.errorCode).toBe(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
+    });
+    it('still accepts a registrable domain under a private suffix', async () => {
+        const db = makeDb();
+        const res = await PasskeyService.register(db, creationOptions({ rp: { id: 'user.github.io', name: 'x' } }), 'https://app.user.github.io', undefined);
+        expect(res.response.errorCode).toBeUndefined();
+    });
+    it('applies the same check to assertions', async () => {
+        const db = makeDb();
+        const res = await PasskeyService.allowedEntries(db, { challenge, rpId: 'com', allowCredentials: [] }, origin);
+        expect('errorCode' in res && res.errorCode).toBe(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
+    });
     it('rejects non-https non-localhost origins', async () => {
         const db = makeDb();
         const res = await PasskeyService.register(db, creationOptions(), 'http://example.com', undefined);
@@ -208,7 +234,7 @@ describe('assertion round trip', () => {
         const { cosePublicKey, credentialId } = parseAuthData(authData);
         const publicKey = await importCoseEcKey(cosePublicKey);
 
-        const allowed = PasskeyService.allowedEntries(db, {
+        const allowed = await PasskeyService.allowedEntries(db, {
             challenge,
             rpId,
             allowCredentials: [{ type: 'public-key', id: reg.response.id }],
@@ -237,7 +263,7 @@ describe('assertion round trip', () => {
 
     it('reports no logins when nothing matches the rp', async () => {
         const db = makeDb();
-        const allowed = PasskeyService.allowedEntries(db, { challenge, rpId, allowCredentials: [] }, origin);
+        const allowed = await PasskeyService.allowedEntries(db, { challenge, rpId, allowCredentials: [] }, origin);
         expect('errorCode' in allowed && allowed.errorCode).toBe(PASSKEY_ERRORS.NO_LOGINS_FOUND);
     });
 
@@ -250,7 +276,7 @@ describe('assertion round trip', () => {
         expect(created.origin).toBe(origin);
         expect(created.challenge).toBe(challenge);
 
-        const allowed = PasskeyService.allowedEntries(db, { challenge, rpId, allowCredentials: [{ type: 'public-key', id: reg.response.id }] }, origin);
+        const allowed = await PasskeyService.allowedEntries(db, { challenge, rpId, allowCredentials: [{ type: 'public-key', id: reg.response.id }] }, origin);
         if (!('entries' in allowed)) throw new Error('no entries');
         const assertion = await PasskeyService.assert(allowed.entries[0], { challenge, rpId }, origin, rpId);
         const got = JSON.parse(new TextDecoder().decode(b64urlDecode(assertion.response.clientDataJSON)));
@@ -286,6 +312,14 @@ describe('related origins', () => {
         const db = makeDb();
         const res = await PasskeyService.register(db, crossOptions, caller, undefined, {
             relatedOrigins: ['https://example.de'],
+        });
+        expect(res.response.errorCode).toBe(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
+    });
+
+    it('a public suffix rpId is refused whatever the list says', async () => {
+        const db = makeDb();
+        const res = await PasskeyService.register(db, creationOptions({ rp: { id: 'com', name: 'x' } }), caller, undefined, {
+            relatedOrigins: [caller],
         });
         expect(res.response.errorCode).toBe(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
     });

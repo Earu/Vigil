@@ -6,7 +6,14 @@ import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import nacl from 'tweetnacl';
-import { getSocketPath, getProxyTokenPath, PROXY_AUTH_ACTION, MAX_MESSAGE_BYTES } from './browser-socket';
+import {
+    getSocketPath,
+    getProxyTokenPath,
+    PROXY_AUTH_ACTION,
+    SERVER_PROOF_LABEL,
+    CLIENT_PROOF_LABEL,
+    MAX_MESSAGE_BYTES,
+} from './browser-socket';
 import { getVaultWindows, onVaultWindowsChanged } from './window';
 import {
     HOST_NAME,
@@ -70,6 +77,11 @@ const incrementNonce = (nonce: Uint8Array): Uint8Array => {
 
 let server: net.Server | null = null;
 const clients = new Set<net.Socket>();
+// The subset of clients that has completed the handshake; signals go only
+// to these, since an unproven connection is nobody's browser yet
+const authenticated = new WeakSet<net.Socket>();
+// How long a connection gets to prove itself before it is dropped
+const AUTH_TIMEOUT_MS = 5000;
 
 // Firefox and Chrome each hold one connection per browser; a handful of
 // browsers is the honest ceiling, and the rest is somebody looping connect()
@@ -86,7 +98,7 @@ const MAX_SESSIONS_PER_CLIENT = 32;
 // every connected proxy so the extension updates its state without polling
 function broadcastSignal(action: 'database-locked' | 'database-unlocked'): void {
     for (const socket of clients) {
-        if (!socket.destroyed) {
+        if (!socket.destroyed && authenticated.has(socket)) {
             socket.write(JSON.stringify({ action }) + '\n');
         }
     }
@@ -142,11 +154,19 @@ function writeProxyToken(): boolean {
     }
 }
 
-function proxyAuthResponse(envelope: any): string | null {
+// Step one of the handshake: Vigil's proof to the proxy
+function serverProof(challenge: unknown): string | null {
     if (!proxyToken) return null;
-    const challenge = envelope?.challenge;
     if (typeof challenge !== 'string' || challenge.length === 0 || challenge.length > 256) return null;
-    return crypto.createHmac('sha256', proxyToken).update(challenge).digest('hex');
+    return crypto.createHmac('sha256', proxyToken).update(SERVER_PROOF_LABEL + challenge).digest('hex');
+}
+
+// Step two: the proxy's proof to Vigil, over the challenge Vigil posed
+function clientProofValid(response: unknown, challenge: string): boolean {
+    if (!proxyToken || typeof response !== 'string') return false;
+    const expected = crypto.createHmac('sha256', proxyToken).update(CLIENT_PROOF_LABEL + challenge).digest();
+    const answer = Buffer.from(response, 'hex');
+    return answer.length === expected.length && crypto.timingSafeEqual(answer, expected);
 }
 
 const configFile = () => path.join(app.getPath('userData'), 'browser-integration.json');
@@ -429,7 +449,19 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
             clients.add(socket);
             // Scoped to this connection and dropped with it
             const sessions = new Map<string, Session>();
+            // Nothing but the handshake is read until the proxy has proved
+            // it holds the token. The transport does not vouch for the
+            // client: a Windows pipe's default DACL lets every local user
+            // connect, and on unix the socket's 0600 is the only thing in
+            // the way. A connection that says anything else first, or says
+            // nothing within the deadline, is dropped
+            let authed = false;
+            let serverChallenge: string | null = null;
+            const authDeadline = setTimeout(() => {
+                if (!authed) socket.destroy();
+            }, AUTH_TIMEOUT_MS);
             socket.on('close', () => {
+                clearTimeout(authDeadline);
                 clients.delete(socket);
                 sessions.clear();
             });
@@ -458,13 +490,37 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
                         } catch {
                             return;
                         }
-                        // The proxy's server-verification handshake; never a
-                        // protocol message, so it does not reach the sessions
+                        // The mutual handshake; never a protocol message, so
+                        // it does not reach the sessions
                         if (envelope?.action === PROXY_AUTH_ACTION) {
-                            const response = proxyAuthResponse(envelope);
-                            if (response !== null && !socket.destroyed) {
-                                socket.write(JSON.stringify({ action: PROXY_AUTH_ACTION, response }) + '\n');
+                            if (authed) return;
+                            if (serverChallenge === null) {
+                                const response = serverProof(envelope.challenge);
+                                if (response === null) {
+                                    socket.destroy();
+                                    return;
+                                }
+                                serverChallenge = crypto.randomBytes(32).toString('base64');
+                                if (!socket.destroyed) {
+                                    socket.write(JSON.stringify({
+                                        action: PROXY_AUTH_ACTION,
+                                        response,
+                                        challenge: serverChallenge,
+                                    }) + '\n');
+                                }
+                                return;
                             }
+                            if (!clientProofValid(envelope.response, serverChallenge)) {
+                                socket.destroy();
+                                return;
+                            }
+                            authed = true;
+                            clearTimeout(authDeadline);
+                            authenticated.add(socket);
+                            return;
+                        }
+                        if (!authed) {
+                            socket.destroy();
                             return;
                         }
                         const response = await handleEnvelope(envelope, sessions);
@@ -487,11 +543,11 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
             //   Everyone                      Read, Synchronize
             //   NT AUTHORITY\ANONYMOUS LOGON  Read, Synchronize
             //   SYSTEM / Administrators       FullControl
-            // Read without write, so another user can open the pipe but cannot
-            // send a request, and each client gets its own instance so there is
-            // nothing of anyone else's to read off it. Untidy rather than a way
-            // in, which is why there is no native fix here. The handlers that
-            // matter are gated on the session being associated regardless
+            // Node offers no way to narrow that, so the client is
+            // authenticated in the handshake instead: a connection that
+            // cannot answer the server's challenge with the user-only token
+            // is dropped before a protocol message is read (see the
+            // connection handler above)
             if (process.platform !== 'win32') {
                 try {
                     fs.chmodSync(socketPath, 0o600);
@@ -536,25 +592,29 @@ export function stopServer(): void {
 
 // ---- native messaging manifests ----
 
-// Mirrors electron/browser-proxy.ts run(), including the server-verification
-// handshake; a behavior change there must land here too. Exported so the
-// handshake tests can exercise the generated script end to end
+// Mirrors electron/browser-proxy.ts run(), including the mutual handshake; a
+// behavior change there must land here too. Exported so the handshake tests
+// can exercise the generated script end to end
 export function proxyScript(): string {
     return `#!/usr/bin/env node
 // Native messaging proxy for Vigil: browser stdio <-> Vigil pipe/socket.
 // The server must HMAC our challenge with the user-only token before any
-// traffic flows: the pipe name is first-come-first-served and proves nothing
+// traffic flows: the pipe name is first-come-first-served and proves nothing.
+// It then poses a challenge of its own, which we answer with the same token
+// so it knows this proxy is the user's and not another local account's
 const net = require('net');
 const fs = require('fs');
 const crypto = require('crypto');
 const socketPath = ${JSON.stringify(getSocketPath())};
 const tokenPath = ${JSON.stringify(getProxyTokenPath())};
 const AUTH_ACTION = ${JSON.stringify(PROXY_AUTH_ACTION)};
+const SERVER_LABEL = ${JSON.stringify(SERVER_PROOF_LABEL)};
+const CLIENT_LABEL = ${JSON.stringify(CLIENT_PROOF_LABEL)};
 if (!socketPath || !tokenPath) process.exit(1);
 let token;
 try { token = fs.readFileSync(tokenPath, 'utf8').trim(); } catch { process.exit(1); }
 const challenge = crypto.randomBytes(32).toString('base64');
-const expected = crypto.createHmac('sha256', token).update(challenge).digest();
+const expected = crypto.createHmac('sha256', token).update(SERVER_LABEL + challenge).digest();
 let authed = false;
 const heldMessages = [];
 const authTimer = setTimeout(() => process.exit(1), 5000);
@@ -593,6 +653,13 @@ client.on('data', (chunk) => {
             let answer;
             try { answer = Buffer.from(String(parsed.response || ''), 'hex'); } catch { process.exit(1); }
             if (answer.length !== expected.length || !crypto.timingSafeEqual(answer, expected)) process.exit(1);
+            // Our proof goes out ahead of anything the browser sent: the
+            // server reads nothing else until it has it
+            if (typeof parsed.challenge !== 'string') process.exit(1);
+            client.write(JSON.stringify({
+                action: AUTH_ACTION,
+                response: crypto.createHmac('sha256', token).update(CLIENT_LABEL + parsed.challenge).digest('hex'),
+            }) + '\\n');
             authed = true;
             clearTimeout(authTimer);
             for (const message of heldMessages) client.write(message + '\\n');

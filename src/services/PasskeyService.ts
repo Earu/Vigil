@@ -1,6 +1,19 @@
 import * as kdbxweb from 'kdbxweb';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
 
+// The public suffix list is 125 KB minified, for a check that runs once per
+// passkey ceremony. Fetched on first use rather than carried in the startup
+// chunk, the way the strength estimator is
+let suffixList: Promise<typeof import('tldts')> | null = null;
+const loadSuffixList = (): Promise<typeof import('tldts')> => {
+    if (!suffixList) {
+        suffixList = import('tldts');
+        // A failed chunk load retries on the next ceremony
+        suffixList.catch(() => { suffixList = null; });
+    }
+    return suffixList;
+};
+
 // WebAuthn authenticator for the KeePassXC-Browser passkeys protocol
 // (passkeys-register / passkeys-get). Response shapes, entry attributes and
 // crypto choices mirror KeePassXC (BrowserPasskeys.cpp) so databases stay
@@ -255,21 +268,41 @@ const normalizeOrigin = (origin: string): string | null => {
     }
 };
 
-// The RP ID must equal the origin's domain or a registrable suffix of it.
-// Failing that, an rpId is still accepted when the caller's origin appears
-// in the RP's related-origins list (https://<rpId>/.well-known/webauthn,
-// fetched and validated by the browser extension). Unlike KeePassXC we skip
-// the public-suffix-list check, so an rpId of "co.uk" for "site.co.uk"
-// would pass here; RPs never do this in practice
-export function validateRpId(
+// Whether a host is a public suffix (com, co.uk, github.io): a name under
+// which unrelated parties register, so nothing can claim it as its own.
+// Private-section entries count, since user.github.io and other.github.io
+// are as unrelated as two .com sites. A host the list knows nothing about
+// (an IP address) is treated as one too, which fails closed
+export async function isPublicSuffix(host: string): Promise<boolean> {
+    const { getPublicSuffix } = await loadSuffixList();
+    const suffix = getPublicSuffix(host, { allowPrivateDomains: true });
+    return suffix === null || suffix === host;
+}
+
+// The RP ID must equal the origin's domain or be a registrable suffix of it
+// (HTML's "is a registrable domain suffix of or is equal to"). A suffix that
+// is itself a public suffix is refused: otherwise a site could register a
+// credential under "com" and have it offered to every other .com site, and
+// the extension intercepts the WebAuthn call before Chromium's own check
+// runs, so this is the only place the check happens. KeePassXC does the
+// same with its bundled suffix list. Failing that, an rpId is still accepted
+// when the caller's origin appears in the RP's related-origins list
+// (https://<rpId>/.well-known/webauthn, fetched and validated by the browser
+// extension)
+export async function validateRpId(
     rpId: string | undefined,
     domain: string,
     origin?: string,
     relatedOrigins?: string[],
-): string | null {
+): Promise<string | null> {
     if (!rpId) return domain;
     const suffix = rpId.toLowerCase();
-    if (suffix === domain || domain.endsWith('.' + suffix)) return suffix;
+    if (suffix === domain) return suffix;
+    // Neither a public suffix nor the tail of an IP address is a
+    // relationship, whatever the related-origins list says
+    const { parse } = await loadSuffixList();
+    if (await isPublicSuffix(suffix) || parse(domain).isIp) return null;
+    if (domain.endsWith('.' + suffix)) return suffix;
     if (origin && Array.isArray(relatedOrigins) && relatedOrigins.length > 0) {
         const caller = normalizeOrigin(origin);
         if (caller && relatedOrigins.some(o => normalizeOrigin(String(o)) === caller)) {
@@ -395,7 +428,7 @@ export class PasskeyService {
 
         const domain = effectiveDomain(origin);
         if (!domain) return error(PASSKEY_ERRORS.DOMAIN_IS_NOT_VALID);
-        const rpId = validateRpId(options.rp?.id, domain, origin, opts.relatedOrigins);
+        const rpId = await validateRpId(options.rp?.id, domain, origin, opts.relatedOrigins);
         if (!rpId) return error(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
 
         const alg = await this.pickAlgorithm(options.pubKeyCredParams);
@@ -482,18 +515,18 @@ export class PasskeyService {
     }
 
     // Entries eligible for an assertion; the consent dialog picks from these
-    static allowedEntries(
+    static async allowedEntries(
         kdbxDb: kdbxweb.Kdbx,
         options: any,
         origin: string,
         opts: { allowLocalhost?: boolean; relatedOrigins?: string[] } = {},
-    ): { errorCode: number } | { rpId: string; entries: PasskeyEntryInfo[] } {
+    ): Promise<{ errorCode: number } | { rpId: string; entries: PasskeyEntryInfo[] }> {
         if (!options || !options.challenge) return { errorCode: PASSKEY_ERRORS.EMPTY_PUBLIC_KEY };
         if (!originAllowed(origin, opts.allowLocalhost ?? false)) return { errorCode: PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED };
 
         const domain = effectiveDomain(origin);
         if (!domain) return { errorCode: PASSKEY_ERRORS.DOMAIN_IS_NOT_VALID };
-        const rpId = validateRpId(options.rpId, domain, origin, opts.relatedOrigins);
+        const rpId = await validateRpId(options.rpId, domain, origin, opts.relatedOrigins);
         if (!rpId) return { errorCode: PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH };
 
         const allowedIds: string[] = (options.allowCredentials ?? [])

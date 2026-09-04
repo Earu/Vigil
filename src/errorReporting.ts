@@ -11,14 +11,21 @@ const forward = (message: string): void => {
     } catch { /* logging must never take the app down */ }
 };
 
+// Errors and strings are logged as they are. Anything else is described by
+// its shape only: an object that reaches here by mistake (a rejection with
+// { entry } in it, a console.error handed a model) could carry vault
+// contents, and serializing it would put them in a plain-text file. The
+// constructor name and a message field are enough to find the code that
+// produced it
 const describe = (value: unknown): string => {
     if (value instanceof Error) return value.stack ?? `${value.name}: ${value.message}`;
     if (typeof value === 'string') return value;
-    try {
-        return JSON.stringify(value)?.slice(0, 2048) ?? String(value);
-    } catch {
-        return String(value);
+    if (value !== null && typeof value === 'object') {
+        const name = value.constructor?.name || 'Object';
+        const message = (value as { message?: unknown }).message;
+        return typeof message === 'string' ? `[${name}] ${message}` : `[${name}]`;
     }
+    return String(value);
 };
 
 export function installErrorReporting(): void {

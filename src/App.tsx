@@ -295,8 +295,11 @@ function App() {
 		setDatabase(null);
 		setKdbxDb(null);
 		kdbxDbRef.current = null;
-		// Whatever the settings modal was showing belonged to this session
+		// Whatever the settings modal was showing belonged to this session,
+		// and so did the search: it names what the user was looking at, and
+		// would otherwise still be in the bar for whoever unlocks next
 		setShowSettings(false);
+		setSearchQuery('');
 		setShowInitialBreachReport(false);
 		FaviconService.reset();
 		KeepassDatabaseService.setPath(undefined);

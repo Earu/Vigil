@@ -281,6 +281,49 @@ describe('get-logins access control', () => {
         expect(ctx.requestAccessConsent).toHaveBeenCalledTimes(1);
     });
 
+    it('keys decisions on the full host, www included, as KeePassXC does', async () => {
+        const db = await paired();
+        const ctx = {
+            ...ctxFor(db),
+            requestAccessConsent: vi.fn(async ({ entries }: { entries: Array<{ id: string }> }) =>
+                ({ allowedIds: entries.map(e => e.id), remember: true })),
+        };
+        const www = { ...request, url: 'https://www.github.com/login' };
+        await Svc.handleRequest('get-logins', www, ctx);
+
+        expect(ctx.requestAccessConsent.mock.calls[0][0].host).toBe('www.github.com');
+        const entry = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
+        const stored = JSON.parse(entry.customData!.get('KeePassXC-Browser Settings')!.value!);
+        expect(stored.Allow).toEqual(['www.github.com']);
+    });
+
+    it('still honors a www-less decision an earlier version wrote', async () => {
+        const db = await paired();
+        const entry = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
+        entry.customData = new Map([[
+            'KeePassXC-Browser Settings',
+            { value: '{"Allow":["github.com"],"Deny":[]}' },
+        ]]);
+        const ctx = ctxFor(db);
+        const result = await Svc.handleRequest('get-logins', { ...request, url: 'https://www.github.com' }, ctx);
+        expect(ctx.requestAccessConsent).not.toHaveBeenCalled();
+        expect(result.entries).toHaveLength(1);
+    });
+
+    it('a new decision replaces the older spelling rather than sitting beside it', async () => {
+        const db = await paired();
+        const entry = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
+        entry.customData = new Map([[
+            'KeePassXC-Browser Settings',
+            { value: '{"Allow":[],"Deny":["github.com"]}' },
+        ]]);
+        Svc.recordAccessDecision(entry, 'www.github.com', true);
+        const stored = JSON.parse(entry.customData.get('KeePassXC-Browser Settings')!.value!);
+        expect(stored.Allow).toEqual(['www.github.com']);
+        expect(stored.Deny).toEqual([]);
+        expect(Svc.accessDecision(entry, 'www.github.com')).toBe('allow');
+    });
+
     it('honors a decision KeePassXC wrote, deny outranking allow', async () => {
         const db = await paired();
         const entry = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
