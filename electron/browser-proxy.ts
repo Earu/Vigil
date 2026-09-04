@@ -1,7 +1,14 @@
 import net from 'net';
 import fs from 'fs';
 import crypto from 'crypto';
-import { getSocketPath, getProxyTokenPath, PROXY_AUTH_ACTION, MAX_MESSAGE_BYTES } from './src/browser-socket';
+import {
+    getSocketPath,
+    getProxyTokenPath,
+    PROXY_AUTH_ACTION,
+    SERVER_PROOF_LABEL,
+    CLIENT_PROOF_LABEL,
+    MAX_MESSAGE_BYTES,
+} from './src/browser-socket';
 
 // Native messaging proxy: browser stdio <-> the Vigil browser-integration
 // socket. The browser frames each message with a 4-byte little-endian length;
@@ -12,7 +19,9 @@ import { getSocketPath, getProxyTokenPath, PROXY_AUTH_ACTION, MAX_MESSAGE_BYTES 
 // direction the proxy challenges the server to HMAC a random value with the
 // token Vigil wrote to a file only this user can read; a cross-user squatter
 // holding the name cannot answer and the proxy exits instead of handing it
-// the extension's traffic. See browser-socket.ts for the trust model.
+// the extension's traffic. The server then poses its own challenge, answered
+// with the same token, so it knows this proxy is the user's. See
+// browser-socket.ts for the trust model.
 //
 // This runs in the Vigil binary itself, reached by --browser-proxy rather than
 // by ELECTRON_RUN_AS_NODE, which is what lets the runAsNode fuse be turned off
@@ -33,7 +42,7 @@ export function run(): void {
     }
 
     const challenge = crypto.randomBytes(32).toString('base64');
-    const expected = crypto.createHmac('sha256', token!).update(challenge).digest();
+    const expected = crypto.createHmac('sha256', token!).update(SERVER_PROOF_LABEL + challenge).digest();
     let authed = false;
     // Messages the browser sent while the server was still unproven
     const heldMessages: string[] = [];
@@ -89,6 +98,13 @@ export function run(): void {
                 if (answer!.length !== expected.length || !crypto.timingSafeEqual(answer!, expected)) {
                     process.exit(1);
                 }
+                // Our proof goes out ahead of anything the browser sent: the
+                // server reads nothing else until it has it
+                if (typeof parsed.challenge !== 'string') process.exit(1);
+                client.write(JSON.stringify({
+                    action: PROXY_AUTH_ACTION,
+                    response: crypto.createHmac('sha256', token!).update(CLIENT_PROOF_LABEL + parsed.challenge).digest('hex'),
+                }) + '\n');
                 authed = true;
                 clearTimeout(authTimer);
                 for (const message of heldMessages) client.write(message + '\n');

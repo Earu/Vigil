@@ -41,6 +41,8 @@ vi.mock('../electron/src/browser-socket', () => ({
     getSocketPath: () => '/fake-socket',
     getProxyTokenPath: () => state.tokenFile,
     PROXY_AUTH_ACTION: 'vigil-proxy-auth',
+    SERVER_PROOF_LABEL: 'vigil-server:',
+    CLIENT_PROOF_LABEL: 'vigil-client:',
     MAX_MESSAGE_BYTES: 1024 * 1024,
 }));
 
@@ -87,13 +89,22 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
-// Answer the proxy's challenge the way the real server does, consuming the
-// challenge write so framing expectations see only their own traffic
+// Answer the proxy's challenge the way the real server does and pose one
+// back, consuming the handshake writes so framing expectations see only
+// their own traffic
+const SERVER_CHALLENGE = 'server-challenge';
 const authenticate = () => {
     const challengeLine = client.writes.shift()!;
     const { challenge } = JSON.parse(challengeLine);
-    const response = createHmac('sha256', TOKEN).update(challenge).digest('hex');
-    client.emit('data', Buffer.from(JSON.stringify({ action: 'vigil-proxy-auth', response }) + '\n'));
+    const response = createHmac('sha256', TOKEN).update('vigil-server:' + challenge).digest('hex');
+    client.emit('data', Buffer.from(JSON.stringify({
+        action: 'vigil-proxy-auth', response, challenge: SERVER_CHALLENGE,
+    }) + '\n'));
+    // The proxy's own proof goes out before any held frame
+    const proof = JSON.parse(client.writes.shift()!);
+    expect(proof.action).toBe('vigil-proxy-auth');
+    expect(proof.response).toBe(
+        createHmac('sha256', TOKEN).update('vigil-client:' + SERVER_CHALLENGE).digest('hex'));
 };
 
 const frame = (payload: string): Buffer => {
@@ -136,6 +147,14 @@ describe('handshake', () => {
         expectExit(() => client.emit('data', Buffer.from(
             JSON.stringify({ action: 'vigil-proxy-auth', response: '00'.repeat(32) }) + '\n')), 1);
         expect(stdoutChunks).toEqual([]);
+    });
+
+    it('exits with 1 when a proven server poses no challenge of its own', () => {
+        const { challenge } = JSON.parse(client.writes.shift()!);
+        const response = createHmac('sha256', TOKEN).update('vigil-server:' + challenge).digest('hex');
+        expectExit(() => client.emit('data', Buffer.from(
+            JSON.stringify({ action: 'vigil-proxy-auth', response }) + '\n')), 1);
+        expect(client.writes).toEqual([]);
     });
 });
 

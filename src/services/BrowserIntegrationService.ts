@@ -131,6 +131,22 @@ export class BrowserIntegrationService {
         return (parsed?.hostname ?? url).toLowerCase().replace(/^www\./, '');
     }
 
+    // The host a stored access decision is keyed on: the full hostname, www
+    // included, which is what KeePassXC writes (QUrl::host of the site URL)
+    // and reads. Keying on the stripped form, as earlier versions did, made
+    // every decision taken in one app get asked again in the other
+    static decisionHost(url: string): string {
+        const parsed = this.parseUrl(url);
+        return (parsed?.hostname ?? url).toLowerCase();
+    }
+
+    // The spellings a decision for this host may have been recorded under:
+    // the full host, and the www-less form earlier Vigil versions wrote
+    private static decisionAliases(host: string): string[] {
+        const stripped = host.replace(/^www\./, '');
+        return stripped === host ? [host] : [host, stripped];
+    }
+
     // Mirrors KeePassXC's BrowserService::handleURL, which is the reference
     // implementation for this protocol, in the same order: illegal characters,
     // then port, then scheme, then host.
@@ -181,8 +197,10 @@ export class BrowserIntegrationService {
         if (!raw) return 'unknown';
         try {
             const config = JSON.parse(raw);
-            if (Array.isArray(config.Deny) && config.Deny.includes(host)) return 'deny';
-            if (Array.isArray(config.Allow) && config.Allow.includes(host)) return 'allow';
+            const aliases = this.decisionAliases(host);
+            const listed = (list: unknown) => Array.isArray(list) && aliases.some(alias => list.includes(alias));
+            if (listed(config.Deny)) return 'deny';
+            if (listed(config.Allow)) return 'allow';
         } catch { /* unreadable settings decide nothing */ }
         return 'unknown';
     }
@@ -197,8 +215,14 @@ export class BrowserIntegrationService {
         }
         const allow = new Set<string>(Array.isArray(config.Allow) ? config.Allow : []);
         const deny = new Set<string>(Array.isArray(config.Deny) ? config.Deny : []);
+        // A fresh decision replaces every earlier spelling of it, so a
+        // www-less refusal from an older version cannot outrank a grant
+        // recorded now (deny wins on read)
+        for (const alias of this.decisionAliases(host)) {
+            allow.delete(alias);
+            deny.delete(alias);
+        }
         (allowed ? allow : deny).add(host);
-        (allowed ? deny : allow).delete(host);
         config.Allow = [...allow];
         config.Deny = [...deny];
         if (!entry.customData) entry.customData = new Map();
@@ -298,7 +322,7 @@ export class BrowserIntegrationService {
                 // anything holding the extension's storage holds that key. Each
                 // entry needs the user's standing permission for this site, or
                 // a fresh confirmation (same second gate as KeePassXC)
-                const siteHost = this.hostOf(payload.url);
+                const siteHost = this.decisionHost(payload.url);
                 const granted: kdbxweb.KdbxEntry[] = [];
                 const undecided: kdbxweb.KdbxEntry[] = [];
                 for (const entry of matching) {
@@ -446,7 +470,7 @@ export class BrowserIntegrationService {
                 if (!this.isAssociated(kdbxDb, payload.keys)) {
                     return { errorCode: ERROR_ASSOCIATION_FAILED };
                 }
-                const allowed = PasskeyService.allowedEntries(kdbxDb, payload.publicKey, payload.origin, {
+                const allowed = await PasskeyService.allowedEntries(kdbxDb, payload.publicKey, payload.origin, {
                     allowLocalhost: userSettingsService.getAllowPasskeysLocalhost(),
                     relatedOrigins: payload.relatedOrigins,
                 });
