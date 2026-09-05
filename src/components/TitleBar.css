@@ -213,12 +213,11 @@
 	height: 16px;
 }
 
-.settings-button.macos-settings {
-	position: absolute;
-	right: 0;
-	top: 0;
-}
-
-.settings-button.macos-settings.macos-report {
-	right: 36px;
+/* Laid out as a row so each button gets its own slot; absolute
+   positioning per button made every new one collide with the last */
+.macos-actions {
+	display: flex;
+	height: 100%;
+	flex-shrink: 0;
+	-webkit-app-region: no-drag;
 }
