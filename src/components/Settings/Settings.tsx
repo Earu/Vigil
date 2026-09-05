@@ -11,6 +11,7 @@ import { ImportService } from '../../services/ImportService';
 import { ExportService } from '../../services/ExportService';
 import { BrowserIntegrationService } from '../../services/BrowserIntegrationService';
 import { KeepassDatabaseService, KdfInfo } from '../../services/KeepassDatabaseService';
+import { changeMasterPassword } from '../../services/MasterPasswordChange';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
@@ -24,7 +25,9 @@ interface SettingsProps {
     setAutoLockEnabled: (enabled: boolean) => void;
     autoLockDuration: number;
     setAutoLockDuration: (duration: number) => void;
-    onDatabaseChange?: () => void;
+    // Resolves once the save has finished, true if it succeeded. Most callers
+    // fire and forget; the password change waits on it
+    onDatabaseChange?: () => void | Promise<boolean>;
 }
 
 export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLockEnabled, autoLockDuration, setAutoLockDuration, onDatabaseChange }: SettingsProps) {
@@ -450,25 +453,22 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             return;
         }
 
-        await KeepassDatabaseService.changeMasterPassword(kdbxDb, newPw);
-        onDatabaseChange?.();
-
-        // Keep biometric unlock working: it stores the master password
-        const dbPath = KeepassDatabaseService.getPath();
-        if (dbPath && window.electron) {
-            try {
-                const bio = await window.electron.hasBiometricsEnabled(dbPath);
-                if (bio.success && bio.enabled) {
-                    await window.electron.enableBiometrics(dbPath, newPw);
-                }
-            } catch (err) {
-                console.error('Failed to refresh biometric credentials:', err);
-            }
-        }
+        const outcome = await changeMasterPassword(kdbxDb, newPw, async () => (await onDatabaseChange?.()) === true);
 
         setCurrentPw('');
         setNewPw('');
         setConfirmPw('');
+        if (!outcome.saved) {
+            // The save path has already said what failed
+            if (outcome.biometrics === 'off') {
+                showSettingsToast('Biometric unlock was turned off because the database could not be saved. Turn it on again from the unlock screen', 'error');
+            }
+            return;
+        }
+        if (outcome.biometrics === 'off') {
+            showSettingsToast(`Master password changed. Biometric unlock was turned off: ${outcome.reason}. Turn it on again from the unlock screen`, 'error');
+            return;
+        }
         showSettingsToast('Master password changed');
     };
 

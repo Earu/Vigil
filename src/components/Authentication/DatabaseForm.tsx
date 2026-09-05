@@ -37,7 +37,7 @@ export const DatabaseForm = ({
             setError(null);
         } catch (err) {
             console.error('Failed to read file:', err);
-            setError('Failed to read file');
+            setError(err instanceof Error && err.message ? err.message : 'Failed to read file');
         }
     };
 

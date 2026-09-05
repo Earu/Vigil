@@ -15,6 +15,8 @@ interface LoadLastDatabaseResult {
     file: File | null;
     databasePath: string | null;
     biometricsEnabled: boolean;
+    // Why a remembered vault could not be read, when there was one
+    error?: string;
 }
 
 // Lookup tables for one save pass; see indexDatabase
@@ -1072,7 +1074,7 @@ export class KeepassDatabaseService {
 
             const result = await window.electron.readFile(lastPath);
             if (!result.success || !result.data) {
-                return { file: null, databasePath: null, biometricsEnabled: false };
+                return { file: null, databasePath: null, biometricsEnabled: false, error: result.error || 'Failed to read file' };
             }
 
             const file = new File([result.data], lastPath.split('/').pop() || 'database.kdbx');

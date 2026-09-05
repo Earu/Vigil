@@ -187,6 +187,11 @@ export const PasswordForm = ({
         if (err instanceof Error && err.message === 'KEYFILE_READ_FAILED') {
             return `Failed to read key file ${keyFile?.path}; select it again to restore access`;
         }
+        // The main process said why the vault could not be read (an online-only
+        // file that did not download); the password had nothing to do with it
+        if (err instanceof Error && err.message.startsWith('FILE_READ_FAILED:')) {
+            return err.message.slice('FILE_READ_FAILED:'.length);
+        }
         if (err instanceof Error && err.message.startsWith('HARDWARE_KEY')) {
             return hardwareKeyErrorMessage(err.message);
         }
@@ -329,7 +334,7 @@ export const PasswordForm = ({
 
             const result = await window.electron.readFile(databasePath);
             if (!result.success || !result.data) {
-                throw new Error(result.error || 'Failed to read file');
+                throw new Error(`FILE_READ_FAILED:${result.error || 'Failed to read file'}`);
             }
 
             const credentials = await buildCredentials(biometricResult.password);
@@ -387,7 +392,7 @@ export const PasswordForm = ({
                 if (databasePath && window.electron) {
                     const result = await window.electron.readFile(databasePath);
                     if (!result.success || !result.data) {
-                        throw new Error(result.error || 'Failed to read file');
+                        throw new Error(`FILE_READ_FAILED:${result.error || 'Failed to read file'}`);
                     }
                     fileBuffer = result.data.buffer;
                 } else {
@@ -440,7 +445,7 @@ export const PasswordForm = ({
 
                 const result = await window.electron.readFile(databasePath);
                 if (!result.success || !result.data) {
-                    throw new Error(result.error || 'Failed to read file');
+                    throw new Error(`FILE_READ_FAILED:${result.error || 'Failed to read file'}`);
                 }
                 fileBuffer = result.data.buffer;
                 await window.electron.saveLastDatabasePath(databasePath);

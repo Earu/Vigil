@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { materialize } from './cloud-files';
 
 // Sync clients that cannot merge two versions of a file keep both, under a
 // name of their own: iCloud Drive writes "vault 2.kdbx", Dropbox and Nextcloud
@@ -71,7 +72,11 @@ export interface ConflictCopy {
 // listed yields nothing
 export async function scanConflictCopies(
     vaultPath: string,
-    deps: { readdir?: (dir: string) => Promise<string[]>; hash?: (file: string) => Promise<string> } = {}
+    deps: {
+        readdir?: (dir: string) => Promise<string[]>;
+        hash?: (file: string) => Promise<string>;
+        download?: (file: string) => Promise<unknown>;
+    } = {}
 ): Promise<ConflictCopy[]> {
     const target = resolveVaultFile(vaultPath);
     const dir = path.dirname(target);
@@ -84,6 +89,13 @@ export async function scanConflictCopies(
     }
     const found: ConflictCopy[] = [];
     for (const candidate of names) {
+        // An evicted iCloud copy (".vault 2.kdbx.icloud") is asked back; the
+        // watcher reports it under its real name once the bytes land
+        const evicted = /^\.(.+)\.icloud$/.exec(candidate);
+        if (evicted && isConflictCopyName(name, evicted[1])) {
+            void (deps.download ?? materialize)(path.join(dir, evicted[1]));
+            continue;
+        }
         if (!isConflictCopyName(name, candidate)) continue;
         const copyPath = path.join(dir, candidate);
         try {
