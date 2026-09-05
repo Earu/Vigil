@@ -6,6 +6,7 @@ import { applyContentProtection } from './content-protection';
 import { isDevBuild } from './utils';
 import { APP_INDEX_URL } from './app-protocol';
 import { trackGestures } from './gesture';
+import { watchVault, unwatchWindow } from './vault-watcher';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
@@ -37,11 +38,17 @@ function removeWindow(win: BrowserWindow): void {
     for (const [key, value] of vaultWindows) {
         if (value === win) vaultWindows.delete(key);
     }
+    // The file is followed for exactly as long as a vault is open in the
+    // window (see vault-watcher.ts); a lock or a close ends that
+    unwatchWindow(win);
 }
 
 export function registerVault(filePath: string, win: BrowserWindow): void {
     removeWindow(win);
     vaultWindows.set(normalizeVaultPath(filePath), win);
+    // Changes made to the file by anything else (a sync client delivering
+    // another machine's edit) are merged into the open vault as they land
+    watchVault(win, filePath);
     vaultWindowsListener?.(getVaultWindows().length);
 }
 

@@ -133,6 +133,9 @@ export interface IElectronAPI {
 	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => Promise<ArrayBuffer>;
 	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
 	getPlatform: () => Promise<string>;
+	// Main-to-renderer events. Among them 'vault-file-changed', sent by the
+	// vault watcher (electron/src/vault-watcher.ts) with
+	// { path, hash, mtimeMs } once the open vault's file has changed on disk
 	on: (channel: string, callback: (...args: any[]) => void) => () => void;
 	checkEmailBreaches: (email: string) => Promise<any[]>;
 	setHibpApiKey: (key: string | null) => Promise<{ success: boolean; error?: string }>;

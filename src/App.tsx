@@ -230,6 +230,39 @@ function App() {
 		};
 	}, [kdbxDb]);
 
+	// The file changed on disk while the vault is open (a sync client landing
+	// another machine's edit): merge it in now rather than at the next save.
+	// An entry being edited keeps its draft across the model rebuild
+	// (EntryDetails re-seeds only when not editing); if the other side edited
+	// the same entry, the draft wins on save and the merged values sit in
+	// that entry's history
+	useEffect(() => {
+		if (!kdbxDb || !window.electron) return;
+
+		const handler = async ({ path, hash, mtimeMs }: { path: string; hash: string; mtimeMs: number }) => {
+			// An event for a vault this window no longer shows, or never did
+			if (path !== KeepassDatabaseService.getPath() || kdbxDbRef.current !== kdbxDb) return;
+			try {
+				const result = await KeepassDatabaseService.reloadExternalChanges(kdbxDb, { hash, mtimeMs });
+				if (kdbxDbRef.current !== kdbxDb) return;
+				if (result === 'merged') {
+					setDatabase(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+				} else if (result === 'failed') {
+					(window as any).showToast?.({
+						message: 'The database changed on disk but could not be merged; your next save will ask what to do',
+						type: 'warning',
+						duration: 8000
+					});
+				}
+			} catch (err) {
+				console.error('Failed to reload external changes:', err);
+			}
+		};
+
+		const unsubscribe = window.electron.on('vault-file-changed', handler);
+		return () => unsubscribe();
+	}, [kdbxDb]);
+
 	const handleDatabaseOpen = async (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
 		// Ahead of the await below, not after it. The caller starts the breach
 		// sweep without waiting on this function, and the sweep reads caches
