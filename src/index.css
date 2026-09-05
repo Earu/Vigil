@@ -281,3 +281,38 @@ select {
 		scroll-behavior: auto !important;
 	}
 }
+
+/* Windows High Contrast (forced colours) drops backgrounds and shadows, which
+   is all that marks the selected group, entry and tab. System colours put
+   the marks back; forced-color-adjust: none is what lets them apply, so
+   every descendant's colour is set alongside */
+@media (forced-colors: active) {
+	.group-header.selected,
+	.entry-item.selected,
+	[role="tab"][aria-selected="true"] {
+		forced-color-adjust: none;
+		background-color: Highlight;
+		color: HighlightText;
+	}
+
+	/* !important: the components' own selected-text rules are more
+	   specific, and the text must be readable on Highlight */
+	.group-header.selected *,
+	.entry-item.selected *,
+	[role="tab"][aria-selected="true"] * {
+		color: HighlightText !important;
+		border-color: HighlightText !important;
+		background-color: transparent !important;
+	}
+
+	.group-header.selected svg,
+	.entry-item.selected svg {
+		stroke: HighlightText !important;
+	}
+
+	/* The ring must stay visible on a Highlight background */
+	.entries:focus-visible .entry-item.active,
+	.group-header:focus-visible {
+		outline-color: CanvasText;
+	}
+}

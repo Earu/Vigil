@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, cleanup, act } from '@testing-library/react';
+import { render, cleanup, act, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { ToastContainer } from '../src/components/Toast/Toast';
 import { expectNoA11yViolations } from './a11y';
@@ -41,6 +41,17 @@ describe('a toast', () => {
         expect(toast.getAttribute('role')).toBe('alert');
         expect(toast.textContent).toBe('Error: Save failed');
         await expectNoA11yViolations(container);
+    });
+
+    it('can be dismissed when it would otherwise stay', async () => {
+        const { container, getByRole, queryByRole } = render(<ToastContainer />);
+        show('Checking passwords (1/40)', 'info');
+        const dismiss = getByRole('button', { name: 'Dismiss' });
+        await expectNoA11yViolations(container);
+        fireEvent.click(dismiss);
+        expect(container.querySelector('.toast')).toBeNull();
+        act(() => { (window as any).showToast({ message: 'Saved', type: 'success', duration: 3000 }); });
+        expect(queryByRole('button', { name: 'Dismiss' })).toBeNull();
     });
 
     it('prefixes warnings', () => {

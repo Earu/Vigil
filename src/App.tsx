@@ -6,6 +6,7 @@ import { Database } from './types/database';
 import './App.css';
 import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
+import { FocusTooltip } from './components/FocusTooltip';
 import { AuthenticationView } from './components/Authentication/AuthenticationView';
 import { KeepassDatabaseService } from './services/KeepassDatabaseService';
 import { SshAgentService } from './services/SshAgentService';
@@ -630,6 +631,7 @@ function App() {
 				}}
 			/>
 			<ToastContainer />
+			<FocusTooltip />
 			{/* Keyed on the item id: a different request is a different dialog,
 			    never one that inherits the previous request's typed state */}
 			{consent?.kind === 'pairing' && (

@@ -1,0 +1,16 @@
+.focus-tooltip {
+	position: fixed;
+	transform: translateX(-50%);
+	z-index: 10000;
+	max-width: 280px;
+	padding: 3px 7px;
+	font-size: 12px;
+	line-height: 1.35;
+	color: var(--text-primary);
+	background: var(--bg-primary);
+	border: 1px solid var(--border-secondary);
+	border-radius: var(--radius-sm);
+	box-shadow: var(--shadow-sm);
+	pointer-events: none;
+	white-space: pre-line;
+}

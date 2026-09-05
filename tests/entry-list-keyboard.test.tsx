@@ -107,6 +107,25 @@ describe('the entry list', () => {
         expect(onRemove).toHaveBeenCalledWith(expect.objectContaining({ title: 'entry 01' }));
     });
 
+    it('moves to the next entry whose title starts with the typed letters', () => {
+        const { getByRole } = render(<Harness count={12} />);
+        const grid = getByRole('grid');
+        act(() => grid.focus());
+        fireEvent.keyDown(grid, { key: 'e' });
+        expect(activeRow(grid)!.textContent).toContain('entry 01');
+        fireEvent.keyDown(grid, { key: 'e' });
+        expect(activeRow(grid)!.textContent).toContain('entry 02');
+        vi.useFakeTimers();
+        try {
+            vi.advanceTimersByTime(1100);
+            for (const key of 'entry 1') fireEvent.keyDown(grid, { key });
+            expect(activeRow(grid)!.textContent).toContain('entry 10');
+            expect(document.activeElement).toBe(grid);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('leaves keys from a row button alone', () => {
         const onRemove = vi.fn();
         const { getByRole } = render(<Harness count={3} onRemove={onRemove} />);
