@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
+import { webcrypto } from 'node:crypto';
+Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
+
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { render, cleanup, fireEvent, waitFor as rtlWaitFor } from '@testing-library/react';
 import React from 'react';
 import { EntryList } from '../src/components/PasswordView/EntryList';
 import { EntryDetails } from '../src/components/PasswordView/EntryDetails';
@@ -60,5 +63,18 @@ describe('collapsible toggles', () => {
         expect(toggle.getAttribute('aria-expanded')).toBe('false');
         fireEvent.click(toggle);
         expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    });
+});
+
+describe('countdowns', () => {
+    it('name the seconds left on the one-time code', async () => {
+        const otp = 'otpauth://totp/Demo?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&period=30';
+        const { container } = render(
+            <EntryDetails entry={makeEntry('a', 'alpha', { customFields: [{ key: 'otp', value: otp, protected: true }] })} onClose={() => {}} onSave={() => {}} />
+        );
+        await rtlWaitFor(() => expect(container.querySelector('.totp-countdown')).not.toBeNull());
+        const timer = container.querySelector('.totp-countdown')!;
+        expect(timer.getAttribute('role')).toBe('timer');
+        expect(timer.getAttribute('aria-label')).toMatch(/^Code changes in \d+ seconds$/);
     });
 });

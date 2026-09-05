@@ -22,6 +22,8 @@ interface BreachReportProps {
     expiredEntries: Array<{ entry: Entry; group: Group }>;
     isChecking: boolean;
     isCheckingEmails: boolean;
+    // Shown after unlock without the user asking; no focus ring until a key is pressed
+    autoOpened?: boolean;
 }
 
 type TabType = 'breached' | 'reused' | 'weak' | 'emails' | 'expired';
@@ -57,7 +59,8 @@ export const BreachReport = ({
     expiredEntries,
     onClose,
     isChecking,
-    isCheckingEmails
+    isCheckingEmails,
+    autoOpened = false,
 }: BreachReportProps) => {
     const [activeTab, setActiveTab] = useState<TabType>('breached');
     // Titles and usernames may hold {REF:...} and placeholders; the report
@@ -158,7 +161,7 @@ export const BreachReport = ({
     );
 
     return (
-        <Modal overlayClassName="breach-report-overlay" className="breach-report" labelledBy="breach-report-title" onClose={onClose} initialFocus="container">
+        <Modal overlayClassName="breach-report-overlay" className="breach-report" labelledBy="breach-report-title" onClose={onClose} initialFocus="container" quietInitialFocus={autoOpened}>
                 <div className="breach-report-header">
                     <h2 id="breach-report-title">Security Report</h2>
                     <button className="report-close-button" onClick={onClose} aria-label="Close security report">

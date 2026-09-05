@@ -9,7 +9,7 @@ import { SshAgentService, ENABLED_KEEAGENT_SETTINGS, KeeAgentSettings } from '..
 import type { SshKeyInspection } from '../../types/electron';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
-import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon, LinkActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon, LinkActionIcon, MoveActionIcon } from '../../icons/actions/ActionIcons';
 import { PasskeyService } from '../../services/PasskeyService';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
@@ -24,6 +24,7 @@ import { PasswordStrength } from '../../services/BreachStatusStore';
 import { ClipboardService } from '../../services/ClipboardService';
 import { Modal } from '../Modal';
 import { matchesChord, dialogOpen } from '../../services/Shortcuts';
+import { confirmDialog } from '../../services/Dialogs';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -39,6 +40,8 @@ interface EntryDetailsProps {
 	panelRef?: React.RefObject<HTMLDivElement>;
 	// Escape while viewing: the caller takes focus back
 	onReturnFocus?: () => void;
+	// Opens the destination picker; absent for a new entry
+	onMove?: () => void;
 }
 
 // Escape leaves the panel while viewing. While editing it does nothing: the
@@ -136,7 +139,7 @@ const PasswordStrengthIndicator = ({ score, warning, suggestions }: PasswordStre
 	);
 };
 
-export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick, panelRef, onReturnFocus }: EntryDetailsProps) => {
+export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick, panelRef, onReturnFocus, onMove }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
 	const [showIconPicker, setShowIconPicker] = useState(false);
@@ -342,12 +345,19 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	const copyToClipboard = (text: string, field: string) =>
 		ClipboardService.copy(resolved(text), field, copySource(field));
 
+	// The countdown badge is visual; the name carries it for everyone else
+	const countdownLabel = (title: string, field: string) =>
+		clipboard.secondsLeft > 0 && clipboard.source === copySource(field)
+			? `${title}, clipboard clears in ${clipboard.secondsLeft} seconds`
+			: title;
+
 	const renderCopyButton = (onClick: () => void, title: string, field: string) => (
 		<>
 			<button
 				className="copy-button"
 				onClick={onClick}
-				title={title} aria-label={title}
+				title={title}
+				aria-label={countdownLabel(title, field)}
 			>
 				<CopyActionIcon />
 				{clipboard.secondsLeft > 0 && clipboard.source === copySource(field) && (
@@ -613,8 +623,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// Unmount always means the form is gone; leave no stale dirty flag behind
 	useEffect(() => () => { onDirtyChange?.(false); }, []);
 
-	const handleClose = () => {
-		if (isDirty && !window.confirm('Discard unsaved changes to this entry?')) return;
+	const handleClose = async () => {
+		if (isDirty && !(await confirmDialog('Discard unsaved changes to this entry?', 'Discard'))) return;
 		onClose();
 	};
 
@@ -642,8 +652,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		[editedEntry.customFields, otpConfig, passkeyInfo]
 	);
 
-	const handleRemovePasskey = () => {
-		if (!window.confirm('Remove the passkey from this entry? Remove it from the website\'s account settings too.')) return;
+	const handleRemovePasskey = async () => {
+		if (!(await confirmDialog('Remove the passkey from this entry? Remove it from the website\'s account settings too.', 'Remove Passkey'))) return;
 		const cleaned = {
 			...editedEntry,
 			customFields: editedEntry.customFields.filter(f => !PasskeyService.isPasskeyFieldKey(f.key)),
@@ -876,6 +886,15 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							<EditActionIcon />
 						</button>
 					)}
+					{!isNew && !isEditing && onMove && (
+						<button
+							className="edit-button"
+							onClick={onMove}
+							title="Move to group" aria-label="Move to group"
+						>
+							<MoveActionIcon />
+						</button>
+					)}
 					<button className="entry-close-button" onClick={handleClose} aria-label="Close entry">
 						<CloseActionIcon />
 					</button>
@@ -1074,7 +1093,11 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								<span className="totp-code">
 									{totpCode.slice(0, Math.ceil(totpCode.length / 2))}&thinsp;{totpCode.slice(Math.ceil(totpCode.length / 2))}
 								</span>
-								<span className={`totp-countdown ${totpSecondsLeft <= 5 ? 'expiring' : ''}`}>
+								<span
+									className={`totp-countdown ${totpSecondsLeft <= 5 ? 'expiring' : ''}`}
+									role="timer"
+									aria-label={`Code changes in ${totpSecondsLeft} seconds`}
+								>
 									{totpSecondsLeft}s
 								</span>
 							</div>

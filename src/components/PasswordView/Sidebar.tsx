@@ -3,7 +3,7 @@ import { Database, Group, Entry } from '../../types/database';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { GroupSummary } from '../../services/BreachCheckService';
 import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
-import { ChevronActionIcon, AddActionIcon, EditActionIcon, CloseActionIcon } from '../../icons/actions/ActionIcons';
+import { ChevronActionIcon, AddActionIcon, EditActionIcon, CloseActionIcon, MoveActionIcon } from '../../icons/actions/ActionIcons';
 import { ItemIcon } from './ItemIcon';
 
 interface SidebarProps {
@@ -20,6 +20,8 @@ interface SidebarProps {
 	onMoveGroup?: (group: Group, newParent: Group) => void;
 	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
 	onDatabaseChange?: (database: Database) => void;
+	// Opens the destination picker (the keyboard route of drag-and-drop)
+	onMoveGroupRequest?: (group: Group) => void;
 	// The tree element, for a caller that wants to hand focus back to it
 	treeRef?: React.RefObject<HTMLDivElement>;
 }
@@ -36,6 +38,7 @@ interface GroupItemProps {
 	onEditGroup?: (group: Group) => void;
 	onMoveGroup?: (group: Group, newParent: Group) => void;
 	onMoveEntry?: (entry: Entry, targetGroup: Group) => void;
+	onMoveGroupRequest?: (group: Group) => void;
 	database: Database;
 	collapsed: Set<string>;
 	onToggle: (groupId: string) => void;
@@ -56,7 +59,7 @@ const rowsOf = (row: HTMLElement): HTMLElement[] =>
 const parentRowOf = (row: HTMLElement): HTMLElement | null =>
 	row.parentElement?.parentElement?.closest('.group-item')?.querySelector<HTMLElement>(':scope > .group-header') ?? null;
 
-const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onEditGroup, onMoveGroup, onMoveEntry, database, collapsed, onToggle, tabbableId, onRowFocus, onSelectId }: GroupItemProps) => {
+const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onEditGroup, onMoveGroup, onMoveEntry, onMoveGroupRequest, database, collapsed, onToggle, tabbableId, onRowFocus, onSelectId }: GroupItemProps) => {
 	const isExpanded = !collapsed.has(group.id);
 	const [isDragging, setIsDragging] = useState(false);
 	const [isDragOver, setIsDragOver] = useState(false);
@@ -281,6 +284,15 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 								<EditActionIcon />
 							</button>
 						)}
+						{group.id !== database.root.id && onMoveGroupRequest && (
+							<button
+								className="group-action-button"
+								onClick={() => onMoveGroupRequest(group)}
+								title="Move group" aria-label="Move group"
+							>
+								<MoveActionIcon />
+							</button>
+						)}
 						{group.id !== database.root.id && (
 							<button
 								className="group-action-button"
@@ -308,6 +320,7 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 							onEditGroup={onEditGroup}
 							onMoveGroup={onMoveGroup}
 							onMoveEntry={onMoveEntry}
+							onMoveGroupRequest={onMoveGroupRequest}
 							database={database}
 							collapsed={collapsed}
 							onToggle={onToggle}
@@ -332,7 +345,7 @@ const pathTo = (group: Group, id: string): Group[] | null => {
 	return null;
 };
 
-export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onEditGroup, onMoveGroup, onMoveEntry, onDatabaseChange, treeRef }: SidebarProps) => {
+export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onEditGroup, onMoveGroup, onMoveEntry, onDatabaseChange, onMoveGroupRequest, treeRef }: SidebarProps) => {
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
 	const [editedTitle, setEditedTitle] = useState(database.name);
 	const titleInputRef = useRef<HTMLInputElement>(null);
@@ -442,6 +455,7 @@ export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect
 					onEditGroup={onEditGroup}
 					onMoveGroup={onMoveGroup}
 					onMoveEntry={onMoveEntry}
+					onMoveGroupRequest={onMoveGroupRequest}
 					database={database}
 					collapsed={collapsed}
 					onToggle={toggle}

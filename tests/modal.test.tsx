@@ -100,6 +100,23 @@ describe('a dialog', () => {
     });
 });
 
+describe('a dialog the app opened on its own', () => {
+    it('stays quiet until the first key pressed inside it', () => {
+        const { getByRole, getByText } = render(
+            <Modal overlayClassName="pairing-overlay" className="pairing-dialog" labelledBy="q" quietInitialFocus initialFocus="container">
+                <h3 id="q">Report</h3>
+                <button>Close</button>
+            </Modal>
+        );
+        const dialog = getByRole('dialog');
+        expect(document.activeElement).toBe(dialog);
+        expect(dialog.hasAttribute('data-quiet-focus')).toBe(true);
+        fireEvent.keyDown(dialog, { key: 'Tab', shiftKey: true });
+        expect(dialog.hasAttribute('data-quiet-focus')).toBe(false);
+        expect(document.activeElement).toBe(getByText('Close'));
+    });
+});
+
 describe('a nested dialog', () => {
     it('closes alone on Escape and returns focus to the outer one', () => {
         const onClose = vi.fn();

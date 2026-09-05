@@ -17,6 +17,8 @@ import { BreachStatusStore } from './services/BreachStatusStore';
 import { EmailBreachStatusStore } from './services/EmailBreachStatusStore';
 import { ClipboardService } from './services/ClipboardService';
 import { matchesChord, dialogOpen, focusSearch, zoomAction } from './services/Shortcuts';
+import { confirmDialog } from './services/Dialogs';
+import { ConfirmDialog, ConfirmRequest } from './components/ConfirmDialog';
 import { BreachCacheCrypto } from './services/BreachCacheCrypto';
 import { userSettingsService } from './services/UserSettingsService';
 import { BrowserIntegrationService } from './services/BrowserIntegrationService';
@@ -445,13 +447,13 @@ function App() {
 
 	// force skips the unsaved-edits prompt, for locks that have to happen
 	// whatever the answer would be (idle timeout, suspend, screen lock)
-	const handleLock = (options?: { force?: boolean }) => {
+	const handleLock = async (options?: { force?: boolean }) => {
 		if (!options?.force && entryDirty.current &&
-			!window.confirm('This entry has unsaved changes. Discard them and lock?')) {
+			!(await confirmDialog('This entry has unsaved changes. Discard them and lock?', 'Discard and Lock'))) {
 			return;
 		}
 		if (!options?.force && saveFailed.current &&
-			!window.confirm('The last save failed. Discard the unsaved changes and lock?')) {
+			!(await confirmDialog('The last save failed. Discard the unsaved changes and lock?', 'Discard and Lock'))) {
 			return;
 		}
 		entryDirty.current = false;
@@ -655,6 +657,14 @@ function App() {
 					key={consent.id}
 					message={(consent.payload as { message: string }).message}
 					onOverwrite={() => consentQueue.settle(consent.id, true)}
+					onCancel={() => consentQueue.settle(consent.id, false)}
+				/>
+			)}
+			{consent?.kind === 'confirm' && (
+				<ConfirmDialog
+					key={consent.id}
+					request={consent.payload as ConfirmRequest}
+					onConfirm={() => consentQueue.settle(consent.id, true)}
 					onCancel={() => consentQueue.settle(consent.id, false)}
 				/>
 			)}

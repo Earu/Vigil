@@ -196,7 +196,14 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                             placeholder="Generated password will appear here"
                         />
                         <div className="password-actions">
-                            <button className="generator-copy-button" onClick={copyToClipboard} title="Copy password" aria-label="Copy password">
+                            <button
+                                className="generator-copy-button"
+                                onClick={copyToClipboard}
+                                title="Copy password"
+                                aria-label={clipboard.secondsLeft > 0 && clipboard.source === COPY_SOURCE
+                                    ? `Copy password, clipboard clears in ${clipboard.secondsLeft} seconds`
+                                    : 'Copy password'}
+                            >
                                 <CopyActionIcon />
                                 {clipboard.secondsLeft > 0 && clipboard.source === COPY_SOURCE && (
                                     <div
