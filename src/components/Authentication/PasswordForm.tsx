@@ -757,7 +757,7 @@ export const PasswordForm = ({
                         </div>
                     )}
 
-                    {error && <div className="error-message">{error}</div>}
+                    {error && <div className="error-message" role="alert">{error}</div>}
 
                     <div className="form-buttons">
                         {isCreatingNew && (

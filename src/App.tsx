@@ -16,7 +16,7 @@ import { HaveIBeenPwnedService } from './services/HaveIBeenPwnedService';
 import { BreachStatusStore } from './services/BreachStatusStore';
 import { EmailBreachStatusStore } from './services/EmailBreachStatusStore';
 import { ClipboardService } from './services/ClipboardService';
-import { matchesChord, dialogOpen, focusSearch } from './services/Shortcuts';
+import { matchesChord, dialogOpen, focusSearch, zoomAction } from './services/Shortcuts';
 import { BreachCacheCrypto } from './services/BreachCacheCrypto';
 import { userSettingsService } from './services/UserSettingsService';
 import { BrowserIntegrationService } from './services/BrowserIntegrationService';
@@ -418,6 +418,12 @@ function App() {
 	const shortcutActions = useRef({ lock: () => {}, vaultOpen: false });
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
+			const zoom = zoomAction(e);
+			if (zoom) {
+				e.preventDefault();
+				window.electron?.zoom(zoom).catch(() => {});
+				return;
+			}
 			if (matchesChord(e, 'Mod+,')) {
 				if (dialogOpen()) return;
 				e.preventDefault();

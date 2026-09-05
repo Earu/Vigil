@@ -649,7 +649,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                         onChange={(e) => { setConfirmPw(e.target.value); setPwError(''); }}
                                     />
                                 </div>
-                                {pwError && <p className="db-settings-error">{pwError}</p>}
+                                {pwError && <p className="db-settings-error" role="alert">{pwError}</p>}
                                 <div className="db-apply-row">
                                     <button
                                         className="settings-secondary-button"

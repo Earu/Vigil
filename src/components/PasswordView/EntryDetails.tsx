@@ -957,6 +957,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							<button
 								className="icon-picker-file-button"
 								onClick={() => setShowIconPicker(v => !v)}
+								aria-expanded={showIconPicker}
 								type="button"
 							>
 								{showIconPicker ? 'Hide icons' : 'Change...'}
@@ -1618,6 +1619,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								<div className="history-item" key={index}>
 									<button
 										className="history-row"
+										aria-expanded={expandedVersion === index}
 										onClick={() => {
 											setShowVersionPassword(false);
 											setExpandedVersion(expandedVersion === index ? null : index);
