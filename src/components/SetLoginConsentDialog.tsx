@@ -14,7 +14,7 @@ export const SetLoginConsentDialog = ({ request, onSubmit, onCancel }: SetLoginC
     const isUpdate = request.mode === 'update';
 
     return (
-        <Modal overlayClassName="pairing-overlay" className="pairing-dialog" labelledBy="set-login-title" onClose={onCancel}>
+        <Modal overlayClassName="pairing-overlay" quietInitialFocus className="pairing-dialog" labelledBy="set-login-title" onClose={onCancel}>
                 <h3 id="set-login-title">{isUpdate ? 'Update Login' : 'Save Login'}</h3>
                 <p>
                     A browser is asking to {isUpdate ? 'update the password for' : 'save a new login for'}{' '}

@@ -32,6 +32,7 @@ export const BrowserPairingDialog = ({ fingerprint, existingNames, onSubmit, onC
     return (
         <Modal
             overlayClassName="pairing-overlay"
+            quietInitialFocus
             className="pairing-dialog"
             labelledBy="pairing-title"
             onClose={overwriting ? () => setOverwriting(null) : onCancel}

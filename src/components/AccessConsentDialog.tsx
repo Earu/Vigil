@@ -26,7 +26,7 @@ export const AccessConsentDialog = ({ request, onSubmit, onCancel }: AccessConse
     const deny = () => (remember ? onSubmit([], true) : onCancel());
 
     return (
-        <Modal overlayClassName="pairing-overlay" className="pairing-dialog passkey-dialog" labelledBy="access-title" onClose={deny}>
+        <Modal overlayClassName="pairing-overlay" quietInitialFocus className="pairing-dialog passkey-dialog" labelledBy="access-title" onClose={deny}>
                 <h3 id="access-title">Allow Browser Access</h3>
                 <p>
                     A browser is asking for the logins matching{' '}

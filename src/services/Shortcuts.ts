@@ -95,6 +95,25 @@ export const zoomAction = (e: KeyboardEvent): ZoomDirection | null => {
     return null;
 };
 
+// Actions the macOS menu can trigger by id (electron/src/menu.ts sends
+// 'menu-action'). Each owner registers while mounted; the key handlers
+// call the same functions
+export type ActionId = 'search' | 'newEntry' | 'lock' | 'settings' | 'edit' | 'move' | 'copyUsername' | 'copyOtp' | 'openUrl';
+
+const actions = new Map<ActionId, () => void>();
+
+export const registerAction = (id: ActionId, run: () => void): (() => void) => {
+    actions.set(id, run);
+    return () => { if (actions.get(id) === run) actions.delete(id); };
+};
+
+export const runAction = (id: ActionId): boolean => {
+    const run = actions.get(id);
+    if (!run) return false;
+    run();
+    return true;
+};
+
 // A dialog's focus trap owns the keyboard; vault shortcuts stay out
 export const dialogOpen = (): boolean =>
     document.querySelector('[role="dialog"], [role="alertdialog"]') !== null;

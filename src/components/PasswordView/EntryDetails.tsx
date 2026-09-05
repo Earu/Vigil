@@ -23,7 +23,7 @@ import { ReferenceWizard, ReferenceFieldCode } from './ReferenceWizard';
 import { PasswordStrength } from '../../services/BreachStatusStore';
 import { ClipboardService } from '../../services/ClipboardService';
 import { Modal } from '../Modal';
-import { matchesChord, dialogOpen } from '../../services/Shortcuts';
+import { matchesChord, dialogOpen, registerAction } from '../../services/Shortcuts';
 import { confirmDialog } from '../../services/Dialogs';
 
 interface EntryDetailsProps {
@@ -278,6 +278,15 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// box usually holds it). The handlers change with every render, so the
 	// listener reads the latest through a ref
 	const shortcutActions = useRef<Record<string, () => void>>({});
+	const editingRef = useRef(false);
+	editingRef.current = isEditing || isNew;
+	useEffect(() => {
+		const viewAction = (id: 'edit' | 'copyUsername' | 'copyOtp' | 'openUrl') => () => {
+			if (!editingRef.current) shortcutActions.current[id]?.();
+		};
+		const unregister = (['edit', 'copyUsername', 'copyOtp', 'openUrl'] as const).map((id) => registerAction(id, viewAction(id)));
+		return () => { for (const stop of unregister) stop(); };
+	}, []);
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			// A generator, wizard or picker on top owns the keyboard

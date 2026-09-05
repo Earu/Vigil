@@ -7,6 +7,7 @@ import './HardwareKeyTouchDialog.css';
 export const HardwareKeyTouchDialog = () => (
     <Modal
         overlayClassName="pairing-overlay"
+            quietInitialFocus
         className="pairing-dialog hardware-key-touch-dialog"
         labelledBy="hardware-key-touch-title"
         describedBy="hardware-key-touch-message"
