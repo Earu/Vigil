@@ -57,8 +57,9 @@ describe('findDebugSwitch', () => {
         expect(findDebugSwitch(s => s === name)).toBe(name);
     });
 
-    it('leaves the switches Vigil and desktop environments use alone', () => {
-        for (const name of ['ozone-platform-hint', 'ozone-platform', 'enable-transparent-visuals', 'browser-proxy', 'disable-gpu', 'enable-features', 'disable-features', 'no-sandbox', 'type']) {
+    it('leaves the switches Vigil, Electron and desktop environments use alone', () => {
+        // allow-file-access-from-files is on every Electron command line
+        for (const name of ['ozone-platform-hint', 'ozone-platform', 'enable-transparent-visuals', 'browser-proxy', 'disable-gpu', 'enable-features', 'disable-features', 'no-sandbox', 'type', 'allow-file-access-from-files', 'smoke-boot']) {
             expect(findDebugSwitch(s => s === name)).toBeNull();
         }
     });

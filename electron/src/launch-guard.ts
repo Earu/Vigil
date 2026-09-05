@@ -30,11 +30,12 @@ export const DEBUG_SWITCHES = [
     // Point the app at another profile: granted-paths.json there is whatever
     // the launcher wrote, which turns into arbitrary read and write grants
     'user-data-dir',
-    // Load code or turn off the page's protections
+    // Load code or turn off the page's protections. Not listed:
+    // allow-file-access-from-files, which Electron itself appends to every
+    // launch, so refusing it refuses every start
     'load-extension',
     'disable-web-security',
     'allow-running-insecure-content',
-    'allow-file-access-from-files',
     'disable-site-isolation-trials',
     'js-flags',
     'auto-open-devtools-for-tabs',
