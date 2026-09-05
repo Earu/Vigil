@@ -1,4 +1,4 @@
-import { Notification, BrowserWindow, desktopCapturer, screen } from 'electron';
+import { Notification, BrowserWindow, desktopCapturer, screen, shell } from 'electron';
 import { handle, on } from './ipc-guard';
 import { findVaultWindow, registerVault, unregisterWindow, focusWindow, setUnsavedChanges } from './window';
 import { hashPassword } from './crypto';
@@ -32,7 +32,8 @@ import { isSupported as isContentProtectionSupported, isContentProtectionEnabled
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
 import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
 import { logRendererError, revealLogs } from './logger';
-import { isPathGranted } from './path-authority';
+import { isPathGranted, grantPath } from './path-authority';
+import { scanConflictCopies, nominateConflictCopy, isNominatedConflictCopy } from './conflict-copies';
 import { agentSocketPath, isAgentRunning, listIdentities, addKeyForWindow, releaseWindow, removeIdentity, forgetKeyForWindow, loadedFingerprints } from './ssh-agent';
 import { parsePrivateKey, publicBlobOf, readPublicInfo, fingerprintOf, SshKeyError } from './ssh-key';
 import { consumeRecentGesture } from './gesture';
@@ -139,6 +140,36 @@ export function setupIpcHandlers(): void {
             return { success: false, error: 'Unknown database path' };
         }
         return await revealBackups(filePath);
+    });
+
+    // Conflict copies a sync client left beside the vault (conflict-copies.ts).
+    // The renderer asks once when it starts listening for the watcher's
+    // events, since copies from before the vault opened raise no event.
+    // Gated on the vault path: only an open vault has copies to ask about,
+    // and each copy found is read-granted for the renderer to examine
+    handle('list-conflict-copies', async (_, vaultPath: string) => {
+        if (!isPathGranted(vaultPath)) return [];
+        const copies = await scanConflictCopies(vaultPath);
+        for (const copy of copies) {
+            nominateConflictCopy(copy.copyPath);
+            grantPath(copy.copyPath);
+        }
+        return copies;
+    });
+
+    // The one delete the renderer may request, and only for a file the main
+    // process itself named as a conflict copy: a read grant alone is not
+    // enough, since key files hold one too. To the trash, never unlinked
+    handle('trash-conflict-copy', async (_, copyPath: string) => {
+        if (!isPathGranted(copyPath) || !isNominatedConflictCopy(copyPath)) {
+            return { success: false, error: 'Not a conflict copy of an open vault' };
+        }
+        try {
+            await shell.trashItem(copyPath);
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error instanceof Error ? error.message : 'Failed to move the file to the trash' };
+        }
     });
 
     handle('save-attachment', async (_, name: string, data: Uint8Array) => {

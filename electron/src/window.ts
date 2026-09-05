@@ -7,6 +7,8 @@ import { isDevBuild } from './utils';
 import { APP_INDEX_URL } from './app-protocol';
 import { trackGestures } from './gesture';
 import { watchVault, unwatchWindow } from './vault-watcher';
+import { nominateConflictCopy } from './conflict-copies';
+import { grantPath } from './path-authority';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
@@ -47,8 +49,19 @@ export function registerVault(filePath: string, win: BrowserWindow): void {
     removeWindow(win);
     vaultWindows.set(normalizeVaultPath(filePath), win);
     // Changes made to the file by anything else (a sync client delivering
-    // another machine's edit) are merged into the open vault as they land
-    watchVault(win, filePath);
+    // another machine's edit) are merged into the open vault as they land.
+    // A conflict copy the sync client drops beside it is nominated for the
+    // renderer to examine: the read grant lets it open the file, the
+    // nomination is what later allows trashing it, and nothing else about
+    // the file is decided here (see conflict-copies.ts)
+    watchVault(win, filePath, {
+        onConflictCopy: (copyPath, hash) => {
+            if (win.isDestroyed()) return;
+            nominateConflictCopy(copyPath);
+            grantPath(copyPath);
+            win.webContents.send('vault-conflict-copy', { path: filePath, copyPath, hash });
+        },
+    });
     vaultWindowsListener?.(getVaultWindows().length);
 }
 

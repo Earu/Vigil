@@ -251,7 +251,7 @@ export const EntryList = ({
 												{!status?.isPwned && ((status?.strength && status?.strength?.score < 3) || status?.breachedEmail) && (
 													<span className="weak-password-indicator" title={
 														status?.breachedEmail ? 'Email address found in data breaches' :
-														status?.strength?.feedback.warning || 'Weak password detected'
+														status?.strength?.feedback.warning || 'Weak password'
 													}>
 														<SecurityShieldIcon className="weak-password-icon" />
 													</span>

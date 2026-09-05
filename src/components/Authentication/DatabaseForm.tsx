@@ -66,7 +66,7 @@ export const DatabaseForm = ({
 
     return (
         <>
-            <p>Select or drop your KeePass database file to get started</p>
+            <p>Select or drop your KeePass database file</p>
             <div className="database-actions">
                 <button
                     className="file-input-label"

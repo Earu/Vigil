@@ -25,6 +25,7 @@ import { SetLoginConsentDialog } from './components/SetLoginConsentDialog';
 import { AccessConsentDialog } from './components/AccessConsentDialog';
 import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
 import { SaveConflictDialog } from './components/SaveConflictDialog';
+import { ConflictCopyDialog, ConflictCopyRequest, hasChanges } from './components/ConflictCopyDialog';
 import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
 import { consentQueue } from './services/ConsentQueue';
 import { FaviconService } from './services/FaviconService';
@@ -263,6 +264,87 @@ function App() {
 		return () => unsubscribe();
 	}, [kdbxDb]);
 
+	// Conflict copies a sync client left beside the vault: the ones already
+	// there when the vault opened (asked for once) and the ones that appear
+	// while it is open (the watcher). Each is opened with this vault's
+	// credentials and matched by identity before its changes are merged in;
+	// the user then decides whether to save and trash the copy. One at a time:
+	// two copies merging into the same kdbx concurrently would race
+	useEffect(() => {
+		if (!kdbxDb || !window.electron) return;
+		const vaultPath = KeepassDatabaseService.getPath();
+		if (!vaultPath) return;
+		const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
+		const vaultName = baseName(vaultPath);
+
+		let chain: Promise<void> = Promise.resolve();
+		const absorb = async (copyPath: string, hash: string) => {
+			if (kdbxDbRef.current !== kdbxDb) return;
+			const copyName = baseName(copyPath);
+			const result = await KeepassDatabaseService.absorbConflictCopy(kdbxDb, copyPath, hash);
+			if (kdbxDbRef.current !== kdbxDb) return;
+			if (result.outcome === 'locked') {
+				(window as any).showToast?.({
+					message: `${copyName} looks like a copy of this vault, but this vault's password does not open it`,
+					type: 'warning',
+					duration: 8000
+				});
+				return;
+			}
+			if (result.outcome !== 'merged') return;
+
+			const changed = hasChanges(result.changes);
+			if (changed) setDatabase(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+			window.electron?.focusWindow().catch(() => {});
+			const trash = await consentQueue.enqueue<ConflictCopyRequest, boolean>(
+				'conflict-copy', 0, { copyName, vaultName, changes: result.changes }, false);
+			if (kdbxDbRef.current !== kdbxDb) return;
+			if (!trash) {
+				(window as any).showToast?.({
+					message: changed
+						? `Took the changes from ${copyName} and kept the copy`
+						: `Kept ${copyName}`,
+					type: 'info',
+					duration: 5000
+				});
+				return;
+			}
+			// A copy that changed the vault goes only once the merged state is
+			// on disk; a save that fails has already said so and leaves the
+			// copy where it is. A copy that changed nothing needs no save
+			if (changed) {
+				try {
+					await handleDatabaseChange(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+				} catch {
+					return;
+				}
+				if (kdbxDbRef.current !== kdbxDb) return;
+			}
+			const trashed = await window.electron!.trashConflictCopy(copyPath);
+			(window as any).showToast?.({
+				message: trashed.success
+					? (changed ? `Saved the changes from ${copyName} and moved it to the trash` : `Moved ${copyName} to the trash`)
+					: `Could not move ${copyName} to the trash: ${trashed.error ?? 'unknown error'}`,
+				type: trashed.success ? 'success' : 'warning',
+				duration: 5000
+			});
+		};
+		const enqueue = (copyPath: string, hash: string) => {
+			chain = chain
+				.then(() => absorb(copyPath, hash))
+				.catch(err => console.error('Failed to handle a conflict copy:', err));
+		};
+
+		const unsubscribe = window.electron.on('vault-conflict-copy',
+			({ path, copyPath, hash }: { path: string; copyPath: string; hash: string }) => {
+				if (path === vaultPath) enqueue(copyPath, hash);
+			});
+		window.electron.listConflictCopies(vaultPath)
+			.then(copies => { for (const copy of copies) enqueue(copy.copyPath, copy.hash); })
+			.catch(err => console.error('Failed to list conflict copies:', err));
+		return () => unsubscribe();
+	}, [kdbxDb]);
+
 	const handleDatabaseOpen = async (database: Database, kdbxDb: kdbxweb.Kdbx, showBreachReport?: boolean) => {
 		// Ahead of the await below, not after it. The caller starts the breach
 		// sweep without waiting on this function, and the sweep reads caches
@@ -338,7 +420,7 @@ function App() {
 			return;
 		}
 		if (!options?.force && saveFailed.current &&
-			!window.confirm('The last save failed, so recent changes are not in the file. Discard them and lock?')) {
+			!window.confirm('The last save failed. Discard the unsaved changes and lock?')) {
 			return;
 		}
 		entryDirty.current = false;
@@ -544,6 +626,14 @@ function App() {
 					message={(consent.payload as { message: string }).message}
 					onOverwrite={() => consentQueue.settle(consent.id, true)}
 					onCancel={() => consentQueue.settle(consent.id, false)}
+				/>
+			)}
+			{consent?.kind === 'conflict-copy' && (
+				<ConflictCopyDialog
+					key={consent.id}
+					request={consent.payload as ConflictCopyRequest}
+					onTrash={() => consentQueue.settle(consent.id, true)}
+					onKeep={() => consentQueue.settle(consent.id, false)}
 				/>
 			)}
 			{hardwareKeyTouchPending && <HardwareKeyTouchDialog />}

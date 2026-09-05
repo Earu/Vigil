@@ -22,6 +22,7 @@ vi.mock('electron', () => ({
     app: {},
     desktopCapturer: { getSources: vi.fn() },
     screen: { getAllDisplays: vi.fn(() => []) },
+    shell: { trashItem: vi.fn(async () => {}) },
 }));
 
 // The sender check has its own tests (ipc-guard.test.ts); here every fake
@@ -119,6 +120,7 @@ vi.mock('../electron/src/qr-decode', () => ({
 
 vi.mock('../electron/src/path-authority', () => ({
     isPathGranted: vi.fn(() => false),
+    grantPath: vi.fn(),
 }));
 
 const electron = await import('electron');
@@ -132,6 +134,7 @@ const logger = await import('../electron/src/logger');
 const authority = await import('../electron/src/path-authority');
 const gesture = await import('../electron/src/gesture');
 const qrDecode = await import('../electron/src/qr-decode');
+const conflictCopies = await import('../electron/src/conflict-copies');
 
 const { setupIpcHandlers } = await import('../electron/src/ipc');
 setupIpcHandlers();
@@ -578,5 +581,41 @@ describe('backup defaulting', () => {
         const data = new Uint8Array([9]);
         await invoke('save-to-file', '/vault.kdbx', data);
         expect(saveToFile).toHaveBeenCalledWith('/vault.kdbx', data, DEFAULT_BACKUP_SENTINEL);
+    });
+});
+
+describe('conflict copies', () => {
+    const trashItem = vi.mocked(electron.shell.trashItem);
+    beforeEach(() => {
+        trashItem.mockClear();
+        conflictCopies.resetNominationsForTests();
+    });
+
+    it('lists nothing for a vault path that was never granted', async () => {
+        isPathGranted.mockReturnValue(false);
+        expect(await handlers.get('list-conflict-copies')!(makeEvent(), '/nowhere/vault.kdbx')).toEqual([]);
+    });
+
+    it('refuses to trash a path the main process never nominated, granted or not', async () => {
+        isPathGranted.mockReturnValue(true);
+        const result = await handlers.get('trash-conflict-copy')!(makeEvent(), '/keys/vault.keyx');
+        expect(result.success).toBe(false);
+        expect(trashItem).not.toHaveBeenCalled();
+    });
+
+    it('refuses to trash a nominated copy whose grant is gone', async () => {
+        conflictCopies.nominateConflictCopy('/vaults/vault 2.kdbx');
+        isPathGranted.mockReturnValue(false);
+        const result = await handlers.get('trash-conflict-copy')!(makeEvent(), '/vaults/vault 2.kdbx');
+        expect(result.success).toBe(false);
+        expect(trashItem).not.toHaveBeenCalled();
+    });
+
+    it('trashes a nominated, granted copy and nothing else', async () => {
+        conflictCopies.nominateConflictCopy('/vaults/vault 2.kdbx');
+        isPathGranted.mockReturnValue(true);
+        const result = await handlers.get('trash-conflict-copy')!(makeEvent(), '/vaults/vault 2.kdbx');
+        expect(result).toEqual({ success: true });
+        expect(trashItem).toHaveBeenCalledWith('/vaults/vault 2.kdbx');
     });
 });

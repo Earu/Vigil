@@ -37,6 +37,19 @@ export interface KdfInfo {
     parallelism?: number;
 }
 
+// What a merge did to the vault: entries by kind of change, and groups as one
+// count, since a renamed or moved folder is not worth spelling out
+export interface MergeSummary {
+    added: number;
+    updated: number;
+    removed: number;
+    groups: number;
+}
+
+export type ConflictCopyOutcome =
+    | { outcome: 'seen' | 'locked' | 'foreign' | 'failed' }
+    | { outcome: 'merged'; changes: MergeSummary };
+
 // See KeepassDatabaseService.saveContext
 interface SaveContext {
     path: string | undefined;
@@ -117,6 +130,10 @@ export class KeepassDatabaseService {
     // this the next save would see no difference and skip that backup
     private static externalVersionMerged = false;
 
+    // Conflict copies (by content hash) already looked at this session: the
+    // opening scan and the watcher can both report the same file
+    private static examinedConflictCopies = new Set<string>();
+
     // Converted entry models keyed by their kdbx object; see convertEntry in
     // convertKdbxToDatabase. WeakMap: closing a vault drops the entries and
     // their models with them
@@ -139,6 +156,7 @@ export class KeepassDatabaseService {
         this.lastKnownMtimeMs = undefined;
         this.lastKnownHash = undefined;
         this.externalVersionMerged = false;
+        this.examinedConflictCopies = new Set();
         // Closing the vault: the unmodeled-object ledgers belong to it. New
         // maps rather than clear(): a save still in flight for the vault
         // being closed holds the old ones (see SaveContext) and finishes
@@ -1529,6 +1547,43 @@ export class KeepassDatabaseService {
         if (root) walk(root);
     }
 
+    // Every group and entry by uuid, with what a merge can change about it:
+    // its modification time, where it sits (a move to another group or to the
+    // recycle bin changes the location, not the modification time), and for
+    // entries the history length (a merge that settles two edits archives the
+    // loser as a revision)
+    private static fingerprint(kdbxDb: kdbxweb.Kdbx): Map<string, string> {
+        const out = new Map<string, string>();
+        const walk = (group: kdbxweb.KdbxGroup) => {
+            out.set(group.uuid.id, `g:${group.times.lastModTime?.getTime() ?? 0}:${group.parentGroup?.uuid.id ?? ''}`);
+            for (const entry of group.entries) {
+                out.set(entry.uuid.id, `e:${entry.times.lastModTime?.getTime() ?? 0}:${entry.history.length}:${group.uuid.id}`);
+            }
+            group.groups.forEach(walk);
+        };
+        const root = kdbxDb.getDefaultGroup();
+        if (root) walk(root);
+        return out;
+    }
+
+    private static summarizeMerge(before: Map<string, string>, after: Map<string, string>): MergeSummary {
+        const summary: MergeSummary = { added: 0, updated: 0, removed: 0, groups: 0 };
+        const isGroup = (print: string) => print.startsWith('g:');
+        for (const [uuid, print] of after) {
+            const previous = before.get(uuid);
+            if (previous === print) continue;
+            if (isGroup(print)) summary.groups++;
+            else if (previous === undefined) summary.added++;
+            else summary.updated++;
+        }
+        for (const [uuid, print] of before) {
+            if (after.has(uuid)) continue;
+            if (isGroup(print)) summary.groups++;
+            else summary.removed++;
+        }
+        return summary;
+    }
+
     private static async mergeExternalChanges(
         kdbxDb: kdbxweb.Kdbx,
         data: Uint8Array | undefined,
@@ -1536,13 +1591,39 @@ export class KeepassDatabaseService {
     ): Promise<boolean> {
         if (!data) return false;
 
-        let before: Set<string> | undefined;
+        let remoteDb: kdbxweb.Kdbx;
         try {
-            const remoteDb = await kdbxweb.Kdbx.load(
-                data.slice().buffer,
-                kdbxDb.credentials
-            );
+            remoteDb = await kdbxweb.Kdbx.load(data.slice().buffer, kdbxDb.credentials);
+        } catch (err) {
+            console.error('Failed to merge external changes:', err);
+            return false;
+        }
+        if (!this.mergeLoaded(kdbxDb, remoteDb, unseen)) return false;
 
+        (window as any).showToast?.({
+            message: 'The database changed on disk; external changes were merged',
+            type: 'info'
+        });
+        return true;
+    }
+
+    // Merges an already opened copy of this database into the live one. Shared
+    // by the on-disk merge above (same file, changed) and the conflict-copy
+    // path (a sibling file a sync client made), which differ only in where the
+    // bytes came from and what the user is told afterwards.
+    //
+    // Returns what the merge changed, or null when it threw. The merge decides
+    // per object by modification time, so an incoming file older than the
+    // vault in every respect (a stale copy under a conflict name) changes
+    // nothing, and the caller can say so instead of claiming a merge happened
+    private static mergeLoaded(
+        kdbxDb: kdbxweb.Kdbx,
+        remoteDb: kdbxweb.Kdbx,
+        unseen: Map<string, number | undefined>
+    ): MergeSummary | null {
+        let before: Set<string> | undefined;
+        const fingerprintBefore = this.fingerprint(kdbxDb);
+        try {
             // Before the merge, not after: these notes are what it reads to
             // decide whether a revision missing from the incoming file was
             // deleted there or simply never seen. The incoming file's own
@@ -1560,15 +1641,10 @@ export class KeepassDatabaseService {
             this.reconcileTombstones(kdbxDb, remoteDb);
             kdbxDb.merge(remoteDb);
             this.applyTombstones(kdbxDb);
-
-            (window as any).showToast?.({
-                message: 'The database changed on disk; external changes were merged',
-                type: 'info'
-            });
-            return true;
+            return this.summarizeMerge(fingerprintBefore, this.fingerprint(kdbxDb));
         } catch (err) {
             console.error('Failed to merge external changes:', err);
-            return false;
+            return null;
         } finally {
             // In the finally, not the success path: a merge that throws
             // part-way has still grafted objects into the live kdbx, and
@@ -1633,6 +1709,53 @@ export class KeepassDatabaseService {
         this.lastKnownMtimeMs = hint.mtimeMs;
         this.externalVersionMerged = true;
         return 'merged';
+    }
+
+    // A sync client left a copy of the vault beside it under a conflict name
+    // (electron/src/conflict-copies.ts). The name nominated it; this decides.
+    // The copy must open under the vault's own credentials and carry the same
+    // root group UUID, the identity a kdbx keeps through every copy and edit.
+    // Only then is it merged, in memory, the way a changed file is; the
+    // caller asks the user before anything is saved or trashed.
+    //
+    // 'seen': this content was already examined this session. 'locked': the
+    // copy does not open with these credentials (a different vault, or the
+    // password was changed on the copy). 'foreign': opens but is another
+    // database. 'failed': opened and matched but the merge threw. 'merged':
+    // the kdbx now holds the union, and `changes` says what that added,
+    // updated or removed; all zero for a copy the vault had already outgrown
+    static async absorbConflictCopy(
+        kdbxDb: kdbxweb.Kdbx,
+        copyPath: string,
+        hash: string
+    ): Promise<ConflictCopyOutcome> {
+        const generation = this.pathGeneration;
+        const live = () => this.pathGeneration === generation;
+        if (this.examinedConflictCopies.has(hash)) return { outcome: 'seen' };
+        this.examinedConflictCopies.add(hash);
+        // A save serializes the kdbx; merging into it meanwhile would race
+        while (this.saveInFlight) {
+            await this.currentSave;
+        }
+        if (!live() || !window.electron) return { outcome: 'seen' };
+
+        const result = await window.electron.readFile(copyPath);
+        if (!live()) return { outcome: 'seen' };
+        if (!result.success || !result.data) return { outcome: 'failed' };
+
+        let remoteDb: kdbxweb.Kdbx;
+        try {
+            remoteDb = await kdbxweb.Kdbx.load(new Uint8Array(result.data).slice().buffer, kdbxDb.credentials);
+        } catch (err) {
+            const wrongKey = err instanceof kdbxweb.KdbxError && err.code === kdbxweb.Consts.ErrorCodes.InvalidKey;
+            if (!wrongKey) console.error('Conflict copy could not be opened:', err);
+            return { outcome: wrongKey ? 'locked' : 'failed' };
+        }
+        if (!live()) return { outcome: 'seen' };
+        if (remoteDb.getDefaultGroup().uuid.id !== kdbxDb.getDefaultGroup().uuid.id) return { outcome: 'foreign' };
+
+        const changes = this.mergeLoaded(kdbxDb, remoteDb, this.unseenUuids);
+        return changes ? { outcome: 'merged', changes } : { outcome: 'failed' };
     }
 
     // A vault just opened carries the notes every replica that touched it
@@ -1999,13 +2122,13 @@ export class KeepassDatabaseService {
 
             // Show success toast
             (window as any).showToast?.({
-                message: 'Database saved successfully',
+                message: 'Database saved',
                 type: 'success'
             });
         } catch (err) {
             if (err instanceof Error && err.message === 'SAVE_CANCELLED_CONFLICT') {
                 (window as any).showToast?.({
-                    message: 'Save cancelled; the database on disk was left untouched',
+                    message: 'Save cancelled',
                     type: 'info'
                 });
                 throw err;

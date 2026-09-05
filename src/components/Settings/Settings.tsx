@@ -239,7 +239,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             + `in a text editor rather than a spreadsheet.`;
 
         const confirmed = window.confirm(
-            `Export ${count} entries to a plaintext CSV file? Anyone who can read that file can read every password in it.`
+            `Export ${count} entries to an unencrypted CSV file?`
             + formulaWarning
         );
         if (!confirmed) return;
@@ -381,7 +381,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         if (!selected?.filePath) return;
 
         const confirmed = window.confirm(
-            'The database will be re-encrypted and this key file will be required to unlock it, together with your password. Keep the key file safe: losing it means losing access to the database. Continue?'
+            'The database will be re-encrypted so that unlocking it needs this key file as well as your password. Losing the key file means losing the database. Continue?'
         );
         if (!confirmed) return;
 
@@ -400,7 +400,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
 
     const handleGenerateKeyFile = async () => {
         const confirmed = window.confirm(
-            'A new random key file will be generated and the database re-encrypted with it. You will need it to unlock the database, together with your password. Keep it safe: losing it means losing access to the database. Continue?'
+            'A new random key file will be generated and the database re-encrypted so that unlocking it needs the key file as well as your password. Losing the key file means losing the database. Continue?'
         );
         if (!confirmed) return;
 
@@ -768,7 +768,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     }}
                                 />
                             </div>
-                            <p className="auto-lock-help">When enabled, the database will automatically lock after the specified period of time</p>
+                            <p className="auto-lock-help">Locks the database after this long without activity</p>
                         </div>
                         <div className="clipboard-clear-controls">
                             <div className="auto-lock-duration enabled">
@@ -869,9 +869,8 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     />
                                 </div>
                                 <p className="auto-lock-help">
-                                    Keeps the window out of screenshots and screen shares, so an open vault
-                                    is not caught on a call or a recording. Turn it off if you need to
-                                    screenshot or screen share Vigil itself.
+                                    Keeps the window out of screenshots and screen shares. Turn it off
+                                    if you need to screenshot or screen share Vigil itself.
                                     {navigator.userAgent.includes('Mac') && ' On macOS this does not stop every recorder: apps built on ScreenCaptureKit can still capture the window.'}
                                 </p>
                             </div>
@@ -904,7 +903,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     }}
                                 />
                             </div>
-                            <p className="auto-lock-help">Runs on unlock using k-anonymity: only the first 5 characters of each password's SHA-1 hash leave the machine, never the password</p>
+                            <p className="auto-lock-help">Runs on unlock using k-anonymity: only the first 5 characters of each password's SHA-1 hash leave the machine</p>
                         </div>
                         <div className="api-key-input">
                             <label htmlFor="hibp-api-key">Have I Been Pwned API Key</label>
@@ -1128,7 +1127,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     <DownloadActionIcon className="import-icon" />
                                     Save encrypted copy
                                 </button>
-                                <p className="database-help">Writes the database as it is right now to a .kdbx file of your choice, encrypted with the same credentials</p>
+                                <p className="database-help">Writes the database to a .kdbx file, encrypted with the same credentials</p>
                                 <button
                                     className="import-csv-button"
                                     onClick={handleCsvExport}
@@ -1136,7 +1135,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     <DownloadActionIcon className="import-icon" />
                                     Export to CSV
                                 </button>
-                                <p className="database-help">Writes a CSV file. The file is unencrypted: every password in it is readable as plain text</p>
+                                <p className="database-help">Writes an unencrypted CSV file with every password in plain text</p>
                             </div>
                         </div>
                     )}

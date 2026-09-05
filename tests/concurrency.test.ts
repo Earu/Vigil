@@ -29,7 +29,7 @@ describe('concurrent-change protection', () => {
         const database = Svc.convertKdbxToDatabase(kdbxDb);
         const [updated] = Svc.saveEntry(database, { ...database.root.entries[0], notes: 'local note' }, database.root, false);
         await Svc.saveDatabase(updated, kdbxDb);
-        expect(env.toasts).toContain('Database saved successfully');
+        expect(env.toasts).toContain('Database saved');
         expect(env.toasts.some(t => /merged/i.test(t))).toBe(false);
         expect(env.confirm.calls).toBe(0);
     });
@@ -88,7 +88,7 @@ describe('concurrent-change protection', () => {
         await Svc.saveDatabase(updated, kdbxDb);
 
         expect(env.toasts.some(t => /merged/i.test(t))).toBe(false);
-        expect(env.toasts).toContain('Database saved successfully');
+        expect(env.toasts).toContain('Database saved');
         expect(env.confirm.calls).toBe(0);
         // Nothing was replaced, so the ordinary spacing applies
         expect(env.lastBackup?.replacingExternalChanges).toBe(false);

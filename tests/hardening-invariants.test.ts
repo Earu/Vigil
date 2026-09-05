@@ -138,7 +138,7 @@ describe('main process trust boundary', () => {
 
     it('path-taking IPC channels are gated on a grant', () => {
         const ipc = read('electron/src/ipc.ts');
-        for (const channel of ['read-file', 'stat-file', 'save-to-file', 'get-biometric-password', 'enable-biometrics', 'disable-biometrics', 'has-biometrics-enabled', 'save-last-database-path', 'get-backup-info', 'reveal-backups']) {
+        for (const channel of ['read-file', 'stat-file', 'save-to-file', 'get-biometric-password', 'enable-biometrics', 'disable-biometrics', 'has-biometrics-enabled', 'save-last-database-path', 'get-backup-info', 'reveal-backups', 'list-conflict-copies', 'trash-conflict-copy']) {
             const body = ipc.slice(ipc.indexOf(`handle('${channel}'`));
             const handler = body.slice(0, body.indexOf('});') + 3);
             expect(handler, channel).toMatch(/isPathGranted\(/);

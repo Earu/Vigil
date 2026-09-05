@@ -86,6 +86,12 @@ export interface IElectronAPI {
 	saveToFile: (filePath: string, data: Uint8Array, backup?: BackupOptions) => Promise<{ success: boolean; error?: string }>;
 	getBackupInfo: (filePath: string) => Promise<BackupInfo>;
 	revealBackups: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+	// Files beside the vault that a sync client named as copies of it; each
+	// comes read-granted so the renderer can open and compare it
+	listConflictCopies: (vaultPath: string) => Promise<Array<{ copyPath: string; hash: string }>>;
+	// Moves a listed or watcher-reported conflict copy to the trash; refused
+	// for any other path
+	trashConflictCopy: (copyPath: string) => Promise<{ success: boolean; error?: string }>;
 	saveAttachment: (name: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
 	// Resolves a dropped/picked File to its real path and grants it in the
 	// main process (vault files only); null when the File has no disk path
@@ -135,7 +141,9 @@ export interface IElectronAPI {
 	getPlatform: () => Promise<string>;
 	// Main-to-renderer events. Among them 'vault-file-changed', sent by the
 	// vault watcher (electron/src/vault-watcher.ts) with
-	// { path, hash, mtimeMs } once the open vault's file has changed on disk
+	// { path, hash, mtimeMs } once the open vault's file has changed on disk,
+	// and 'vault-conflict-copy' with { path, copyPath, hash } when a sync
+	// client's conflict copy of the vault appears beside it
 	on: (channel: string, callback: (...args: any[]) => void) => () => void;
 	checkEmailBreaches: (email: string) => Promise<any[]>;
 	setHibpApiKey: (key: string | null) => Promise<{ success: boolean; error?: string }>;
