@@ -268,6 +268,11 @@
     height: 1.05rem;
 }
 
+/* Mirror of the forward step, so the pair reads as one control */
+.hotp-step-back svg {
+    transform: rotate(180deg);
+}
+
 .hotp-placeholder {
     font-size: 0.8rem;
     color: var(--text-tertiary);
