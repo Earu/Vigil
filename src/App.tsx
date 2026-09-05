@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { Background } from './components/Background';
 import { PasswordView } from './components/PasswordView';
+import { YubiKeyPanel } from './components/PasswordView/YubiKeyPanel';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from './types/database';
 import './App.css';
@@ -42,6 +43,7 @@ function App() {
 	// Incremented each time the title bar shield button is clicked; PasswordView
 	// opens the security report whenever it changes
 	const [securityReportRequestId, setSecurityReportRequestId] = useState(0);
+	const [showYubiKeyPanel, setShowYubiKeyPanel] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
@@ -582,6 +584,7 @@ function App() {
 				onSearch={setSearchQuery}
 				onOpenSettings={() => setShowSettings(true)}
 				onOpenSecurityReport={() => setSecurityReportRequestId(id => id + 1)}
+				onOpenYubiKey={() => setShowYubiKeyPanel(true)}
 			/>
 			<PasswordView
 				database={database}
@@ -598,7 +601,10 @@ function App() {
 	) : (
 		<div className="app">
 			<Background />
-			<TitleBar onOpenSettings={() => setShowSettings(true)} />
+			<TitleBar
+				onOpenSettings={() => setShowSettings(true)}
+				onOpenYubiKey={() => setShowYubiKeyPanel(true)}
+			/>
 			<AuthenticationView
 				onDatabaseOpen={handleDatabaseOpen}
 				onBreachCheckComplete={() => setShowInitialBreachReport(true)}
@@ -609,6 +615,7 @@ function App() {
 	return (
 		<ThemeProvider>
 			{content}
+			{showYubiKeyPanel && <YubiKeyPanel onClose={() => setShowYubiKeyPanel(false)} />}
 			<div className="app-version">v{__APP_VERSION__}</div>
 			<Settings 
 				isOpen={showSettings} 

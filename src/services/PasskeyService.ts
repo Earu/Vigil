@@ -63,6 +63,19 @@ export const b64urlEncode = (bytes: Uint8Array): string =>
 export const b64urlDecode = (text: string): Uint8Array =>
     Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 
+// Every value in a ceremony's options comes from the page, which can send a
+// shape String() refuses to convert: an object whose toString is not callable
+// throws "Cannot convert object to primitive value" rather than returning
+// anything. A hostile shape has to read as an invalid request, never as an
+// exception thrown out of the middle of a ceremony
+const safeString = (value: unknown): string | null => {
+    try {
+        return String(value);
+    } catch {
+        return null;
+    }
+};
+
 const hexToBytes = (hex: string): Uint8Array =>
     new Uint8Array(hex.match(/../g)!.map(b => parseInt(b, 16)));
 
@@ -305,7 +318,7 @@ export async function validateRpId(
     if (domain.endsWith('.' + suffix)) return suffix;
     if (origin && Array.isArray(relatedOrigins) && relatedOrigins.length > 0) {
         const caller = normalizeOrigin(origin);
-        if (caller && relatedOrigins.some(o => normalizeOrigin(String(o)) === caller)) {
+        if (caller && relatedOrigins.some(o => normalizeOrigin(safeString(o) ?? '') === caller)) {
             return suffix;
         }
     }
@@ -421,7 +434,8 @@ export class PasskeyService {
 
         if (!options || !options.challenge) return error(PASSKEY_ERRORS.EMPTY_PUBLIC_KEY);
         if (!originAllowed(origin, opts.allowLocalhost ?? false)) return error(PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED);
-        if (String(options.challenge).length < 16) return error(PASSKEY_ERRORS.INVALID_CHALLENGE);
+        const challenge = safeString(options.challenge);
+        if (challenge === null || challenge.length < 16) return error(PASSKEY_ERRORS.INVALID_CHALLENGE);
 
         // The page chooses the user id; one that is not base64url is as
         // invalid as one of the wrong length
@@ -445,7 +459,8 @@ export class PasskeyService {
         const existing = this.passkeyEntries(kdbxDb, rpId);
         const excludeIds: string[] = (Array.isArray(options.excludeCredentials) ? options.excludeCredentials : [])
             .filter((c: any) => c && c.id !== undefined)
-            .map((c: any) => String(c.id));
+            .map((c: any) => safeString(c.id))
+            .filter((id: string | null): id is string => id !== null);
         if (excludeIds.length > 0 && existing.some(e => excludeIds.includes(e.credentialId))) {
             return error(PASSKEY_ERRORS.CREDENTIAL_IS_EXCLUDED);
         }
@@ -461,7 +476,7 @@ export class PasskeyService {
 
         const attestedAuthData = await buildAttestedAuthenticatorData(rpId, credentialId, generated.cosePublicKey);
         const authenticatorData = await buildAuthenticatorData(rpId);
-        const clientDataJson = buildClientDataJson(String(options.challenge), origin, false);
+        const clientDataJson = buildClientDataJson(challenge, origin, false);
 
         const username = options.user?.name ?? '';
         const rpName = options.rp?.name ?? rpId;
@@ -530,6 +545,7 @@ export class PasskeyService {
         opts: { allowLocalhost?: boolean; relatedOrigins?: string[] } = {},
     ): Promise<{ errorCode: number } | { rpId: string; entries: PasskeyEntryInfo[] }> {
         if (!options || !options.challenge) return { errorCode: PASSKEY_ERRORS.EMPTY_PUBLIC_KEY };
+        if (safeString(options.challenge) === null) return { errorCode: PASSKEY_ERRORS.INVALID_CHALLENGE };
         if (!originAllowed(origin, opts.allowLocalhost ?? false)) return { errorCode: PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED };
 
         const domain = effectiveDomain(origin);
@@ -540,7 +556,8 @@ export class PasskeyService {
         // A page can send anything here; a non-list reads as an empty one
         const allowedIds: string[] = (Array.isArray(options.allowCredentials) ? options.allowCredentials : [])
             .filter((c: any) => c && c.type === 'public-key' && c.id)
-            .map((c: any) => String(c.id));
+            .map((c: any) => safeString(c.id))
+            .filter((id: string | null): id is string => id !== null);
 
         const entries = this.passkeyEntries(kdbxDb, rpId).filter(e =>
             allowedIds.length > 0 ? allowedIds.includes(e.credentialId) : !!e.userHandle);
@@ -552,8 +569,11 @@ export class PasskeyService {
         const privateKeyPem = attr(selected.entry, PASSKEY_ATTRIBUTES.privateKeyPem);
         if (!privateKeyPem) return { errorCode: PASSKEY_ERRORS.UNKNOWN_ERROR };
 
+        const challenge = safeString(options.challenge);
+        if (challenge === null) return { errorCode: PASSKEY_ERRORS.INVALID_CHALLENGE };
+
         const authenticatorData = await buildAuthenticatorData(rpId);
-        const clientDataJson = buildClientDataJson(String(options.challenge), origin, true);
+        const clientDataJson = buildClientDataJson(challenge, origin, true);
         let signature: Uint8Array;
         try {
             signature = await signWebAuthn(privateKeyPem, authenticatorData, clientDataJson);

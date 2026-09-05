@@ -30,7 +30,8 @@ import {
 import { checkEmailBreaches, setHibpApiKey, hasHibpApiKey } from './hibp';
 import { fetchFavicon } from './favicon';
 import { isSupported as isContentProtectionSupported, isContentProtectionEnabled, setContentProtectionEnabled } from './content-protection';
-import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
+import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent, yubicoDevicePresent } from './hardware-key';
+import { readAccounts as readOathAccounts, calculateCode as calculateOathCode, listKeys as listOathKeys, pushAccount as pushOathAccount, oathWorthOffering, PushRequest } from './yubikey-oath';
 import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups, purgeBackups } from './backups';
 import { logRendererError, revealLogs } from './logger';
 import { isPathGranted, grantPath } from './path-authority';
@@ -110,6 +111,32 @@ export function setupIpcHandlers(): void {
         } finally {
             if (touchSignaled && !event.sender.isDestroyed()) event.sender.send('hardware-key-touch-done');
         }
+    });
+
+    // YubiKey OATH: read-only, and the secrets behind these codes live on
+    // the key alone. Nothing here writes to it
+    handle('yubikey-oath-offer', async () => {
+        return await oathWorthOffering(yubicoDevicePresent());
+    });
+
+    handle('yubikey-oath-keys', async () => {
+        return await listOathKeys();
+    });
+
+    handle('yubikey-oath-accounts', async (_, serial: number | null, password: string | null) => {
+        return await readOathAccounts(serial, password);
+    });
+
+    // Separate from the read above because this one has side effects: it
+    // burns an HOTP counter and lights the key up for a touch
+    handle('yubikey-oath-code', async (_, serial: number | null, id: string, password: string | null) => {
+        return await calculateOathCode(serial, id, password);
+    });
+
+    // The only write: a copy of a vault secret goes onto the key, and the
+    // vault keeps the original because the key can never give it back
+    handle('yubikey-oath-push', async (_, serial: number | null, request: PushRequest, secret: string, password: string | null) => {
+        return await pushOathAccount(serial, request, secret, password);
     });
 
     // File operation handlers

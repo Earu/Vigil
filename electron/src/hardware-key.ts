@@ -298,6 +298,21 @@ function candidates(hid: HidApi): HidDeviceInfo[] {
 
 // Cheap presence probe: pure enumeration, no device is opened, so it is safe
 // to poll while a challenge is in flight
+// Any Yubico device on the HID bus, whichever applications are enabled.
+// hardwareKeyPresent below is narrower on purpose: challenge-response needs
+// the OTP interface specifically. OATH does not, so a key with OTP disabled
+// still counts here as long as FIDO is on. A key with OTP and FIDO both
+// disabled exposes no HID interface at all and is invisible to this
+export function yubicoDevicePresent(): boolean {
+    const hid = loadHid();
+    if (!hid) return false;
+    try {
+        return hid.devices().some(d => d.vendorId === YUBICO_VID);
+    } catch {
+        return false;
+    }
+}
+
 export function hardwareKeyPresent(): boolean {
     const hid = loadHid();
     if (!hid) return false;

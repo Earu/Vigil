@@ -163,6 +163,46 @@ describe('rpId validation', () => {
     });
 });
 
+// A page controls every field in the options it sends, including their
+// shapes. An object whose toString is not callable makes String() throw
+// rather than return, which took a ceremony down with an exception instead of
+// answering with an error code
+describe('options a page can send that refuse to become strings', () => {
+    const unstringable = { toString: false };
+
+    it('rejects a challenge that cannot be converted, rather than throwing', async () => {
+        const res = await PasskeyService.register(makeDb(), creationOptions({ challenge: unstringable }), origin, undefined);
+        expect(res.response.errorCode).toBe(PASSKEY_ERRORS.INVALID_CHALLENGE);
+    });
+
+    it('rejects the same challenge on the assertion path', async () => {
+        const res = await PasskeyService.allowedEntries(makeDb(), { challenge: unstringable, rpId, allowCredentials: [] }, origin);
+        expect(res).toEqual({ errorCode: PASSKEY_ERRORS.INVALID_CHALLENGE });
+    });
+
+    it('skips an excludeCredentials id that cannot be converted', async () => {
+        const res = await PasskeyService.register(
+            makeDb(),
+            creationOptions({ excludeCredentials: [{ type: 'public-key', id: unstringable }] }),
+            origin,
+            undefined
+        );
+        // The bad id is dropped, so registration runs to a credential
+        expect(res.response.errorCode).toBeUndefined();
+        expect(res.rpId).toBe(rpId);
+    });
+
+    it('skips an allowCredentials id that cannot be converted', async () => {
+        const res = await PasskeyService.allowedEntries(
+            makeDb(),
+            { challenge, rpId, allowCredentials: [{ type: 'public-key', id: unstringable }] },
+            origin
+        );
+        // An empty vault, so the answer is "nothing to offer", not a throw
+        expect(res).toEqual({ errorCode: PASSKEY_ERRORS.NO_LOGINS_FOUND });
+    });
+});
+
 describe('register validation', () => {
     it('rejects a short challenge', async () => {
         const db = makeDb();
