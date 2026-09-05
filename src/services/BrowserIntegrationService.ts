@@ -22,8 +22,22 @@ const BROWSER_GROUP_NAME = 'Browser Passwords';
 const BROWSER_SETTINGS_KEY = 'KeePassXC-Browser Settings';
 
 const ERROR_ASSOCIATION_FAILED = 8;
+const ERROR_INCORRECT_ACTION = 12;
+const ERROR_NO_URL_PROVIDED = 14;
 const ERROR_NO_LOGINS_FOUND = 15;
 const ERROR_DENIED = 17;
+const ERROR_NO_VALID_UUID = 18;
+
+// KeePassXC's per-entry browser options, entry custom data holding "true"
+const OPTION_HIDE_ENTRY = 'BrowserHideEntry';
+const OPTION_ONLY_HTTP_AUTH = 'BrowserOnlyHttpAuth';
+const OPTION_NOT_HTTP_AUTH = 'BrowserNotHttpAuth';
+const OPTION_SKIP_AUTO_SUBMIT = 'BrowserSkipAutoSubmit';
+
+const UUID_HEX = /^[0-9a-f]{32}$/i;
+// A code is asked for shortly after the login it belongs to was filled;
+// page loads in between refresh the release
+const RELEASE_TTL_MS = 10 * 60 * 1000;
 
 export interface PasskeyConsentRequest {
     kind: 'register' | 'get';
@@ -248,12 +262,68 @@ export class BrowserIntegrationService {
         entry.customData.set(BROWSER_SETTINGS_KEY, { value: JSON.stringify(config), lastModified: new Date() });
     }
 
-    private static isAssociated(kdbxDb: kdbxweb.Kdbx, keys: Array<{ id: string; key: string }>): boolean {
-        for (const { id, key } of keys ?? []) {
+    private static isAssociated(kdbxDb: kdbxweb.Kdbx, keys: unknown): boolean {
+        if (!Array.isArray(keys)) return false;
+        for (const item of keys) {
+            if (!item || typeof item !== 'object') continue;
+            const { id, key } = item as { id?: unknown; key?: unknown };
+            if (typeof id !== 'string' || typeof key !== 'string') continue;
             const stored = kdbxDb.meta.customData.get(ASSOCIATION_PREFIX + id);
             if (stored?.value && stored.value === key) return true;
         }
         return false;
+    }
+
+    private static browserOption(entry: kdbxweb.KdbxEntry, name: string): boolean {
+        return entry.customData?.get(name)?.value === 'true';
+    }
+
+    // Entries handed to the browser by get-logins, by uuid, with the time.
+    // get-totp names only a uuid, so this is what ties a code request to a
+    // credential the user (or a stored decision) released to the site; the
+    // session-level association check in the main process says nothing
+    // about entries
+    private static released = new Map<string, number>();
+
+    private static release(entries: kdbxweb.KdbxEntry[]): void {
+        const now = Date.now();
+        for (const entry of entries) this.released.set(this.uuidHex(entry.uuid), now);
+    }
+
+    private static isReleased(uuidHex: string): boolean {
+        const at = this.released.get(uuidHex);
+        return at !== undefined && Date.now() - at <= RELEASE_TTL_MS;
+    }
+
+    static resetReleasesForTests(): void {
+        this.released.clear();
+    }
+
+    // Payloads come off the socket from whatever holds the extension's
+    // storage. A field of the wrong shape fails here, before anything is
+    // looked up or created
+    private static invalidPayload(action: string, payload: any): number | null {
+        const optionalString = (value: unknown) => value === undefined || value === null || typeof value === 'string';
+        const url = () => typeof payload.url === 'string' && payload.url.length > 0 ? null : ERROR_NO_URL_PROVIDED;
+        switch (action) {
+            case 'associate':
+                return typeof payload.idKey === 'string' && payload.idKey.length > 0 && payload.idKey.length <= 128
+                    ? null : ERROR_ASSOCIATION_FAILED;
+            case 'test-associate':
+                return typeof payload.id === 'string' && typeof payload.key === 'string' ? null : ERROR_ASSOCIATION_FAILED;
+            case 'get-logins':
+                return url() ?? (optionalString(payload.submitUrl) ? null : ERROR_INCORRECT_ACTION);
+            case 'set-login':
+                if (url()) return url();
+                if (payload.uuid !== undefined && payload.uuid !== null && !(typeof payload.uuid === 'string' && UUID_HEX.test(payload.uuid))) return ERROR_NO_VALID_UUID;
+                // The extension always sends both, empty or not
+                if (typeof payload.login !== 'string' || typeof payload.password !== 'string') return ERROR_INCORRECT_ACTION;
+                return [payload.submitUrl, payload.group, payload.groupUuid].every(optionalString) ? null : ERROR_INCORRECT_ACTION;
+            case 'get-totp':
+                return typeof payload.uuid === 'string' && UUID_HEX.test(payload.uuid) ? null : ERROR_NO_VALID_UUID;
+            default:
+                return null;
+        }
     }
 
     private static *allEntries(group: kdbxweb.KdbxGroup, recycleBinUuid?: string): Generator<kdbxweb.KdbxEntry> {
@@ -278,6 +348,7 @@ export class BrowserIntegrationService {
             uuid: this.uuidHex(entry.uuid),
             group: entry.parentGroup?.name ?? '',
         };
+        if (this.browserOption(entry, OPTION_SKIP_AUTO_SUBMIT)) login.skipAutoSubmit = 'true';
         const otpConfig = TotpService.getConfig(this.customFieldsOf(entry));
         // Time-based only: get-logins runs on every page load, and a HOTP
         // code handed out here would burn a counter each time. HOTP is
@@ -298,15 +369,17 @@ export class BrowserIntegrationService {
             .map(([key, value]) => ({ key, value, protected: value instanceof kdbxweb.ProtectedValue }));
     }
 
-    static async handleRequest(action: string, payload: any, ctx: BrowserRequestContext): Promise<any> {
+    static async handleRequest(action: string, rawPayload: unknown, ctx: BrowserRequestContext): Promise<any> {
         const { kdbxDb } = ctx;
+        const payload: any = rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload) ? rawPayload : {};
+        const invalid = this.invalidPayload(action, payload);
+        if (invalid !== null) return { errorCode: invalid };
         switch (action) {
             case 'get-databasehash':
                 return { hash: await this.databaseHash(kdbxDb) };
 
             case 'associate': {
-                if (!payload.idKey) return { errorCode: ERROR_ASSOCIATION_FAILED };
-                const fingerprint = String(payload.idKey).slice(0, 12);
+                const fingerprint = payload.idKey.slice(0, 12);
                 const existingNames = this.listAssociations(kdbxDb).map(a => a.name);
                 const name = await ctx.requestPairing(fingerprint, existingNames);
                 if (!name) return { errorCode: ERROR_DENIED };
@@ -335,8 +408,14 @@ export class BrowserIntegrationService {
                     return { errorCode: ERROR_ASSOCIATION_FAILED };
                 }
                 const recycleBinUuid = kdbxDb.meta.recycleBinEnabled ? kdbxDb.meta.recycleBinUuid?.id : undefined;
+                // KeePassXC's entry options: hidden entries are never
+                // offered, and the HTTP auth ones only to the kind of
+                // prompt they were marked for
+                const httpAuth = payload.httpAuth === true || payload.httpAuth === 'true';
                 const matching: kdbxweb.KdbxEntry[] = [];
                 for (const entry of this.allEntries(kdbxDb.getDefaultGroup(), recycleBinUuid)) {
+                    if (this.browserOption(entry, OPTION_HIDE_ENTRY)) continue;
+                    if (this.browserOption(entry, httpAuth ? OPTION_NOT_HTTP_AUTH : OPTION_ONLY_HTTP_AUTH)) continue;
                     const url = this.fieldString(entry.fields.get('URL'));
                     if (this.urlMatches(url, payload.url)) {
                         matching.push(entry);
@@ -393,6 +472,7 @@ export class BrowserIntegrationService {
                 }
 
                 if (granted.length === 0) return { errorCode: ERROR_NO_LOGINS_FOUND };
+                this.release(granted);
                 const entries: any[] = [];
                 for (const entry of granted) {
                     entries.push(await this.entryToLogin(entry, kdbxDb));
@@ -404,7 +484,10 @@ export class BrowserIntegrationService {
                 const root = kdbxDb.getDefaultGroup();
                 let entry: kdbxweb.KdbxEntry | undefined;
                 if (payload.uuid) {
-                    entry = [...this.allEntries(root)].find(e => this.uuidHex(e.uuid) === payload.uuid);
+                    // A recycled entry is not one the browser may update; the
+                    // write creates a new entry instead, as for an unknown uuid
+                    const recycleBinUuid = kdbxDb.meta.recycleBinEnabled ? kdbxDb.meta.recycleBinUuid?.id : undefined;
+                    entry = [...this.allEntries(root, recycleBinUuid)].find(e => this.uuidHex(e.uuid) === payload.uuid);
                 }
 
                 // set-login carries no association key, so a rogue local
@@ -535,6 +618,10 @@ export class BrowserIntegrationService {
                 const entry = [...this.allEntries(kdbxDb.getDefaultGroup(), recycleBinUuid)]
                     .find(e => this.uuidHex(e.uuid) === payload.uuid);
                 if (!entry) return { errorCode: ERROR_NO_LOGINS_FOUND };
+                // Only an entry get-logins released to the browser: a site the
+                // user refused, or one that merely remembers a uuid from an
+                // earlier grant, gets no code and burns no HOTP counter
+                if (!this.isReleased(payload.uuid)) return { errorCode: ERROR_DENIED };
                 const customFields = this.customFieldsOf(entry);
                 const otpConfig = TotpService.getConfig(customFields);
                 if (!otpConfig) return { errorCode: ERROR_NO_LOGINS_FOUND };

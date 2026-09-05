@@ -59,6 +59,7 @@ vi.mock('../electron/src/file-operations', () => ({
     saveFile: vi.fn(),
     saveToFile: vi.fn(),
     saveAttachment: vi.fn(),
+    saveKeyFile: vi.fn(),
     registerDroppedVault: vi.fn(),
     openFile: vi.fn(),
     readFile: vi.fn(),
@@ -103,6 +104,7 @@ vi.mock('../electron/src/backups', () => ({
     DEFAULT_BACKUP_OPTIONS: DEFAULT_BACKUP_SENTINEL,
     getBackupInfo: vi.fn(),
     revealBackups: vi.fn(),
+    purgeBackups: vi.fn(),
 }));
 
 vi.mock('../electron/src/logger', () => ({
@@ -202,6 +204,12 @@ describe('path grant gating', () => {
             args: ['/vault.kdbx'],
             denied: { success: false, error: 'Unknown database path' },
             target: () => vi.mocked(backups.revealBackups),
+        },
+        {
+            channel: 'purge-backups',
+            args: ['/vault.kdbx'],
+            denied: { success: false, removed: 0, error: 'Unknown database path' },
+            target: () => vi.mocked(backups.purgeBackups),
         },
         {
             channel: 'read-file',

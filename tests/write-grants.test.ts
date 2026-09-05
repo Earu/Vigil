@@ -57,11 +57,20 @@ describe('which flows grant writes', () => {
         expect(authority.isPathGranted(keyFile, { write: true })).toBe(false);
     });
 
-    it('a saved attachment is readable but never writable', async () => {
+    it('a saved attachment or export gets no grant: it is never read back', async () => {
         savePath = path.join(tmpRoot, 'exported.pem');
         await fileOps.saveAttachment('exported.pem', new Uint8Array([1]));
+        expect(authority.isPathGranted(savePath)).toBe(false);
+        expect(fs.existsSync(grantFile)).toBe(false);
+    });
+
+    it('a generated key file is readable across sessions but never writable', async () => {
+        savePath = path.join(tmpRoot, 'generated.keyx');
+        const result = await fileOps.saveKeyFile('vault.keyx', new Uint8Array([1]));
+        expect(result.success).toBe(true);
         expect(authority.isPathGranted(savePath)).toBe(true);
         expect(authority.isPathGranted(savePath, { write: true })).toBe(false);
+        expect(fs.readFileSync(grantFile, 'utf8')).toContain('generated.keyx');
     });
 
     it('an opened vault gets a write grant', async () => {

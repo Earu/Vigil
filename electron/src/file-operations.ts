@@ -207,40 +207,67 @@ export async function saveFile(data: Uint8Array, backup: BackupRequest = DEFAULT
     }
 }
 
-export async function saveAttachment(name: string, data: Uint8Array): Promise<{ success: boolean, error?: string, filePath?: string }> {
-    const { filePath, canceled } = await dialog.showSaveDialog({
-        defaultPath: name
-    });
+// A vault is shared data, so an attachment's name is whoever wrote the
+// entry's choice. The dialog gets a bare file name: no directories, no
+// control characters, something to show when nothing usable is left
+export function attachmentFileName(name: unknown): string {
+    if (typeof name !== 'string') return 'attachment';
+    const last = name.split(/[\\/]/).pop() ?? '';
+    const clean = last.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 255);
+    if (!clean || clean === '.' || clean === '..') return 'attachment';
+    return clean;
+}
 
+// An attachment out of a vault is as sensitive as the vault: it may be a
+// private key or a recovery kit. At the umask default this would land 0644
+// and be readable by every user on the machine, so write it owner only.
+// Windows is excluded for the same reason as atomicWrite: chmod there only
+// toggles the read-only flag.
+// The open mode is masked by the umask and ignored entirely when the file
+// already exists, so the mode is also set explicitly, exactly as atomicWrite
+// has to
+async function writeOwnerOnly(filePath: string, data: Uint8Array): Promise<void> {
+    const handle = await fs.promises.open(filePath, 'w', OWNER_ONLY_MODE);
+    try {
+        if (process.platform !== 'win32') await handle.chmod(OWNER_ONLY_MODE);
+        await handle.writeFile(Buffer.from(data));
+    } finally {
+        await handle.close();
+    }
+}
+
+type SaveResult = { success: boolean, error?: string, filePath?: string };
+
+async function saveThroughDialog(name: unknown, data: unknown, filters?: Electron.FileFilter[]): Promise<SaveResult> {
+    if (!(data instanceof Uint8Array)) return { success: false, error: 'Failed to save file' };
+    const { filePath, canceled } = await dialog.showSaveDialog({ defaultPath: attachmentFileName(name), filters });
     if (canceled || !filePath) {
         return { success: false, error: 'Save cancelled' };
     }
-
     try {
-        // An attachment out of a vault is as sensitive as the vault: it may be
-        // a private key or a recovery kit. At the umask default this would land
-        // 0644 and be readable by every user on the machine, so write it owner
-        // only. Windows is excluded for the same reason as atomicWrite: chmod
-        // there only toggles the read-only flag.
-        // The open mode is masked by the umask and ignored entirely when the
-        // file already exists, so the mode is also set explicitly, exactly as
-        // atomicWrite has to
-        const handle = await fs.promises.open(filePath, 'w', OWNER_ONLY_MODE);
-        try {
-            if (process.platform !== 'win32') await handle.chmod(OWNER_ONLY_MODE);
-            await handle.writeFile(Buffer.from(data));
-        } finally {
-            await handle.close();
-        }
-        // The generated-key-file flow saves through this dialog and the
-        // renderer remembers the path to read at every later unlock, so the
-        // grant must outlive the session, like selectKeyFile's
-        grantPathPersistent(filePath);
+        await writeOwnerOnly(filePath, data);
         return { success: true, filePath };
     } catch (error) {
-        console.error('Failed to save attachment:', error);
-        return { success: false, error: 'Failed to save attachment' };
+        console.error('Failed to save file:', error);
+        return { success: false, error: 'Failed to save file' };
     }
+}
+
+// Attachments, CSV exports and database copies: written once and never read
+// back, so the destination gets no grant
+export async function saveAttachment(name: unknown, data: Uint8Array): Promise<SaveResult> {
+    return saveThroughDialog(name, data);
+}
+
+// The generated key file is read at every later unlock, so this destination
+// alone gets a grant that outlives the session, like selectKeyFile's
+export async function saveKeyFile(name: unknown, data: Uint8Array): Promise<SaveResult> {
+    const result = await saveThroughDialog(name, data, [
+        { name: 'Key files', extensions: ['keyx', 'key'] },
+        { name: 'All files', extensions: ['*'] },
+    ]);
+    if (result.success && result.filePath) grantPathPersistent(result.filePath);
+    return result;
 }
 
 export async function saveToFile(filePath: string, data: Uint8Array, backup: BackupRequest = DEFAULT_BACKUP_OPTIONS): Promise<{ success: boolean, error?: string }> {

@@ -409,7 +409,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
 
         const keyFileBytes = await kdbxweb.Credentials.createRandomKeyFile(2);
         const defaultName = `${kdbxDb?.meta.name || 'database'}.keyx`;
-        const saved = await window.electron?.saveAttachment(defaultName, keyFileBytes);
+        const saved = await window.electron?.saveKeyFile(defaultName, keyFileBytes);
         if (!saved?.success || !saved.filePath) return;
 
         await applyKeyFile(new Uint8Array(keyFileBytes).buffer, saved.filePath, `Key file generated at ${saved.filePath}`);
@@ -467,9 +467,32 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         }
         if (outcome.biometrics === 'off') {
             showSettingsToast(`Master password changed. Biometric unlock was turned off: ${outcome.reason}. Turn it on again from the unlock screen`, 'error');
+        } else {
+            showSettingsToast('Master password changed');
+        }
+        await offerBackupPurge();
+    };
+
+    // The backups were taken under the old password and still open with it
+    const offerBackupPurge = async () => {
+        const dbPath = KeepassDatabaseService.getPath();
+        if (!dbPath || !window.electron) return;
+        let count = 0;
+        try {
+            count = (await window.electron.getBackupInfo(dbPath)).count;
+        } catch {
             return;
         }
-        showSettingsToast('Master password changed');
+        if (count === 0) return;
+        const copies = count === 1 ? '1 backup copy of this database still opens' : `${count} backup copies of this database still open`;
+        if (!window.confirm(`${copies} with the old password. Delete them? This cannot be undone.`)) return;
+        const result = await window.electron.purgeBackups(dbPath);
+        if (result.success) {
+            showSettingsToast(`Deleted ${result.removed} backup ${result.removed === 1 ? 'copy' : 'copies'}`);
+        } else {
+            showSettingsToast(`Could not delete the backups: ${result.error}`, 'error');
+        }
+        window.electron.getBackupInfo(dbPath).then(setBackupInfo).catch(() => {});
     };
 
     const handleApplyKdf = () => {

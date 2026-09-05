@@ -8,6 +8,7 @@ import {
     saveFile,
     saveToFile,
     saveAttachment,
+    saveKeyFile,
     registerDroppedVault,
     openFile,
     readFile,
@@ -30,7 +31,7 @@ import { checkEmailBreaches, setHibpApiKey, hasHibpApiKey } from './hibp';
 import { fetchFavicon } from './favicon';
 import { isSupported as isContentProtectionSupported, isContentProtectionEnabled, setContentProtectionEnabled } from './content-protection';
 import { listHardwareKeys, hardwareKeyChallenge, hardwareKeyPresent } from './hardware-key';
-import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups } from './backups';
+import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups, purgeBackups } from './backups';
 import { logRendererError, revealLogs } from './logger';
 import { isPathGranted, grantPath } from './path-authority';
 import { scanConflictCopies, nominateConflictCopy, isNominatedConflictCopy } from './conflict-copies';
@@ -142,6 +143,14 @@ export function setupIpcHandlers(): void {
         return await revealBackups(filePath);
     });
 
+    // Deletes files, so the write grant that only vault paths hold
+    handle('purge-backups', async (_, filePath: string) => {
+        if (!isPathGranted(filePath, { write: true })) {
+            return { success: false, removed: 0, error: 'Unknown database path' };
+        }
+        return await purgeBackups(filePath);
+    });
+
     // Conflict copies a sync client left beside the vault (conflict-copies.ts).
     // The renderer asks once when it starts listening for the watcher's
     // events, since copies from before the vault opened raise no event.
@@ -172,8 +181,12 @@ export function setupIpcHandlers(): void {
         }
     });
 
-    handle('save-attachment', async (_, name: string, data: Uint8Array) => {
+    handle('save-attachment', async (_, name: unknown, data: Uint8Array) => {
         return await saveAttachment(name, data);
+    });
+
+    handle('save-key-file', async (_, name: unknown, data: Uint8Array) => {
+        return await saveKeyFile(name, data);
     });
 
     handle('register-dropped-file', async (_, filePath: string) => {
