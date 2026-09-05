@@ -136,6 +136,7 @@ function requireSupportedType(type: string): void {
 // OpenSSH format
 
 const OPENSSH_MAGIC = Buffer.from('openssh-key-v1\0', 'latin1');
+const MAX_KDF_ROUNDS = 1024;
 
 interface CipherSpec {
     node: string;
@@ -204,6 +205,12 @@ function decryptPrivateSection(header: OpenSshHeader, passphrase: string): Buffe
     const options = new WireReader(header.kdfOptions);
     const salt = options.string();
     const rounds = options.u32();
+    // The count comes from the file and each round costs about 16ms here,
+    // so a flipped or crafted header asking for billions would hang the
+    // main process for years. ssh-keygen defaults to 16; -a 100 is common
+    if (rounds < 1 || rounds > MAX_KDF_ROUNDS) {
+        throw new SshKeyError(`Unsupported KDF rounds ${rounds}; re-encrypt the key with -a ${MAX_KDF_ROUNDS} or fewer`, 'unsupported');
+    }
     const derived = bcryptPbkdf(Buffer.from(passphrase, 'utf8'), salt, spec.keyLength + spec.ivLength, rounds);
     const key = derived.subarray(0, spec.keyLength);
     const iv = derived.subarray(spec.keyLength);

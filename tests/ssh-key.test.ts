@@ -162,6 +162,34 @@ describe('private key parsing', () => {
         expect(() => parsePrivateKey(load('ed25519_plain.pub'))).toThrow(expect.objectContaining({ code: 'format' }));
     });
 
+    it('refuses a KDF round count it cannot afford, at once', () => {
+        // The bcrypt round count sits in the file's kdf options. One flipped
+        // byte there (which the fuzz suite eventually produced) asks for
+        // billions of rounds, and the parser would sit in the KDF for years
+        const text = Buffer.from(load('ed25519_enc')).toString('latin1');
+        const lines = text.split('\n');
+        const raw = Buffer.from(lines.filter(l => l && !l.startsWith('-----')).join(''), 'base64');
+        const reader = new WireReader(raw, 'openssh-key-v1\0'.length);
+        reader.text(); reader.text(); // cipher, kdf
+        // kdf options: string salt, u32 rounds
+        const optionsStart = raw.length - reader.remaining + 4;
+        const roundsAt = optionsStart + 4 + raw.readUInt32BE(optionsStart);
+        expect(raw.readUInt32BE(roundsAt)).toBe(4);
+        const withRounds = (rounds: number) => {
+            const patched = Buffer.from(raw);
+            patched.writeUInt32BE(rounds, roundsAt);
+            const body = patched.toString('base64').match(/.{1,70}/g)!.join('\n');
+            return Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`);
+        };
+        for (const rounds of [4227858436, 1025, 0]) {
+            const start = performance.now();
+            expect(() => parsePrivateKey(withRounds(rounds), PASSPHRASE)).toThrow(expect.objectContaining({ code: 'unsupported' }));
+            expect(performance.now() - start).toBeLessThan(200);
+        }
+        // Rewritten with its real count, the file still opens
+        expect(parsePrivateKey(withRounds(4), PASSPHRASE).type).toBe('ssh-ed25519');
+    });
+
     it('reads the public half of an encrypted OpenSSH key without the passphrase', () => {
         const info = readPublicInfo(load('ed25519_enc'));
         expect(info).toEqual({ type: 'ssh-ed25519', fingerprint: manifest.ed25519_enc.fingerprint, comment: '', encrypted: true });
