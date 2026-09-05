@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { backupBeforeWrite, BackupRequest, DEFAULT_BACKUP_OPTIONS } from './backups';
 import { grantPath, grantPathPersistent } from './path-authority';
+import { materialize, isEvicted, describeReadFailure } from './cloud-files';
 
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
 
@@ -62,7 +63,9 @@ export async function loadLastDatabasePath(): Promise<string | null> {
         if (fs.existsSync(LAST_DB_PATH)) {
             const data = await fs.promises.readFile(LAST_DB_PATH, 'utf-8');
             const { path: dbPath } = JSON.parse(data);
-            if (fs.existsSync(dbPath)) {
+            // An evicted iCloud vault is still the last vault; read-file
+            // downloads it
+            if (fs.existsSync(dbPath) || await isEvicted(dbPath)) {
                 // The renderer follows up with read-file, stat-file and,
                 // once unlocked, save-to-file on it
                 grantPath(dbPath, { write: true });
@@ -158,6 +161,8 @@ async function atomicWrite(requestedPath: string, data: Buffer): Promise<void> {
 
 export async function statFile(filePath: string): Promise<{ success: boolean, mtimeMs?: number, size?: number, error?: string }> {
     try {
+        const ready = await materialize(filePath);
+        if (!ready.ok) return { success: false, error: ready.error };
         const stat = await fs.promises.stat(filePath);
         return { success: true, mtimeMs: stat.mtimeMs, size: stat.size };
     } catch (error) {
@@ -240,6 +245,10 @@ export async function saveAttachment(name: string, data: Uint8Array): Promise<{ 
 
 export async function saveToFile(filePath: string, data: Uint8Array, backup: BackupRequest = DEFAULT_BACKUP_OPTIONS): Promise<{ success: boolean, error?: string }> {
     try {
+        // An evicted iCloud vault is brought back first so the backup and the
+        // rename see the real file; if that fails the write goes ahead and the
+        // sync client reconciles
+        await materialize(filePath);
         await tryBackup(filePath, backup);
         await atomicWrite(filePath, Buffer.from(data));
         return { success: true };
@@ -301,11 +310,13 @@ export async function selectKeyFile(): Promise<{ canceled: boolean, filePath?: s
 
 export async function readFile(filePath: string): Promise<{ success: boolean, error?: string, data?: Buffer }> {
     try {
+        const ready = await materialize(filePath);
+        if (!ready.ok) return { success: false, error: ready.error };
         const data = await fs.promises.readFile(filePath);
         return { success: true, data };
     } catch (error) {
         console.error('Failed to read file:', error);
-        return { success: false, error: 'Failed to read file' };
+        return { success: false, error: describeReadFailure(filePath, error) };
     }
 }
 
@@ -315,6 +326,7 @@ export async function handleFileOpen(filePath: string, targetWindow?: BrowserWin
         // dialog, a file-manager launch, second instances, macOS open-file.
         // All of them open a vault, which save-to-file later overwrites
         grantPath(filePath, { write: true });
+        await materialize(filePath);
         const result = await fs.promises.readFile(filePath);
         const window = targetWindow ?? BrowserWindow.getAllWindows()[0];
         if (!window || window.isDestroyed()) return;

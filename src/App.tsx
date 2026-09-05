@@ -577,11 +577,9 @@ function App() {
 					userSettingsService.setAutoLockDuration(duration);
 				}}
 				onDatabaseChange={() => {
-					if (database && kdbxDb) {
-						// Get the updated database state after CSV import
-						const updatedDatabase = KeepassDatabaseService.convertKdbxToDatabase(kdbxDb);
-						handleDatabaseChangeFromUi(updatedDatabase);
-					}
+					if (!database || !kdbxDb) return Promise.resolve(false);
+					const updatedDatabase = KeepassDatabaseService.convertKdbxToDatabase(kdbxDb);
+					return handleDatabaseChange(updatedDatabase).then(() => true, () => false);
 				}}
 			/>
 			<ToastContainer />

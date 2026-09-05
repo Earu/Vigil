@@ -83,7 +83,7 @@ describe('main process trust boundary', () => {
         expect(refuse).toBeLessThan(main.indexOf('requestSingleInstanceLock'));
         expect(refuse).toBeLessThan(main.indexOf('app.whenReady'));
         const guard = read('electron/src/launch-guard.ts');
-        for (const name of ['remote-debugging-port', 'remote-debugging-pipe']) {
+        for (const name of ['remote-debugging-port', 'remote-debugging-pipe', 'browser-subprocess-path', 'renderer-cmd-prefix', 'utility-cmd-prefix', 'user-data-dir', 'disable-web-security', 'proxy-server', 'ignore-certificate-errors', 'ssl-key-log-file']) {
             expect(guard).toContain(`'${name}'`);
         }
         expect(guard).toMatch(/if \(!app\.isPackaged\) return;/);

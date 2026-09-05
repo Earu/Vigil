@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from 'vitest';
+import { describe, it, expect, vi, afterAll } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -95,6 +95,20 @@ describe('scanning the vault directory', () => {
 
         const found = await scanConflictCopies(link);
         expect(found).toEqual([{ copyPath: path.join(dir, 'vault (1).kdbx'), hash: sha256('gdrive') }]);
+    });
+
+    it('asks iCloud for an evicted copy and reports nothing until it lands', async () => {
+        const dir = fs.mkdtempSync(path.join(tmpRoot, 'evicted-'));
+        const vault = path.join(dir, 'vault.kdbx');
+        fs.writeFileSync(vault, 'main');
+        fs.writeFileSync(path.join(dir, '.vault 2.kdbx.icloud'), '<plist/>');
+        fs.writeFileSync(path.join(dir, '.other.kdbx.icloud'), '<plist/>');
+        const download = vi.fn(async () => {});
+
+        const found = await scanConflictCopies(vault, { download });
+        expect(found).toEqual([]);
+        expect(download).toHaveBeenCalledTimes(1);
+        expect(download).toHaveBeenCalledWith(path.join(dir, 'vault 2.kdbx'));
     });
 
     it('yields nothing for a directory that cannot be listed', async () => {

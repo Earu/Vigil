@@ -37,6 +37,31 @@ describe('findDebugSwitch', () => {
         expect(DEBUG_SWITCHES).toContain('remote-debugging-port');
         expect(DEBUG_SWITCHES).toContain('remote-debugging-pipe');
     });
+
+    // One per way in: a child binary, another profile, code in the page,
+    // and the network path the API key travels
+    it.each([
+        'browser-subprocess-path',
+        'renderer-cmd-prefix',
+        'utility-cmd-prefix',
+        'gpu-launcher',
+        'user-data-dir',
+        'load-extension',
+        'disable-web-security',
+        'js-flags',
+        'host-resolver-rules',
+        'proxy-server',
+        'ignore-certificate-errors',
+        'ssl-key-log-file',
+    ])('refuses --%s', (name) => {
+        expect(findDebugSwitch(s => s === name)).toBe(name);
+    });
+
+    it('leaves the switches Vigil and desktop environments use alone', () => {
+        for (const name of ['ozone-platform-hint', 'ozone-platform', 'enable-transparent-visuals', 'browser-proxy', 'disable-gpu', 'enable-features', 'disable-features', 'no-sandbox', 'type']) {
+            expect(findDebugSwitch(s => s === name)).toBeNull();
+        }
+    });
 });
 
 describe('refuseDebugSwitches', () => {

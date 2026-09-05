@@ -49,10 +49,13 @@ export const AuthenticationView = ({ onDatabaseOpen, onBreachCheckComplete }: Au
                 if (hasDirectFileOpen) return;
 
                 const result = await KeepassDatabaseService.loadLastDatabase();
-                if (result.file && !hasDirectFileOpen) {
+                if (hasDirectFileOpen) return;
+                if (result.file) {
                     setSelectedFile(result.file);
                     setDatabasePath(result.databasePath);
                     setInitialBiometricsEnabled(result.biometricsEnabled);
+                } else if (result.error) {
+                    setError(result.error);
                 }
             };
 
