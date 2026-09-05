@@ -5,14 +5,14 @@ import { OathFailure } from '../../types/electron';
 // same thing about the same failure: `message` stands alone in a toast, and
 // the panel adds `hint` under it
 export const OATH_FAILURES: Record<OathFailure, { message: string; hint: string }> = {
-    'ykman-missing': {
-        message: 'ykman is not installed',
+    unavailable: {
+        message: 'Smart card support is not available',
         hint: 'If you own a YubiKey, it can store one-time password accounts on the key itself, and Vigil can show their codes here. '
-            + 'Reading them needs ykman, Yubico\'s own command line tool.',
+            + 'This build could not load its smart card module; on Linux that usually means the pcsclite library is not installed.',
     },
     'no-pcscd': {
         message: 'No smart card service',
-        hint: 'The OATH application is reached over the smart card interface, which needs pcscd running. On Linux: sudo systemctl start pcscd.socket',
+        hint: 'The key\'s OATH application is reached over the smart card interface, which needs the pcscd service running.',
     },
     'no-key': {
         message: 'No YubiKey found',
@@ -27,16 +27,24 @@ export const OATH_FAILURES: Record<OathFailure, { message: string; hint: string 
         hint: 'The key rejected that OATH password.',
     },
     timeout: {
-        message: 'The key stopped responding',
-        hint: 'Unplug it and plug it back in, then refresh.',
+        message: 'The key did not answer in time',
+        hint: 'A code that needs a touch was not touched, or the key stopped responding. Try again.',
     },
     'in-use': {
         message: 'The key is busy',
         hint: 'Another app is holding the smart card interface. Close Yubico Authenticator and refresh.',
     },
+    'no-space': {
+        message: 'The key is full',
+        hint: 'A YubiKey holds about 32 accounts. Remove one before adding another.',
+    },
+    'not-found': {
+        message: 'That account is no longer on the key',
+        hint: 'Refresh to see what the key holds now.',
+    },
     failed: {
-        message: 'Could not read the key',
-        hint: 'ykman reported a failure.',
+        message: 'Could not talk to the key',
+        hint: 'The key returned an error.',
     },
 };
 

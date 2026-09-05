@@ -21,19 +21,17 @@ interface YubiKeyPanelProps {
 }
 
 
-const YKMAN_DOCS = 'https://docs.yubico.com/software/yubikey/tools/ykman/';
+// The smart card service the key is reached through. Only Linux needs the
+// user to install and start it; macOS and Windows ship it running
+const PCSC_DOCS = 'https://support.yubico.com/hc/en-us/articles/360016649039-Troubleshooting-YubiKey-Smart-Card-Applications-Linux';
 
-// The one command most people on each platform need. Linux gets a package
-// manager guess plus the portable route, because the distro spread is wide
 const INSTALL: Record<string, { label: string; commands: string[] }> = {
-    darwin: { label: 'On macOS:', commands: ['brew install ykman'] },
-    win32: { label: 'On Windows:', commands: ['winget install Yubico.YubiKeyManagerCLI'] },
     linux: {
-        label: 'On Linux, from your package manager:',
+        label: 'On Linux, install the smart card service and start it:',
         commands: [
-            'pacman -S yubikey-manager',
-            'apt install yubikey-manager',
-            'dnf install yubikey-manager',
+            'sudo pacman -S pcsclite ccid && sudo systemctl enable --now pcscd.socket',
+            'sudo apt install pcscd libpcsclite1 && sudo systemctl enable --now pcscd.socket',
+            'sudo dnf install pcsc-lite ccid && sudo systemctl enable --now pcscd.socket',
         ],
     },
 };
@@ -48,7 +46,7 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
     // A ProtectedValue rather than a string, the way the model holds entry
     // passwords: no plaintext copy sits in the heap between calls, where a
     // dropped JS string would linger until collected. Each call still
-    // decrypts it for the trip over IPC to ykman's stdin
+    // decrypts it for the trip over IPC to the main process
     const [heldPassword, setHeldPassword] = useState<kdbxweb.ProtectedValue | null>(null);
     const heldText = () => heldPassword?.getText() ?? null;
     // The account whose code is being calculated, so the row can say so
@@ -93,10 +91,9 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
     // key and cannot be moved back, and a touch account lights up and waits
     const generate = async (account: OathAccount) => {
         setBusyId(account.id);
-        // The key blinks and waits as soon as ykman asks, so the prompt goes
-        // up before the call rather than off the back of anything it prints.
-        // An HOTP account may be touch-protected too, and the batch read
-        // cannot tell us: ykman itself assumes touch after 500ms
+        // The key blinks and waits as soon as the command reaches it, so the
+        // prompt goes up before the call. An HOTP account may be
+        // touch-protected too, and the batch read cannot tell us
         setTouchPending(account.requiresTouch || account.type === 'HOTP');
         const result = await window.electron?.yubikeyOathCode?.(null, account.id, heldText());
         setTouchPending(false);
@@ -202,13 +199,11 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
                 <div className="yubikey-panel-state yubikey-panel-error">
                     <strong>{OATH_FAILURES[failure].message}</strong>
                     <span>{OATH_FAILURES[failure].hint}</span>
-                    {detail && failure !== 'ykman-missing' && <code className="yubikey-panel-detail">{detail}</code>}
-                    {failure === 'ykman-missing' && (
+                    {detail && failure !== 'unavailable' && <code className="yubikey-panel-detail">{detail}</code>}
+                    {(failure === 'unavailable' || failure === 'no-pcscd') && INSTALL[platform ?? ''] && (
                         <div className="yubikey-install">
-                            <span className="yubikey-install-label">
-                                {INSTALL[platform ?? 'linux']?.label ?? 'Install ykman:'}
-                            </span>
-                            {(INSTALL[platform ?? 'linux']?.commands ?? []).map(command => (
+                            <span className="yubikey-install-label">{INSTALL[platform ?? ''].label}</span>
+                            {INSTALL[platform ?? ''].commands.map(command => (
                                 <div className="yubikey-install-row" key={command}>
                                     <code className="yubikey-install-command">{command}</code>
                                     <button
@@ -224,10 +219,10 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
                             ))}
                             <button
                                 className="yubikey-install-link"
-                                onClick={() => void window.electron?.openExternal?.(YKMAN_DOCS)}
+                                onClick={() => void window.electron?.openExternal?.(PCSC_DOCS)}
                                 type="button"
                             >
-                                Yubico's install guide
+                                Yubico's Linux smart card guide
                             </button>
                         </div>
                     )}

@@ -17,6 +17,23 @@ afterAll(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
 const sha256 = (data: Buffer) => crypto.createHash('sha256').update(data).digest('hex');
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// The watcher hashes and stats the file after its debounce timer fires, so a
+// fixed sleep races real I/O on a loaded machine. Positive assertions wait
+// for the send; the "nothing arrived" ones keep their fixed window
+const until = async (ready: () => boolean, timeoutMs = 2000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (!ready() && Date.now() < deadline) await sleep(5);
+};
+const untilSent = (win: { sent: unknown[] }, count: number) => until(() => win.sent.length >= count);
+// readFile the test settles by hand, in call order, so a test can decide when
+// a read fails or succeeds instead of assuming how long real I/O takes
+const controlledReads = () => {
+    const pending: Array<{ resolve: (b: Buffer) => void; reject: (e: Error) => void }> = [];
+    const readFile = () => new Promise<Buffer>((resolve, reject) => { pending.push({ resolve, reject }); });
+    return { readFile, pending };
+};
+const fakeStat = async () => ({ mtimeMs: 1 }) as fs.Stats;
+const settled = () => new Promise(resolve => setTimeout(resolve, 0));
 
 let counter = 0;
 function newVault(contents = 'v1'): string {
@@ -76,7 +93,7 @@ describe('a change to the vault file', () => {
 
         fs.writeFileSync(file, 'second');
         fire(path.basename(file));
-        await sleep(DEBOUNCE * 3);
+        await untilSent(win, 1);
 
         expect(win.sent).toHaveLength(1);
         const [channel, payload] = win.sent[0] as [string, { path: string; hash: string; mtimeMs: number }];
@@ -97,7 +114,7 @@ describe('a change to the vault file', () => {
             await sleep(DEBOUNCE / 3);
         }
         expect(win.sent).toHaveLength(0);
-        await sleep(DEBOUNCE * 3);
+        await untilSent(win, 1);
         expect(win.sent).toHaveLength(1);
     });
 
@@ -113,7 +130,7 @@ describe('a change to the vault file', () => {
         // directory, so the name is what shows the resolution happened)
         expect(state.dir).toBe(path.dirname(target));
         fire(path.basename(target));
-        await sleep(DEBOUNCE * 3);
+        await untilSent(win, 1);
         expect(win.sent).toHaveLength(1);
         expect((win.sent[0][1] as { path: string }).path).toBe(link);
         expect((win.sent[0][1] as { hash: string }).hash).toBe(sha256(Buffer.from('linked')));
@@ -141,7 +158,7 @@ describe('events that are not the vault', () => {
         watch(win, file, { watch: w });
 
         fire(null);
-        await sleep(DEBOUNCE * 3);
+        await untilSent(win, 1);
         expect(win.sent).toHaveLength(1);
     });
 });
@@ -173,7 +190,7 @@ describe('lifecycle', () => {
         expect(a.state.watcher.closed).toBe(true);
         expect(watchedCount()).toBe(1);
         b.fire(path.basename(second));
-        await sleep(DEBOUNCE * 3);
+        await untilSent(win, 1);
         expect(win.sent).toHaveLength(1);
         expect((win.sent[0][1] as { path: string }).path).toBe(second);
     });
@@ -235,7 +252,7 @@ describe('a file momentarily absent', () => {
         await sleep(DEBOUNCE * 1.5);
         expect(win.sent).toHaveLength(0);
         fs.writeFileSync(file, 'after');
-        await sleep(DEBOUNCE * 2);
+        await untilSent(win, 1);
         expect(win.sent).toHaveLength(1);
         expect((win.sent[0][1] as { hash: string }).hash).toBe(sha256(Buffer.from('after')));
     });
@@ -244,17 +261,73 @@ describe('a file momentarily absent', () => {
         const file = newVault();
         const win = fakeWindow();
         const { watch: w, fire } = fakeWatch();
-        watch(win, file, { watch: w });
+        const { readFile, pending } = controlledReads();
+        watch(win, file, { watch: w, readFile, stat: fakeStat });
 
-        fs.unlinkSync(file);
         fire(path.basename(file));
-        await sleep(DEBOUNCE * 4);
+        await until(() => pending.length === 1);
+        pending[0].reject(new Error('ENOENT'));
+        await until(() => pending.length === 2);      // the one retry
+        pending[1].reject(new Error('ENOENT'));
+        await sleep(DEBOUNCE * 3);
+        expect(pending).toHaveLength(2);              // no third attempt
         expect(win.sent).toHaveLength(0);
         // A later event starts over with a fresh retry budget
-        fs.writeFileSync(file, 'back');
         fire(path.basename(file));
-        await sleep(DEBOUNCE * 3);
+        await until(() => pending.length === 3);
+        pending[2].resolve(Buffer.from('back'));
+        await untilSent(win, 1);
         expect(win.sent).toHaveLength(1);
+        expect((win.sent[0][1] as { hash: string }).hash).toBe(sha256(Buffer.from('back')));
+    });
+});
+
+// A read the watcher started for one event can still be in flight when the
+// next event arrives and schedules its own timer against the same pending
+// entry. Whatever the old read then does with that entry must not orphan the
+// new timer: it fires, finds nothing, and the newer change is never reported
+describe('a change that arrives while an earlier read is in flight', () => {
+
+    it('is not lost when the earlier read fails and had already used its retry', async () => {
+        const file = newVault('v1');
+        const win = fakeWindow();
+        const { watch: w, fire } = fakeWatch();
+        const { readFile, pending } = controlledReads();
+        watch(win, file, { watch: w, readFile, stat: fakeStat });
+
+        fire(path.basename(file));
+        await until(() => pending.length === 1);
+        pending[0].reject(new Error('ENOENT'));      // first read fails: one retry is scheduled
+        await until(() => pending.length === 2);     // the retry's read is now in flight
+
+        fire(path.basename(file));                   // a newer change, timer scheduled on the same entry
+        await settled();
+        pending[1].reject(new Error('ENOENT'));      // the retry fails too; the old code deletes the entry here
+        await until(() => pending.length === 3, 500);
+        expect(pending).toHaveLength(3);             // the newer timer must still get its read
+        pending[2].resolve(Buffer.from('v3'));
+        await untilSent(win, 1);
+        expect((win.sent[0][1] as { hash: string }).hash).toBe(sha256(Buffer.from('v3')));
+    });
+
+    it('is not lost when the earlier read succeeds', async () => {
+        const file = newVault('v1');
+        const win = fakeWindow();
+        const { watch: w, fire } = fakeWatch();
+        const { readFile, pending } = controlledReads();
+        watch(win, file, { watch: w, readFile, stat: fakeStat });
+
+        fire(path.basename(file));
+        await until(() => pending.length === 1);     // first read in flight
+        fire(path.basename(file));                   // newer change scheduled meanwhile
+        await settled();
+        pending[0].resolve(Buffer.from('v1'));       // old code deletes the entry on success
+        await untilSent(win, 1);
+        await until(() => pending.length === 2, 500);
+        expect(pending).toHaveLength(2);             // the newer timer still reads
+        pending[1].resolve(Buffer.from('v2'));
+        await untilSent(win, 2);
+        expect((win.sent[1][1] as { hash: string }).hash).toBe(sha256(Buffer.from('v2')));
     });
 });
 
@@ -270,7 +343,7 @@ describe('a conflict copy beside the vault', () => {
         const copyPath = path.join(path.dirname(file), copyName);
         fs.writeFileSync(copyPath, 'from the phone');
         fire(copyName);
-        await sleep(DEBOUNCE * 3);
+        await until(() => copies.length >= 1);
 
         expect(win.sent).toHaveLength(0);
         expect(copies).toEqual([[copyPath, sha256(Buffer.from('from the phone'))]]);
@@ -287,7 +360,9 @@ describe('a conflict copy beside the vault', () => {
         fs.writeFileSync(path.join(path.dirname(file), copyName), 'onedrive');
         fire(path.basename(file));
         fire(copyName);
-        await sleep(DEBOUNCE * 3);
+        await untilSent(win, 1);
+        // The copy is hashed by its own notify; wait for that one too
+        await until(() => copies.length >= 1);
 
         expect(win.sent).toHaveLength(1);
         expect(copies).toHaveLength(1);

@@ -16,6 +16,7 @@ import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
 import { oathFailureMessage } from './oathFailures';
+import { useYubiKeyPresence } from '../useYubiKeyPresence';
 import { IconPicker } from './IconPicker';
 import { ItemIcon } from './ItemIcon';
 import { KeePassIcon } from '../../icons/keepass/KeePassIcons';
@@ -197,14 +198,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	const [hotpCode, setHotpCode] = useState('');
 	const [hotpBusy, setHotpBusy] = useState(false);
 	const [pushingToKey, setPushingToKey] = useState(false);
-	const [keyPresent, setKeyPresent] = useState(false);
-	useEffect(() => {
-		let cancelled = false;
-		void window.electron?.yubikeyOathOffer?.().then(offer => {
-			if (!cancelled) setKeyPresent(!!offer);
-		});
-		return () => { cancelled = true; };
-	}, []);
+	// The copy-to-key button is only worth showing while there is a key
+	const keyPresent = useYubiKeyPresence();
 	// Edit-mode counter text while it is not a valid number
 	const [hotpCounterDraft, setHotpCounterDraft] = useState<string | null>(null);
 

@@ -89,6 +89,9 @@ export function watchVault(win: WatchTarget, filePath: string, deps: WatchDeps =
         try {
             [data, { mtimeMs }] = await Promise.all([readFile(file), stat(file)]);
         } catch {
+            // A newer event scheduled its own read while this one was in
+            // flight; that read owns the entry now
+            if (entry.timer) return;
             // Mid-rename, or gone for good. One retry after another quiet
             // period; a file that stays unreadable is the save path's problem
             if (!entry.retried && watches.get(win) === active) {
@@ -99,7 +102,8 @@ export function watchVault(win: WatchTarget, filePath: string, deps: WatchDeps =
             }
             return;
         }
-        active.pending.delete(fileName);
+        // Same as above: a newer read is pending, and the entry stays for it
+        if (!entry.timer) active.pending.delete(fileName);
         // Unwatched or replaced while the read was in flight
         if (watches.get(win) !== active || win.isDestroyed()) return;
         const hash = crypto.createHash('sha256').update(data).digest('hex');

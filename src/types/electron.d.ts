@@ -84,13 +84,15 @@ export interface OathAccount {
 }
 
 export type OathFailure =
-	| 'ykman-missing'
-	| 'no-key'
+	| 'unavailable'
 	| 'no-pcscd'
+	| 'no-key'
 	| 'locked'
 	| 'wrong-password'
 	| 'timeout'
 	| 'in-use'
+	| 'no-space'
+	| 'not-found'
 	| 'failed';
 
 export interface OathPushRequest {
@@ -197,10 +199,10 @@ export interface IElectronAPI {
 	hardwareKeyChallenge: (serial: number | null, slot: 1 | 2, challenge: ArrayBuffer) => Promise<{ success: boolean; response?: Uint8Array; error?: string }>;
 	// Read-only view of the OATH application on a connected YubiKey. These
 	// secrets never leave the key, so Vigil shows the codes and nothing else
-	// Whether to surface OATH actions: a Yubico device is present, or ykman
-	// is installed (which covers a CCID-only key no HID scan can see)
+	// Whether to surface OATH actions: a Yubico device is on the HID bus, or a
+	// YubiKey reader is on PC/SC (which sees a CCID-only key no HID scan can)
 	yubikeyOathOffer: () => Promise<boolean>;
-	yubikeyOathKeys: () => Promise<OathResult<number[]>>;
+	yubikeyOathKeys: () => Promise<OathResult<string[]>>;
 	yubikeyOathAccounts: (serial: number | null, password: string | null) => Promise<OathResult<OathAccount[]>>;
 	// Has side effects on the key: burns an HOTP counter, prompts for touch
 	yubikeyOathCode: (serial: number | null, id: string, password: string | null) => Promise<OathResult<string>>;
