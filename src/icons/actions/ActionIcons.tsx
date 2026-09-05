@@ -335,3 +335,20 @@ export const LinkActionIcon: React.FC<ActionIconProps> = ({ className, color = '
         <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
     </svg>
 );
+
+export const MoveActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
+    <svg aria-hidden="true"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+        style={style}
+    >
+        <polyline points="15 10 20 15 15 20" />
+        <path d="M4 4v7a4 4 0 0 0 4 4h12" />
+    </svg>
+);

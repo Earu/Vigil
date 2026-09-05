@@ -6,7 +6,9 @@ import { EntryDetails } from './EntryDetails';
 import { GroupDetails, GroupChanges } from './GroupDetails';
 import { BreachReport } from './BreachReport';
 import { installPaneCycle } from './paneCycle';
+import { MoveToGroupDialog, parentGroupOf, parentOfGroup } from './MoveToGroupDialog';
 import { matchesChord, dialogOpen } from '../../services/Shortcuts';
+import { confirmDialog } from '../../services/Dialogs';
 import { BreachCheckService, BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
@@ -199,15 +201,15 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	};
 	const handleDirtyChange = (dirty: boolean) => setDirty(dirty);
 
-	const confirmDiscardEdits = (): boolean => {
+	const confirmDiscardEdits = async (): Promise<boolean> => {
 		if (!detailsDirty.current) return true;
-		if (!window.confirm('Discard unsaved changes to this entry?')) return false;
+		if (!(await confirmDialog('Discard unsaved changes to this entry?', 'Discard'))) return false;
 		setDirty(false);
 		return true;
 	};
 
-	const handleGroupSelect = (group: Group) => {
-		if (group.id !== selectedGroup.id && !confirmDiscardEdits()) return;
+	const handleGroupSelect = async (group: Group) => {
+		if (group.id !== selectedGroup.id && !(await confirmDiscardEdits())) return;
 		// Moving the selection closes an editor left open on another group;
 		// keeping it would let a rename typed "here" land on a group the
 		// list no longer shows
@@ -216,15 +218,15 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		setSelectedGroup(currentGroup || database.root);
 	};
 
-	const handleEntrySelect = (entry: Entry | null) => {
+	const handleEntrySelect = async (entry: Entry | null) => {
 		if (entry?.id === selectedEntry?.id) return;
-		if (!confirmDiscardEdits()) return;
+		if (!(await confirmDiscardEdits())) return;
 		setEditingGroup(null);
 		setSelectedEntry(entry);
 	};
 
-	const handleEditGroup = (group: Group) => {
-		if (!confirmDiscardEdits()) return;
+	const handleEditGroup = async (group: Group) => {
+		if (!(await confirmDiscardEdits())) return;
 		setSelectedEntry(null);
 		setIsCreatingNew(false);
 		setEditingGroup(group);
@@ -253,14 +255,14 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	// A tag is only useful as a filter if it reaches the whole vault, so this
 	// widens the selection to the root rather than searching inside whatever
 	// group the entry happened to live in
-	const handleTagClick = (tag: string) => {
-		if (!confirmDiscardEdits()) return;
+	const handleTagClick = async (tag: string) => {
+		if (!(await confirmDiscardEdits())) return;
 		setSelectedGroup(database.root);
 		onSearch?.(`tag:"${tag}"`);
 	};
 
-	const handleNewEntry = () => {
-		if (!confirmDiscardEdits()) return;
+	const handleNewEntry = async () => {
+		if (!(await confirmDiscardEdits())) return;
 		setEditingGroup(null);
 		setIsCreatingNew(true);
 		setSelectedEntry(null);
@@ -288,13 +290,32 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		focusTree();
 	};
 	useEffect(() => installPaneCycle(() => contentRef.current), []);
-	const newEntryRef = useRef(() => {});
-	newEntryRef.current = handleNewEntry;
+	// Moving from the keyboard: Ctrl+M asks for a destination for the
+	// focused group, or else the selected entry
+	type MoveRequest = { kind: 'entry'; entry: Entry } | { kind: 'group'; group: Group };
+	const [moveRequest, setMoveRequest] = useState<MoveRequest | null>(null);
+	const requestMove = (from: 'tree' | 'entry') => {
+		if (from === 'tree') {
+			// The focused row, like F2 and Delete; the selection may be elsewhere
+			const rowId = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[role="treeitem"]')?.dataset.groupId;
+			const group = (rowId && KeepassDatabaseService.findGroupInDatabase(rowId, database.root)) || selectedGroup;
+			if (group.id !== database.root.id) setMoveRequest({ kind: 'group', group });
+		} else if (selectedEntry && !isCreatingNew) {
+			setMoveRequest({ kind: 'entry', entry: selectedEntry });
+		}
+	};
+	const shortcutRefs = useRef({ newEntry: () => {}, move: (_from: 'tree' | 'entry') => {} });
+	shortcutRefs.current = { newEntry: handleNewEntry, move: requestMove };
 	useEffect(() => {
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (!matchesChord(e, 'Mod+N') || dialogOpen()) return;
-			e.preventDefault();
-			newEntryRef.current();
+			if (dialogOpen()) return;
+			if (matchesChord(e, 'Mod+N')) {
+				e.preventDefault();
+				shortcutRefs.current.newEntry();
+			} else if (matchesChord(e, 'Mod+M')) {
+				e.preventDefault();
+				shortcutRefs.current.move(document.activeElement?.closest('.sidebar') ? 'tree' : 'entry');
+			}
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
@@ -305,7 +326,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		onDatabaseChange?.(updatedDatabase);
 	};
 
-	const handleRemoveGroup = (groupToRemove: Group) => {
+	const handleRemoveGroup = async (groupToRemove: Group) => {
 		if (groupToRemove.id === database.root.id) return;
 
 		const totalEntries = KeepassDatabaseService.countEntriesInGroup(groupToRemove);
@@ -314,7 +335,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 			? `Permanently delete the group "${groupToRemove.name}" and all its contents (${totalEntries} entries, ${groupToRemove.groups.length} subgroups)? This cannot be undone.`
 			: `Move the group "${groupToRemove.name}" and all its contents (${totalEntries} entries, ${groupToRemove.groups.length} subgroups) to the recycle bin?`;
 
-		if (!window.confirm(message)) return;
+		if (!(await confirmDialog(message, permanent ? 'Delete' : 'Move to Recycle Bin'))) return;
 
 		const updatedDatabase = KeepassDatabaseService.removeGroup(database, groupToRemove);
 		if (selectedGroup.id === groupToRemove.id) {
@@ -328,22 +349,22 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		onDatabaseChange?.(updatedDatabase);
 	};
 
-	const handleEmptyRecycleBin = () => {
+	const handleEmptyRecycleBin = async () => {
 		const bin = KeepassDatabaseService.findRecycleBin(database.root);
 		if (!bin) return;
 
 		const count = KeepassDatabaseService.countEntriesInGroup(bin);
-		if (!window.confirm(`Permanently delete everything in the recycle bin (${count} ${count === 1 ? 'entry' : 'entries'})? This cannot be undone.`)) return;
+		if (!(await confirmDialog(`Permanently delete everything in the recycle bin (${count} ${count === 1 ? 'entry' : 'entries'})? This cannot be undone.`, 'Delete'))) return;
 
 		onDatabaseChange?.(KeepassDatabaseService.emptyRecycleBin(database));
 	};
 
-	const handleRemoveEntry = (entryToRemove: Entry) => {
+	const handleRemoveEntry = async (entryToRemove: Entry) => {
 		const permanent = KeepassDatabaseService.isEntryInRecycleBin(database, entryToRemove.id);
 		const message = permanent
 			? `Permanently delete the entry "${entryToRemove.title}"? This cannot be undone.`
 			: `Move the entry "${entryToRemove.title}" to the recycle bin?`;
-		if (!window.confirm(message)) return;
+		if (!(await confirmDialog(message, permanent ? 'Delete' : 'Move to Recycle Bin'))) return;
 
 		const updatedDatabase = KeepassDatabaseService.removeEntry(database, entryToRemove);
 		if (selectedEntry?.id === entryToRemove.id) {
@@ -422,6 +443,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					onMoveGroup={handleMoveGroup}
 					onMoveEntry={handleMoveEntry}
 					onDatabaseChange={onDatabaseChange}
+					onMoveGroupRequest={(group) => setMoveRequest({ kind: 'group', group })}
 					treeRef={treeRef}
 				/>
 				<div
@@ -466,9 +488,29 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 						onTagClick={handleTagClick}
 						panelRef={detailsRef}
 						onReturnFocus={focusGrid}
+						onMove={selectedEntry && !isCreatingNew ? () => requestMove('entry') : undefined}
 					/>
 				)}
 			</div>
+			{moveRequest?.kind === 'entry' && (
+				<MoveToGroupDialog
+					database={database}
+					title={`Move "${moveRequest.entry.title}" to`}
+					currentParentId={parentGroupOf(database.root, moveRequest.entry.id)?.id}
+					onChoose={(group) => { handleMoveEntry(moveRequest.entry, group); setMoveRequest(null); }}
+					onCancel={() => setMoveRequest(null)}
+				/>
+			)}
+			{moveRequest?.kind === 'group' && (
+				<MoveToGroupDialog
+					database={database}
+					title={`Move "${moveRequest.group.name}" into`}
+					excludeId={moveRequest.group.id}
+					currentParentId={parentOfGroup(database.root, moveRequest.group.id)?.id}
+					onChoose={(parent) => { handleMoveGroup(moveRequest.group, parent); setMoveRequest(null); }}
+					onCancel={() => setMoveRequest(null)}
+				/>
+			)}
 			{(showBreachReport && (reportOpenedManually || breachedEntries.length > 0 || breachedEmailEntries.length > 0 || reusedPasswords.length > 0 || isCheckingBreaches || isCheckingEmails)) && (
 				<BreachReport
 					database={database}
@@ -480,6 +522,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					expiredEntries={expiredEntries}
 					isChecking={isCheckingBreaches}
 					isCheckingEmails={isCheckingEmails}
+					autoOpened={!reportOpenedManually}
 					onClose={() => {
 						setShowBreachReport(false);
 						setReportOpenedManually(false);

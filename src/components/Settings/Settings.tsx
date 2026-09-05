@@ -18,6 +18,7 @@ import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
 import { Modal } from '../Modal';
 import { TabStrip, tabPanelProps } from '../TabStrip';
 import { SHORTCUT_GROUPS, chordKeys } from '../../services/Shortcuts';
+import { confirmDialog } from '../../services/Dialogs';
 import './Settings.css';
 
 const REPO_URL = 'https://github.com/Earu/Vigil';
@@ -253,9 +254,10 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             + `file is opened, and a formula can read the password column beside it. Open this export `
             + `in a text editor rather than a spreadsheet.`;
 
-        const confirmed = window.confirm(
+        const confirmed = await confirmDialog(
             `Export ${count} entries to an unencrypted CSV file?`
-            + formulaWarning
+            + formulaWarning,
+            'Export'
         );
         if (!confirmed) return;
 
@@ -332,8 +334,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                 const result = await ImportService.parseFile(file);
 
                 const skippedNote = result.skipped > 0 ? ` (${result.skipped} unsupported items skipped)` : '';
-                const confirmImport = window.confirm(
-                    `Import ${result.entries.length} entries from ${result.source}${skippedNote}?`
+                const confirmImport = await confirmDialog(
+                    `Import ${result.entries.length} entries from ${result.source}${skippedNote}?`,
+                    'Import'
                 );
                 if (!confirmImport) return;
 
@@ -395,8 +398,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         const selected = await window.electron?.selectKeyFile();
         if (!selected?.filePath) return;
 
-        const confirmed = window.confirm(
-            'The database will be re-encrypted so that unlocking it needs this key file as well as your password. Losing the key file means losing the database. Continue?'
+        const confirmed = await confirmDialog(
+            'The database will be re-encrypted so that unlocking it needs this key file as well as your password. Losing the key file means losing the database. Continue?',
+            'Continue'
         );
         if (!confirmed) return;
 
@@ -414,8 +418,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     };
 
     const handleGenerateKeyFile = async () => {
-        const confirmed = window.confirm(
-            'A new random key file will be generated and the database re-encrypted so that unlocking it needs the key file as well as your password. Losing the key file means losing the database. Continue?'
+        const confirmed = await confirmDialog(
+            'A new random key file will be generated and the database re-encrypted so that unlocking it needs the key file as well as your password. Losing the key file means losing the database. Continue?',
+            'Continue'
         );
         if (!confirmed) return;
 
@@ -428,8 +433,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     };
 
     const handleRemoveKeyFile = async () => {
-        const confirmed = window.confirm(
-            'The database will be re-encrypted and protected by your password only. Continue?'
+        const confirmed = await confirmDialog(
+            'The database will be re-encrypted and protected by your password only. Continue?',
+            'Continue'
         );
         if (!confirmed) return;
 
@@ -497,7 +503,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         }
         if (count === 0) return;
         const copies = count === 1 ? '1 backup copy of this database still opens' : `${count} backup copies of this database still open`;
-        if (!window.confirm(`${copies} with the old password. Delete them? This cannot be undone.`)) return;
+        if (!(await confirmDialog(`${copies} with the old password. Delete them? This cannot be undone.`, 'Delete'))) return;
         const result = await window.electron.purgeBackups(dbPath);
         if (result.success) {
             showSettingsToast(`Deleted ${result.removed} backup ${result.removed === 1 ? 'copy' : 'copies'}`);

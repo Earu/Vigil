@@ -200,6 +200,11 @@ button:hover {
 	outline-offset: 1px;
 }
 
+/* A dialog the app opened by itself (see Modal quietInitialFocus) */
+[data-quiet-focus]:focus-visible {
+	outline: none;
+}
+
 /* Rings inside scroll containers and the title bar would be clipped at the
    edge, so they draw inward */
 .group-header:focus-visible,

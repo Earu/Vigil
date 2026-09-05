@@ -18,6 +18,9 @@ interface ModalProps {
     // gone
     restoreFocusTo?: () => HTMLElement | null;
     role?: 'dialog' | 'alertdialog';
+    // For a dialog the app opens on its own (not from a key press on a
+    // control): no focus ring until the first key pressed inside it
+    quietInitialFocus?: boolean;
     children: React.ReactNode;
 }
 
@@ -57,8 +60,10 @@ export const Modal = ({
     initialFocus = 'first',
     restoreFocusTo,
     role = 'dialog',
+    quietInitialFocus = false,
     children,
 }: ModalProps) => {
+    const [quiet, setQuiet] = useState(quietInitialFocus);
     const overlayRef = useRef<HTMLDivElement>(null);
     const dialogRef = useRef<HTMLDivElement>(null);
     // Captured during the first render, before a child autoFocus commits
@@ -106,6 +111,7 @@ export const Modal = ({
     }, []);
 
     const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+        if (quiet) setQuiet(false);
         if (e.defaultPrevented) return;
         const dialog = dialogRef.current;
         if (!dialog) return;
@@ -154,6 +160,7 @@ export const Modal = ({
                 aria-modal="true"
                 aria-labelledby={labelledBy}
                 aria-describedby={describedBy}
+                data-quiet-focus={quiet ? '' : undefined}
                 tabIndex={-1}
                 onKeyDown={onKeyDown}
             >
