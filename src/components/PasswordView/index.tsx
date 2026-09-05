@@ -5,6 +5,8 @@ import { EntryList } from './EntryList';
 import { EntryDetails } from './EntryDetails';
 import { GroupDetails, GroupChanges } from './GroupDetails';
 import { BreachReport } from './BreachReport';
+import { installPaneCycle } from './paneCycle';
+import { matchesChord, dialogOpen } from '../../services/Shortcuts';
 import { BreachCheckService, BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
@@ -285,6 +287,18 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		setEditingGroup(null);
 		focusTree();
 	};
+	useEffect(() => installPaneCycle(() => contentRef.current), []);
+	const newEntryRef = useRef(() => {});
+	newEntryRef.current = handleNewEntry;
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (!matchesChord(e, 'Mod+N') || dialogOpen()) return;
+			e.preventDefault();
+			newEntryRef.current();
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, []);
 
 	const handleNewGroup = (parentGroup: Group) => {
 		const updatedDatabase = KeepassDatabaseService.addNewGroup(database, parentGroup);
