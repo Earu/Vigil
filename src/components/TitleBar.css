@@ -155,7 +155,6 @@
 	height: calc(100% - 2px);
 	border: none;
 	background: transparent;
-	outline: none;
 	display: flex;
 	align-items: center;
 	justify-content: center;

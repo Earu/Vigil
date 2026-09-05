@@ -1,3 +1,4 @@
+import { Modal } from './Modal';
 import './BrowserPairingDialog.css';
 
 interface SaveConflictDialogProps {
@@ -11,14 +12,19 @@ interface SaveConflictDialogProps {
 // by a frozen renderer, headless callers get an answer, and an unload cannot
 // silently answer no on the user's behalf
 export const SaveConflictDialog = ({ message, onOverwrite, onCancel }: SaveConflictDialogProps) => (
-    <div className="pairing-overlay">
-        <div className="pairing-dialog">
-            <h3>Database Changed on Disk</h3>
-            <p>{message}</p>
+    <Modal
+        overlayClassName="pairing-overlay"
+        className="pairing-dialog"
+        role="alertdialog"
+        labelledBy="save-conflict-title"
+        describedBy="save-conflict-message"
+        onClose={onCancel}
+    >
+            <h3 id="save-conflict-title">Database Changed on Disk</h3>
+            <p id="save-conflict-message">{message}</p>
             <div className="pairing-actions">
                 <button className="pairing-cancel-button" onClick={onCancel}>Keep Disk Version</button>
                 <button className="pairing-allow-button" onClick={onOverwrite}>Overwrite</button>
             </div>
-        </div>
-    </div>
+    </Modal>
 );

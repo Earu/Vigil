@@ -4,6 +4,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { EntryList } from '../src/components/PasswordView/EntryList';
 import { Database, Entry, Group } from '../src/types/database';
+import { expectNoA11yViolations } from './a11y';
 
 // A search scoped to a subgroup shows a footer with a jump to a global
 // search; a root-scoped search and a plain group view show none.
@@ -68,9 +69,10 @@ describe('search scope note', () => {
         expect(container.querySelector('.search-scope-note')).toBeNull();
     });
 
-    it('shows nothing when the search is already global', () => {
+    it('shows nothing when the search is already global', async () => {
         const { database } = makeModel();
         const { container } = renderList(database.root, database, 'beta', undefined);
         expect(container.querySelector('.search-scope-note')).toBeNull();
+        await expectNoA11yViolations(container);
     });
 });

@@ -4,6 +4,7 @@ import { render, cleanup, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { EntryDetails } from '../src/components/PasswordView/EntryDetails';
 import { Entry } from '../src/types/database';
+import { expectNoA11yViolations } from './a11y';
 
 // The details panel receives a fresh entry object whenever the model is
 // rebuilt, which happens on every save, including ones the user did not
@@ -49,6 +50,12 @@ describe('a model refresh while an edit session is open', () => {
 
         expect(titleInput().value).toBe('Alpha renamed');
         expect(getByText('Save')).toBeTruthy();
+    });
+
+    it('passes axe in edit mode', async () => {
+        const { getByTitle, container } = renderDetails(makeEntry('id-a', 'Alpha'));
+        fireEvent.click(getByTitle('Edit entry'));
+        await expectNoA11yViolations(container);
     });
 
     it('still re-seeds a same-entry refresh when not editing', () => {

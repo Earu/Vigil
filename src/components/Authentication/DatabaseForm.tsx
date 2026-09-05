@@ -1,6 +1,7 @@
 import { BrowseAuthIcon, ImportAuthIcon } from '../../icons/auth/AuthIcons';
 import { useState } from 'react';
 import { ImportService, ImportResult } from '../../services/ImportService';
+import { Modal } from '../Modal';
 
 interface DatabaseFormProps {
     setSelectedFile: (file: File | null) => void;
@@ -90,13 +91,13 @@ export const DatabaseForm = ({
                 </button>
             </div>
             {showImportModal && (
-                <div className="browser-select-overlay">
-                    <div className="browser-select-modal">
+                <Modal overlayClassName="browser-select-overlay" className="browser-select-modal" labelledBy="auth-import-title" onClose={() => setShowImportModal(false)}>
                         <div className="auth-modal-header">
-                            <h3>Import Passwords</h3>
+                            <h3 id="auth-import-title">Import Passwords</h3>
                             <button
                                 className="auth-close-button"
                                 onClick={() => setShowImportModal(false)}
+                                aria-label="Close"
                             >
                                 ×
                             </button>
@@ -122,8 +123,7 @@ export const DatabaseForm = ({
                                 Select File
                             </button>
                         </div>
-                    </div>
-                </div>
+                </Modal>
             )}
         </>
     );

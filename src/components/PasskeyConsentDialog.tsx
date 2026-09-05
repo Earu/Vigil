@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PasskeyConsentRequest } from '../services/BrowserIntegrationService';
+import { Modal } from './Modal';
 import './PasskeyConsentDialog.css';
 
 interface PasskeyConsentDialogProps {
@@ -16,9 +17,8 @@ export const PasskeyConsentDialog = ({ request, onSubmit, onCancel }: PasskeyCon
     const isRegister = request.kind === 'register';
 
     return (
-        <div className="pairing-overlay">
-            <div className="pairing-dialog passkey-dialog">
-                <h3>{isRegister ? 'Create Passkey' : 'Use Passkey'}</h3>
+        <Modal overlayClassName="pairing-overlay" className="pairing-dialog passkey-dialog" labelledBy="passkey-title" onClose={onCancel}>
+                <h3 id="passkey-title">{isRegister ? 'Create Passkey' : 'Use Passkey'}</h3>
                 {isRegister ? (
                     <p>
                         <strong>{request.rpId}</strong> wants to create a passkey
@@ -57,7 +57,6 @@ export const PasskeyConsentDialog = ({ request, onSubmit, onCancel }: PasskeyCon
                         {isRegister ? 'Create' : 'Sign in'}
                     </button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };

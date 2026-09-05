@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AccessConsentRequest } from '../services/BrowserIntegrationService';
+import { Modal } from './Modal';
 import './PasskeyConsentDialog.css';
 
 interface AccessConsentDialogProps {
@@ -22,10 +23,11 @@ export const AccessConsentDialog = ({ request, onSubmit, onCancel }: AccessConse
         });
     };
 
+    const deny = () => (remember ? onSubmit([], true) : onCancel());
+
     return (
-        <div className="pairing-overlay">
-            <div className="pairing-dialog passkey-dialog">
-                <h3>Allow Browser Access</h3>
+        <Modal overlayClassName="pairing-overlay" className="pairing-dialog passkey-dialog" labelledBy="access-title" onClose={deny}>
+                <h3 id="access-title">Allow Browser Access</h3>
                 <p>
                     A browser is asking for the logins matching{' '}
                     <strong>{request.host}</strong>. Unchecked entries are withheld.
@@ -54,7 +56,7 @@ export const AccessConsentDialog = ({ request, onSubmit, onCancel }: AccessConse
                 <div className="pairing-actions">
                     <button
                         className="pairing-cancel-button"
-                        onClick={() => (remember ? onSubmit([], true) : onCancel())}
+                        onClick={deny}
                     >
                         Deny
                     </button>
@@ -66,7 +68,6 @@ export const AccessConsentDialog = ({ request, onSubmit, onCancel }: AccessConse
                         Allow
                     </button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };

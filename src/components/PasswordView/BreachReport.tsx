@@ -5,6 +5,8 @@ import { PlaceholderService } from '../../services/PlaceholderService';
 import { VirtualList } from './VirtualList';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { CloseActionIcon } from '../../icons/actions/ActionIcons';
+import { Modal } from '../Modal';
+import { TabStrip, tabPanelProps } from '../TabStrip';
 import './BreachReport.css';
 
 interface BreachReportProps {
@@ -156,47 +158,29 @@ export const BreachReport = ({
     );
 
     return (
-        <div className="breach-report-overlay">
-            <div className="breach-report">
+        <Modal overlayClassName="breach-report-overlay" className="breach-report" labelledBy="breach-report-title" onClose={onClose} initialFocus="container">
                 <div className="breach-report-header">
-                    <h2>Security Report</h2>
-                    <button className="report-close-button" onClick={onClose}>
+                    <h2 id="breach-report-title">Security Report</h2>
+                    <button className="report-close-button" onClick={onClose} aria-label="Close security report">
                         <CloseActionIcon />
                     </button>
                 </div>
-                <div className="breach-report-tabs">
-                    <button
-                        className={`tab-button ${activeTab === 'breached' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('breached')}
-                    >
-                        Compromised ({breachedEntries.length})
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === 'reused' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('reused')}
-                    >
-                        Reused ({reusedEntryCount})
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === 'weak' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('weak')}
-                    >
-                        Weak ({weakEntries.length})
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === 'emails' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('emails')}
-                    >
-                        Exposed ({breachedEmailEntries.length})
-                    </button>
-                    <button
-                        className={`tab-button ${activeTab === 'expired' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('expired')}
-                    >
-                        Expired ({expiredEntries.length})
-                    </button>
-                </div>
-                <div className="breach-report-content">
+                <TabStrip<TabType>
+                    idPrefix="report"
+                    label="Report sections"
+                    tabs={[
+                        { id: 'breached', label: `Compromised (${breachedEntries.length})` },
+                        { id: 'reused', label: `Reused (${reusedEntryCount})` },
+                        { id: 'weak', label: `Weak (${weakEntries.length})` },
+                        { id: 'emails', label: `Exposed (${breachedEmailEntries.length})` },
+                        { id: 'expired', label: `Expired (${expiredEntries.length})` },
+                    ]}
+                    active={activeTab}
+                    onChange={setActiveTab}
+                    className="breach-report-tabs"
+                    tabClassName="tab-button"
+                />
+                <div className="breach-report-content" {...tabPanelProps('report', activeTab)} tabIndex={0}>
                     {waiting && (
                         <div className="breach-summary neutral">
                             <div className="breach-count">
@@ -321,7 +305,6 @@ export const BreachReport = ({
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };

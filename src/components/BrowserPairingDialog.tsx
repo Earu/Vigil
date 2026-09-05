@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { BrowserIntegrationService } from '../services/BrowserIntegrationService';
+import { Modal } from './Modal';
 import './BrowserPairingDialog.css';
 
 interface BrowserPairingDialogProps {
@@ -28,11 +29,16 @@ export const BrowserPairingDialog = ({ fingerprint, existingNames, onSubmit, onC
         onSubmit(trimmed);
     };
 
-    if (overwriting) {
-        return (
-            <div className="pairing-overlay">
-                <div className="pairing-dialog">
-                    <h3>Replace existing connection?</h3>
+    return (
+        <Modal
+            overlayClassName="pairing-overlay"
+            className="pairing-dialog"
+            labelledBy="pairing-title"
+            onClose={overwriting ? () => setOverwriting(null) : onCancel}
+        >
+            {overwriting ? (
+                <>
+                    <h3 id="pairing-title">Replace existing connection?</h3>
                     <p>
                         This database already has a connection named
                         “{overwriting}”. Replacing it disconnects the browser
@@ -46,41 +52,38 @@ export const BrowserPairingDialog = ({ fingerprint, existingNames, onSubmit, onC
                             Replace
                         </button>
                     </div>
-                </div>
-            </div>
-        );
-    }
-
-    return (
-        <div className="pairing-overlay">
-            <div className="pairing-dialog">
-                <h3>Browser Connection Request</h3>
-                <p>
-                    A browser extension is asking to connect to this database
-                    (key {fingerprint}…). Only allow this if you just initiated
-                    it from your browser.
-                </p>
-                <input
-                    type="text"
-                    className="pairing-name-input"
-                    placeholder="Name this connection (e.g. Firefox)"
-                    value={name}
-                    autoFocus
-                    onChange={(e) => setName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-                />
-                {existingNames.length > 0 && (
-                    <p className="pairing-existing">
-                        Already connected: {existingNames.join(', ')}
+                </>
+            ) : (
+                <>
+                    <h3 id="pairing-title">Browser Connection Request</h3>
+                    <p>
+                        A browser extension is asking to connect to this database
+                        (key {fingerprint}…). Only allow this if you just initiated
+                        it from your browser.
                     </p>
-                )}
-                <div className="pairing-actions">
-                    <button className="pairing-cancel-button" onClick={onCancel}>Deny</button>
-                    <button className="pairing-allow-button" onClick={submit} disabled={!name.trim()}>
-                        Allow
-                    </button>
-                </div>
-            </div>
-        </div>
+                    <input
+                        type="text"
+                        className="pairing-name-input"
+                        placeholder="Name this connection (e.g. Firefox)"
+                        aria-label="Connection name"
+                        value={name}
+                        autoFocus
+                        onChange={(e) => setName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+                    />
+                    {existingNames.length > 0 && (
+                        <p className="pairing-existing">
+                            Already connected: {existingNames.join(', ')}
+                        </p>
+                    )}
+                    <div className="pairing-actions">
+                        <button className="pairing-cancel-button" onClick={onCancel}>Deny</button>
+                        <button className="pairing-allow-button" onClick={submit} disabled={!name.trim()}>
+                            Allow
+                        </button>
+                    </div>
+                </>
+            )}
+        </Modal>
     );
 };

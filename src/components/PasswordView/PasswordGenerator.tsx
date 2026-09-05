@@ -11,6 +11,8 @@ import {
 } from '../../services/PasswordGeneratorService';
 import { CloseActionIcon, CopyActionIcon, RefreshActionIcon } from '../../icons/actions/ActionIcons';
 import { ClipboardService } from '../../services/ClipboardService';
+import { Modal } from '../Modal';
+import { TabStrip, tabPanelProps } from '../TabStrip';
 
 // Only one generator is open at a time, so a constant identifies its copy
 // button well enough to keep the countdown badge off every entry's password
@@ -163,29 +165,26 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     const copyToClipboard = () => ClipboardService.copy(generatedPassword, 'Password', COPY_SOURCE);
 
     return (
-        <div className="modal-overlay">
-            <div className="password-generator-modal">
+        <Modal overlayClassName="modal-overlay" className="password-generator-modal" labelledBy="generator-title" onClose={onClose} initialFocus="container">
                 <div className="generator-modal-header">
-                    <h2>Generate New Password</h2>
-                    <button className="generator-close-button" onClick={onClose}>
+                    <h2 id="generator-title">Generate New Password</h2>
+                    <button className="generator-close-button" onClick={onClose} aria-label="Close password generator">
                         <CloseActionIcon />
                     </button>
                 </div>
 
-                <div className="generator-tabs">
-                    <button
-                        className={`generator-tab ${mode === 'characters' ? 'active' : ''}`}
-                        onClick={() => switchMode('characters')}
-                    >
-                        Characters
-                    </button>
-                    <button
-                        className={`generator-tab ${mode === 'words' ? 'active' : ''}`}
-                        onClick={() => switchMode('words')}
-                    >
-                        Passphrase
-                    </button>
-                </div>
+                <TabStrip
+                    idPrefix="generator"
+                    label="Password type"
+                    tabs={[
+                        { id: 'characters' as const, label: 'Characters' },
+                        { id: 'words' as const, label: 'Passphrase' },
+                    ]}
+                    active={mode}
+                    onChange={switchMode}
+                    className="generator-tabs"
+                    tabClassName="generator-tab"
+                />
 
                 <div className="generated-password-section">
                     <div className="password-display">
@@ -193,10 +192,11 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                             type="text"
                             value={generatedPassword}
                             readOnly
+                            aria-label="Generated password"
                             placeholder="Generated password will appear here"
                         />
                         <div className="password-actions">
-                            <button className="generator-copy-button" onClick={copyToClipboard} title="Copy password">
+                            <button className="generator-copy-button" onClick={copyToClipboard} title="Copy password" aria-label="Copy password">
                                 <CopyActionIcon />
                                 {clipboard.secondsLeft > 0 && clipboard.source === COPY_SOURCE && (
                                     <div
@@ -207,7 +207,7 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                     </div>
                                 )}
                             </button>
-                            <button onClick={regenerate} title="Generate new password">
+                            <button onClick={regenerate} title="Generate new password" aria-label="Generate new password">
                                 <RefreshActionIcon />
                             </button>
                         </div>
@@ -232,20 +232,22 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                     )}
                 </div>
 
-                <div className="password-options">
+                <div className="password-options" {...tabPanelProps('generator', mode)}>
                     {mode === 'words' && (
                         <>
                             <div className="option-group">
-                                <label>Number of Words</label>
+                                <label htmlFor="generator-word-count">Number of Words</label>
                                 <div className="length-control">
                                     <input
                                         type="range"
+                                        aria-label="Number of words"
                                         min="3"
                                         max="12"
                                         value={wordOptions.wordCount}
                                         onChange={(e) => updateWordOptions({ wordCount: parseInt(e.target.value) })}
                                     />
                                     <input
+                                        id="generator-word-count"
                                         type="number"
                                         min="3"
                                         max="12"
@@ -258,8 +260,9 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 </div>
                             </div>
                             <div className="option-group">
-                                <label>Word Separator</label>
+                                <label htmlFor="generator-separator">Word Separator</label>
                                 <input
+                                    id="generator-separator"
                                     type="text"
                                     className="generator-separator-input"
                                     maxLength={4}
@@ -269,8 +272,8 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                                 />
                             </div>
                             <div className="option-group">
-                                <label>Options</label>
-                                <div className="checkbox-group">
+                                <label id="generator-word-options">Options</label>
+                                <div className="checkbox-group" role="group" aria-labelledby="generator-word-options">
                                     <label>
                                         <input
                                             type="checkbox"
@@ -297,16 +300,18 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                     {mode === 'characters' && (
                     <>
                     <div className="option-group">
-                        <label>Password Length</label>
+                        <label htmlFor="generator-length">Password Length</label>
                         <div className="length-control">
                             <input
                                 type="range"
+                                aria-label="Password length"
                                 min="1"
                                 max="128"
                                 value={options.length}
                                 onChange={(e) => updateOptions({length: parseInt(e.target.value) })}
                             />
                             <input
+                                id="generator-length"
                                 type="number"
                                 min="1"
                                 max="128"
@@ -317,8 +322,8 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                     </div>
 
                     <div className="option-group">
-                        <label>Character Sets</label>
-                        <div className="checkbox-group">
+                        <label id="generator-character-sets">Character Sets</label>
+                        <div className="checkbox-group" role="group" aria-labelledby="generator-character-sets">
                             <label>
                                 <input
                                     type="checkbox"
@@ -395,8 +400,9 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                     </div>
 
                     <div className="option-group">
-                        <label>Custom Characters</label>
+                        <label htmlFor="generator-custom-chars">Custom Characters</label>
                         <input
+                            id="generator-custom-chars"
                             type="text"
                             value={options.customChars}
                             onChange={(e) => updateOptions({customChars: e.target.value })}
@@ -415,7 +421,6 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
                         Save
                     </button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };

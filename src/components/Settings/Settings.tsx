@@ -15,6 +15,8 @@ import { changeMasterPassword } from '../../services/MasterPasswordChange';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
+import { Modal } from '../Modal';
+import { TabStrip, tabPanelProps } from '../TabStrip';
 import './Settings.css';
 
 interface SettingsProps {
@@ -519,37 +521,34 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     };
 
     return (
-        <div className="settings-overlay" onClick={onClose}>
-            <div className="settings-dialog" onClick={e => e.stopPropagation()}>
+        <Modal
+            overlayClassName="settings-overlay"
+            className="settings-dialog"
+            labelledBy="settings-title"
+            onClose={onClose}
+            closeOnOverlayClick
+            initialFocus="container"
+        >
                 <div className="settings-header">
-                    <h2>Settings</h2>
-                    <button className="close-button" onClick={onClose}>
+                    <h2 id="settings-title">Settings</h2>
+                    <button className="close-button" onClick={onClose} aria-label="Close settings">
                         <CloseActionIcon />
                     </button>
                 </div>
-                <div className="settings-tabs">
-                    <button
-                        className={`settings-tab ${currentTab === 'general' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('general')}
-                    >
-                        General
-                    </button>
-                    {kdbxDb && (
-                        <button
-                            className={`settings-tab ${currentTab === 'database' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('database')}
-                        >
-                            Database
-                        </button>
-                    )}
-                    <button
-                        className={`settings-tab ${currentTab === 'security' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('security')}
-                    >
-                        Security
-                    </button>
-                </div>
-                <div className="settings-content">
+                <TabStrip
+                    idPrefix="settings"
+                    label="Settings sections"
+                    tabs={[
+                        { id: 'general' as const, label: 'General' },
+                        ...(kdbxDb ? [{ id: 'database' as const, label: 'Database' }] : []),
+                        { id: 'security' as const, label: 'Security' },
+                    ]}
+                    active={currentTab}
+                    onChange={setActiveTab}
+                    className="settings-tabs"
+                    tabClassName="settings-tab"
+                />
+                <div className="settings-content" {...tabPanelProps('settings', currentTab)}>
                     {currentTab === 'general' && (
                     <div className="settings-section">
                         <h3>Appearance</h3>
@@ -1191,18 +1190,20 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         </div>
                     )}
                 </div>
-            </div>
 
             {showImportModal && (
-                // Sits inside settings-overlay, whose click-outside handler
-                // closes Settings; keep clicks in this modal to ourselves
-                <div className="settings-modal-overlay" onClick={e => e.stopPropagation()}>
-                    <div className="settings-import-modal">
+                <Modal
+                    overlayClassName="settings-modal-overlay"
+                    className="settings-import-modal"
+                    labelledBy="settings-import-title"
+                    onClose={() => setShowImportModal(false)}
+                >
                         <div className="settings-modal-header">
-                            <h3>Import Passwords</h3>
+                            <h3 id="settings-import-title">Import Passwords</h3>
                             <button
                                 className="close-button"
                                 onClick={() => setShowImportModal(false)}
+                                aria-label="Close import dialog"
                             >
                                 <CloseActionIcon />
                             </button>
@@ -1228,9 +1229,8 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 Select File
                             </button>
                         </div>
-                    </div>
-                </div>
+                </Modal>
             )}
-        </div>
+        </Modal>
     );
 }

@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/react';
 import React from 'react';
 import { ConflictCopyDialog, describeChanges, hasChanges } from '../src/components/ConflictCopyDialog';
+import { expectNoA11yViolations } from './a11y';
 
 // The dialog says what the merge did and offers a save only when there is
 // something to save.
@@ -45,6 +46,18 @@ describe('the buttons', () => {
         fireEvent.click(getByText('Save and Trash the Copy'));
         fireEvent.click(getByText('Keep the Copy'));
         expect(answers).toEqual(['trash', 'keep']);
+    });
+
+    it('is an alert dialog that keeps the copy on Escape', async () => {
+        const onKeep = vi.fn();
+        const { container, getByText } = render(
+            <ConflictCopyDialog request={request(changes(1, 0, 0))} onTrash={() => {}} onKeep={onKeep} />
+        );
+        const dialog = container.querySelector('[role="alertdialog"]')!;
+        expect(dialog.getAttribute('aria-modal')).toBe('true');
+        await expectNoA11yViolations(container);
+        fireEvent.keyDown(getByText('Keep the Copy'), { key: 'Escape' });
+        expect(onKeep).toHaveBeenCalledTimes(1);
     });
 });
 

@@ -169,7 +169,7 @@ interface KeePassIconProps {
 export const KEEPASS_ICON_COUNT = GLYPHS.length;
 
 export const KeePassIcon: React.FC<KeePassIconProps> = ({ index, className }) => (
-	<svg
+	<svg aria-hidden="true"
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 24 24"
 		fill="none"

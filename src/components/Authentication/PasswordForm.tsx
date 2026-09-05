@@ -554,7 +554,7 @@ export const PasswordForm = ({
         }
     };
 
-    const handleKeyPress = (e: React.KeyboardEvent) => {
+    const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !isLoading) {
             if (isCreatingNew) {
                 handleCreateNew();
@@ -575,7 +575,7 @@ export const PasswordForm = ({
                             setSelectedFile(null);
                             setError('');
                         }}
-                        title="Clear selection"
+                        title="Clear selection" aria-label="Clear selection"
                     >
                         ×
                     </button>
@@ -587,10 +587,11 @@ export const PasswordForm = ({
                     <input
                         type="text"
                         placeholder="Database name"
+                        aria-label="Database name"
                         className="text-input"
                         value={databaseName}
                         onChange={(e) => setDatabaseName(e.target.value)}
-                        onKeyPress={handleKeyPress}
+                        onKeyDown={handleKeyDown}
                     />
                 </div>
             )}
@@ -606,7 +607,7 @@ export const PasswordForm = ({
                                 setKeyFile(null);
                                 setError('');
                             }}
-                            title="Remove key file"
+                            title="Remove key file" aria-label="Remove key file"
                         >
                             ×
                         </button>
@@ -624,18 +625,20 @@ export const PasswordForm = ({
                     <div className="key-file-chip" title={`Challenge-response on slot ${hardwareKey.slot}`}>
                         <UsbKeyIcon className="key-file-icon" />
                         <span className="key-file-name">{hardwareKey.label}</span>
-                        <div className="slot-toggle">
+                        <div className="slot-toggle" role="group" aria-label="Hardware key slot">
                             <button
                                 className={hardwareKey.slot === 1 ? 'active' : ''}
+                                aria-pressed={hardwareKey.slot === 1}
                                 onClick={() => setHardwareKey({ ...hardwareKey, slot: 1 })}
-                                title="Use slot 1"
+                                title="Use slot 1" aria-label="Use slot 1"
                             >
                                 1
                             </button>
                             <button
                                 className={hardwareKey.slot === 2 ? 'active' : ''}
+                                aria-pressed={hardwareKey.slot === 2}
                                 onClick={() => setHardwareKey({ ...hardwareKey, slot: 2 })}
-                                title="Use slot 2"
+                                title="Use slot 2" aria-label="Use slot 2"
                             >
                                 2
                             </button>
@@ -646,7 +649,7 @@ export const PasswordForm = ({
                                 setHardwareKey(null);
                                 setError('');
                             }}
-                            title="Remove hardware key"
+                            title="Remove hardware key" aria-label="Remove hardware key"
                         >
                             ×
                         </button>
@@ -661,9 +664,10 @@ export const PasswordForm = ({
 
             {selectedFile && !isCreatingNew && isBiometricsAvailable && (
                 <>
-                    <div className="auth-toggle">
+                    <div className="auth-toggle" role="group" aria-label="Unlock method">
                         <button
                             className={`auth-option ${!isBiometricsEnabled || showPasswordInput ? 'active' : ''}`}
+                            aria-pressed={!isBiometricsEnabled || showPasswordInput}
                             onClick={() => setShowPasswordInput(true)}
                         >
                             <LockAuthIcon className="auth-icon" />
@@ -671,6 +675,7 @@ export const PasswordForm = ({
                         </button>
                         <button
                             className={`auth-option ${isBiometricsEnabled && !showPasswordInput ? 'active' : ''}`}
+                            aria-pressed={isBiometricsEnabled && !showPasswordInput}
                             onClick={() => {
                                 if (!isBiometricsEnabled) {
                                     setShowPasswordInput(true);
@@ -721,17 +726,18 @@ export const PasswordForm = ({
                         <input
                             type={showPassword ? 'text' : 'password'}
                             placeholder={isCreatingNew ? "Create password" : "Enter password"}
+                            aria-label={isCreatingNew ? "Create password" : "Enter password"}
                             className="password-input"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             ref={passwordInputRef}
-                            onKeyPress={handleKeyPress}
+                            onKeyDown={handleKeyDown}
                         />
                         <button
                             className="toggle-password"
                             onClick={() => setShowPassword(!showPassword)}
                             type="button"
-                            title={showPassword ? 'Hide password' : 'Show password'}
+                            title={showPassword ? 'Hide password' : 'Show password'} aria-label={showPassword ? 'Hide password' : 'Show password'}
                         >
                             {showPassword ? <HidePasswordIcon /> : <ShowPasswordIcon />}
                         </button>
@@ -742,10 +748,11 @@ export const PasswordForm = ({
                             <input
                                 type={showPassword ? 'text' : 'password'}
                                 placeholder="Confirm password"
+                                aria-label="Confirm password"
                                 className="password-input"
                                 value={confirmPassword}
                                 onChange={(e) => setConfirmPassword(e.target.value)}
-                                onKeyPress={handleKeyPress}
+                                onKeyDown={handleKeyDown}
                             />
                         </div>
                     )}

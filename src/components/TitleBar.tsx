@@ -84,6 +84,7 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 								type="text"
 								className="search-input"
 								placeholder="Search passwords..."
+								aria-label="Search passwords"
 								value={localQuery}
 								autoFocus
 								onChange={(e) => setLocalQuery(e.target.value)}
@@ -99,20 +100,20 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 			{!isMacOS && (
 				<div className="window-controls">
 					{onOpenSecurityReport && (
-						<button className="settings-button" onClick={onOpenSecurityReport} title="Security report">
+						<button className="settings-button" onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
 							<SecurityShieldIcon />
 						</button>
 					)}
-					<button className="settings-button" onClick={onOpenSettings} title="Settings">
+					<button className="settings-button" onClick={onOpenSettings} title="Settings" aria-label="Settings">
 						<SettingsIcon />
 					</button>
-					<button className="window-control minimize" onClick={handleMinimize}>
+					<button className="window-control minimize" onClick={handleMinimize} aria-label="Minimize">
 						<MinimizeIcon />
 					</button>
-					<button className="window-control maximize" onClick={handleMaximize}>
+					<button className="window-control maximize" onClick={handleMaximize} aria-label={isMaximized ? 'Restore' : 'Maximize'}>
 						<MaximizeIcon isMaximized={isMaximized} />
 					</button>
-					<button className="window-control close" onClick={handleClose}>
+					<button className="window-control close" onClick={handleClose} aria-label="Close window">
 						<CloseIcon />
 					</button>
 				</div>
@@ -120,11 +121,11 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 			{isMacOS && (
 				<>
 					{onOpenSecurityReport && (
-						<button className="settings-button macos-settings macos-report" onClick={onOpenSecurityReport} title="Security report">
+						<button className="settings-button macos-settings macos-report" onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
 							<SecurityShieldIcon />
 						</button>
 					)}
-					<button className="settings-button macos-settings" onClick={onOpenSettings} title="Settings">
+					<button className="settings-button macos-settings" onClick={onOpenSettings} title="Settings" aria-label="Settings">
 						<SettingsIcon />
 					</button>
 				</>
