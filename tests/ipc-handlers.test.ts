@@ -627,3 +627,23 @@ describe('conflict copies', () => {
         expect(trashItem).toHaveBeenCalledWith('/vaults/vault 2.kdbx');
     });
 });
+
+describe('zoom', () => {
+    const sender = () => {
+        const s = { level: 0, getZoomLevel() { return s.level; }, setZoomLevel(l: number) { s.level = l; } };
+        return s;
+    };
+
+    it('steps half a level each way, resets to zero, and stays within bounds', async () => {
+        const zoom = handlers.get('zoom')!;
+        const s = sender();
+        expect(await zoom({ sender: s }, 'in')).toBe(0.5);
+        expect(await zoom({ sender: s }, 'in')).toBe(1);
+        expect(await zoom({ sender: s }, 'out')).toBe(0.5);
+        expect(await zoom({ sender: s }, 'reset')).toBe(0);
+        for (let i = 0; i < 10; i++) await zoom({ sender: s }, 'in');
+        expect(s.level).toBe(3);
+        for (let i = 0; i < 20; i++) await zoom({ sender: s }, 'out');
+        expect(s.level).toBe(-3);
+    });
+});

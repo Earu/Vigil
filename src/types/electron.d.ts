@@ -140,6 +140,8 @@ export interface IElectronAPI {
 	setContentProtection: (enabled: boolean) => Promise<{ success: boolean; enabled: boolean; error?: string }>;
 	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => Promise<ArrayBuffer>;
 	openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
+	// Returns the zoom level now in effect
+	zoom: (direction: 'in' | 'out' | 'reset') => Promise<number>;
 	getPlatform: () => Promise<string>;
 	// Main-to-renderer events. Among them 'vault-file-changed', sent by the
 	// vault watcher (electron/src/vault-watcher.ts) with

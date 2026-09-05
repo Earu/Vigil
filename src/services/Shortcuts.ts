@@ -24,6 +24,9 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
             { chord: 'Mod+,', label: 'Settings' },
             { chord: 'F6', label: 'Next pane (groups, entries, details)' },
             { chord: 'Shift+F6', label: 'Previous pane' },
+            { chord: 'Mod+=', label: 'Zoom in' },
+            { chord: 'Mod+-', label: 'Zoom out' },
+            { chord: 'Mod+0', label: 'Reset zoom' },
         ],
     },
     {
@@ -75,6 +78,19 @@ export const matchesChord = (e: KeyboardEvent, chord: string): boolean => {
     if (mod !== wantMod || e.shiftKey !== wantShift || e.altKey || other) return false;
     const expected = KEY_ALIASES[key] ?? key;
     return expected.length === 1 ? e.key.toLowerCase() === expected.toLowerCase() : e.key === expected;
+};
+
+export type ZoomDirection = 'in' | 'out' | 'reset';
+
+// Mod with plus (shifted or not, main row or numpad), minus or zero
+export const zoomAction = (e: KeyboardEvent): ZoomDirection | null => {
+    const mod = isMac() ? e.metaKey : e.ctrlKey;
+    if (!mod || e.altKey) return null;
+    if (e.key === '=' || e.key === '+') return 'in';
+    if (e.shiftKey) return null;
+    if (e.key === '-') return 'out';
+    if (e.key === '0') return 'reset';
+    return null;
 };
 
 // A dialog's focus trap owns the keyboard; vault shortcuts stay out

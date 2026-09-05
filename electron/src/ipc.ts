@@ -466,6 +466,18 @@ export function setupIpcHandlers(): void {
 
     handle('get-platform', () => getPlatform());
 
+    // Ctrl+plus/minus/0 from the renderer: a packaged build has no View
+    // menu (menu.ts), so zoom is offered here. Half a level is about ten
+    // percent; Chromium remembers the level per origin across launches
+    handle('zoom', (event, direction: 'in' | 'out' | 'reset') => {
+        const contents = event.sender;
+        const next = direction === 'reset'
+            ? 0
+            : contents.getZoomLevel() + (direction === 'in' ? 0.5 : -0.5);
+        contents.setZoomLevel(Math.max(-3, Math.min(3, next)));
+        return contents.getZoomLevel();
+    });
+
     // QR screen capture; decoding happens in the renderer. Only a focused,
     // visible window may ask: the legit path is the user clicking the scan
     // button, at which point the window is by definition both. Without the

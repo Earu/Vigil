@@ -48,6 +48,7 @@ const api: IElectronAPI = {
 	setContentProtection: (enabled: boolean) => ipcRenderer.invoke('set-content-protection', enabled),
 	argon2: (password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => ipcRenderer.invoke('argon2', password, salt, memory, iterations, length, parallelism, type, version),
 	openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+	zoom: (direction: 'in' | 'out' | 'reset') => ipcRenderer.invoke('zoom', direction),
 	getPlatform: () => ipcRenderer.invoke('get-platform'),
 	// Function identity does not survive the context bridge, so removal by
 	// callback is impossible: `on` returns the unsubscribe function instead

@@ -48,3 +48,19 @@ describe('the shortcut table', () => {
         }
     });
 });
+
+describe('zoomAction', () => {
+    it('reads plus, minus and zero with the platform key', async () => {
+        const { zoomAction } = await import('../src/services/Shortcuts');
+        mac(false);
+        expect(zoomAction(ev({ key: '=', ctrlKey: true }))).toBe('in');
+        expect(zoomAction(ev({ key: '+', ctrlKey: true, shiftKey: true }))).toBe('in');
+        expect(zoomAction(ev({ key: '-', ctrlKey: true }))).toBe('out');
+        expect(zoomAction(ev({ key: '0', ctrlKey: true }))).toBe('reset');
+        expect(zoomAction(ev({ key: '0', ctrlKey: true, shiftKey: true }))).toBeNull();
+        expect(zoomAction(ev({ key: '=' }))).toBeNull();
+        expect(zoomAction(ev({ key: '=', metaKey: true }))).toBeNull();
+        mac(true);
+        expect(zoomAction(ev({ key: '=', metaKey: true }))).toBe('in');
+    });
+});

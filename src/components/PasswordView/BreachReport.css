@@ -56,7 +56,7 @@
     border-top: 1px solid var(--border-primary);
     display: flex;
     justify-content: flex-end;
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: var(--overlay-light);
 }
 
 .breach-summary {
@@ -234,7 +234,7 @@
     display: flex;
     gap: 0.5rem;
     padding: 0 1.25rem;
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: var(--overlay-light);
     border-bottom: 1px solid var(--border-primary);
 }
 

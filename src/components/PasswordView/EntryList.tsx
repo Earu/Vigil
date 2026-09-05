@@ -266,7 +266,7 @@ export const EntryList = ({
 			<div className="entry-list-header">
 				<div className="entry-list-header-content">
 					<h2>{searchQuery ? `Search in ${group.name}` : group.name}</h2>
-					<span className="entry-count">
+					<span className="entry-count" aria-live="polite" aria-atomic="true">
 						{searchQuery
 							? `${sortedEntries.length} found`
 							: `${totalEntryCount} entries`}
