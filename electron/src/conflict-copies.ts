@@ -57,6 +57,33 @@ export function resolveVaultFile(filePath: string): string {
     }
 }
 
+// Whether the folder around the vault can be listed at all. macOS grants a
+// file the user picked in the open dialog without granting the folder it
+// sits in: iCloud Drive, Desktop, Documents and Downloads each need their own
+// Files and Folders consent, so the vault opens while the copies beside it
+// stay invisible, to the scan below and to the watcher alike. The folder can
+// be granted the same way the file was, by the user picking it in an open
+// dialog (window.ts requestVaultFolderAccess), and macOS keeps that grant
+export type FolderAccess =
+    | { listable: true }
+    | { listable: false; reason: 'permission' | 'other'; code: string };
+
+export async function probeVaultFolder(
+    vaultPath: string,
+    deps: { readdir?: (dir: string) => Promise<string[]>; platform?: NodeJS.Platform } = {}
+): Promise<FolderAccess> {
+    const dir = path.dirname(resolveVaultFile(vaultPath));
+    try {
+        await (deps.readdir ?? (d => fs.promises.readdir(d)))(dir);
+        return { listable: true };
+    } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code ?? 'UNKNOWN';
+        const platform = deps.platform ?? process.platform;
+        const reason = platform === 'darwin' && code === 'EPERM' ? 'permission' : 'other';
+        return { listable: false, reason, code };
+    }
+}
+
 export function hashFile(filePath: string): Promise<string> {
     return fs.promises.readFile(filePath)
         .then(data => crypto.createHash('sha256').update(data).digest('hex'));

@@ -6,8 +6,8 @@ import { applyContentProtection } from './content-protection';
 import { isDevBuild } from './utils';
 import { APP_INDEX_URL } from './app-protocol';
 import { trackGestures } from './gesture';
-import { watchVault, unwatchWindow } from './vault-watcher';
-import { nominateConflictCopy } from './conflict-copies';
+import { watchVault, unwatchWindow, WatchDeps } from './vault-watcher';
+import { nominateConflictCopy, probeVaultFolder, resolveVaultFile } from './conflict-copies';
 import { grantPath } from './path-authority';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
@@ -45,24 +45,56 @@ function removeWindow(win: BrowserWindow): void {
     unwatchWindow(win);
 }
 
-export function registerVault(filePath: string, win: BrowserWindow): void {
-    removeWindow(win);
-    vaultWindows.set(normalizeVaultPath(filePath), win);
-    // Changes made to the file by anything else (a sync client delivering
-    // another machine's edit) are merged into the open vault as they land.
-    // A conflict copy the sync client drops beside it is nominated for the
-    // renderer to examine: the read grant lets it open the file, the
-    // nomination is what later allows trashing it, and nothing else about
-    // the file is decided here (see conflict-copies.ts)
-    watchVault(win, filePath, {
+// Changes made to the file by anything else (a sync client delivering
+// another machine's edit) are merged into the open vault as they land. A
+// conflict copy the sync client drops beside it is nominated for the
+// renderer to examine: the read grant lets it open the file, the nomination
+// is what later allows trashing it, and nothing else about the file is
+// decided here (see conflict-copies.ts)
+function watchDeps(win: BrowserWindow, filePath: string): WatchDeps {
+    return {
         onConflictCopy: (copyPath, hash) => {
             if (win.isDestroyed()) return;
             nominateConflictCopy(copyPath);
             grantPath(copyPath);
             win.webContents.send('vault-conflict-copy', { path: filePath, copyPath, hash });
         },
-    });
+    };
+}
+
+export function registerVault(filePath: string, win: BrowserWindow): void {
+    removeWindow(win);
+    vaultWindows.set(normalizeVaultPath(filePath), win);
+    watchVault(win, filePath, watchDeps(win, filePath));
     vaultWindowsListener?.(getVaultWindows().length);
+}
+
+export type FolderAccessRequest =
+    | { granted: true }
+    | { granted: false; reason: 'cancelled' | 'other-folder' | 'still-denied' };
+
+// macOS let the vault open because the user picked it, and may still refuse
+// the folder around it (conflict-copies.ts probeVaultFolder). The same
+// gesture grants the folder: the user picking it in an open dialog, which
+// macOS then remembers for the app. Asked for by the renderer once it hears
+// the folder cannot be listed; a grant that lands puts the watch back on
+// the real directory, in place of the polling it fell back to
+export async function requestVaultFolderAccess(win: BrowserWindow, filePath: string): Promise<FolderAccessRequest> {
+    const dir = path.dirname(resolveVaultFile(filePath));
+    const result = await dialog.showOpenDialog(win, {
+        title: 'Allow access to the vault folder',
+        message: `Vigil can open ${path.basename(filePath)} but not the folder it is in, so copies a sync client leaves beside it stay out of sight. Select the folder to allow that.`,
+        buttonLabel: 'Allow',
+        defaultPath: dir,
+        properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { granted: false, reason: 'cancelled' };
+    if (normalizeVaultPath(result.filePaths[0]) !== dir) return { granted: false, reason: 'other-folder' };
+    const access = await probeVaultFolder(filePath);
+    if (!access.listable) return { granted: false, reason: 'still-denied' };
+    // Only while this window still has the vault open
+    if (findVaultWindow(filePath) === win) watchVault(win, filePath, watchDeps(win, filePath));
+    return { granted: true };
 }
 
 export function unregisterWindow(win: BrowserWindow): void {

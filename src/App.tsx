@@ -36,6 +36,9 @@ import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, Ac
 import { consentQueue } from './services/ConsentQueue';
 import { FaviconService } from './services/FaviconService';
 
+// Vaults whose folder this session already asked the user to allow
+const folderAccessAsked = new Set<string>();
+
 function App() {
 	const [database, setDatabase] = useState<Database | null>(null);
 	const [searchQuery, setSearchQuery] = useState('');
@@ -351,6 +354,41 @@ function App() {
 		window.electron.listConflictCopies(vaultPath)
 			.then(copies => { for (const copy of copies) enqueue(copy.copyPath, copy.hash); })
 			.catch(err => console.error('Failed to list conflict copies:', err));
+
+		// macOS may have granted the vault (the user picked it) and not the
+		// folder it sits in, which is where a sync client leaves its copies:
+		// the listing above came back empty without saying why. The folder is
+		// granted the same way, by picking it, so ask once per vault and
+		// session; macOS keeps the grant once given
+		if (!folderAccessAsked.has(vaultPath)) {
+			const vaultName = vaultPath.split(/[\\/]/).pop() ?? vaultPath;
+			window.electron.vaultFolderAccess(vaultPath).then(async access => {
+				if (access.listable || access.reason !== 'permission') return;
+				if (kdbxDbRef.current !== kdbxDb) return;
+				folderAccessAsked.add(vaultPath);
+				const allow = await confirmDialog(
+					`Vigil can open ${vaultName} but not the folder it is in, so copies a sync client leaves beside it stay out of sight. Allow access to the folder?`,
+					'Allow access…'
+				);
+				if (!allow || kdbxDbRef.current !== kdbxDb) return;
+				const result = await window.electron!.requestVaultFolderAccess(vaultPath);
+				if (kdbxDbRef.current !== kdbxDb) return;
+				if (result.granted) {
+					(window as any).showToast?.({ message: 'Vigil can now see the folder around the vault', type: 'success', duration: 5000 });
+					const copies = await window.electron!.listConflictCopies(vaultPath);
+					if (kdbxDbRef.current !== kdbxDb) return;
+					for (const copy of copies) enqueue(copy.copyPath, copy.hash);
+				} else if (result.reason === 'other-folder') {
+					(window as any).showToast?.({ message: 'That was a different folder, so nothing changed', type: 'warning', duration: 8000 });
+				} else if (result.reason === 'still-denied') {
+					(window as any).showToast?.({
+						message: 'macOS still refuses the folder. Allow Vigil under System Settings, Privacy & Security, Files and Folders',
+						type: 'warning',
+						duration: 0
+					});
+				}
+			}).catch(err => console.error('Failed to check the vault folder:', err));
+		}
 		return () => unsubscribe();
 	}, [kdbxDb]);
 

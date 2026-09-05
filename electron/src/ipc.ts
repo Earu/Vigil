@@ -1,6 +1,6 @@
 import { Notification, BrowserWindow, desktopCapturer, screen, shell } from 'electron';
 import { handle, on } from './ipc-guard';
-import { findVaultWindow, registerVault, unregisterWindow, focusWindow, setUnsavedChanges } from './window';
+import { findVaultWindow, registerVault, unregisterWindow, focusWindow, setUnsavedChanges, requestVaultFolderAccess } from './window';
 import { hashPassword } from './crypto';
 import { openExternal, getPlatform, getAppIconPath } from './utils';
 import { clearClipboard, copySecret } from './clipboard';
@@ -35,7 +35,7 @@ import { readAccounts as readOathAccounts, calculateCode as calculateOathCode, l
 import { BackupRequest, DEFAULT_BACKUP_OPTIONS, getBackupInfo, revealBackups, purgeBackups } from './backups';
 import { logRendererError, revealLogs } from './logger';
 import { isPathGranted, grantPath } from './path-authority';
-import { scanConflictCopies, nominateConflictCopy, isNominatedConflictCopy } from './conflict-copies';
+import { scanConflictCopies, nominateConflictCopy, isNominatedConflictCopy, probeVaultFolder } from './conflict-copies';
 import { agentSocketPath, isAgentRunning, listIdentities, addKeyForWindow, releaseWindow, removeIdentity, forgetKeyForWindow, loadedFingerprints } from './ssh-agent';
 import { parsePrivateKey, publicBlobOf, readPublicInfo, fingerprintOf, SshKeyError } from './ssh-key';
 import { consumeRecentGesture } from './gesture';
@@ -191,6 +191,20 @@ export function setupIpcHandlers(): void {
             grantPath(copy.copyPath);
         }
         return copies;
+    });
+
+    // Whether the folder those copies would sit in can be listed at all. On
+    // macOS a "no" is usually the folder lacking the Files and Folders grant
+    // the vault itself already has; the request below asks for it
+    handle('vault-folder-access', async (_, vaultPath: string) => {
+        if (!isPathGranted(vaultPath)) return { listable: false, reason: 'other', code: 'UNGRANTED' };
+        return await probeVaultFolder(vaultPath);
+    });
+
+    handle('request-vault-folder-access', async (event, vaultPath: string) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (!win || !isPathGranted(vaultPath)) return { granted: false, reason: 'cancelled' };
+        return await requestVaultFolderAccess(win, vaultPath);
     });
 
     // The one delete the renderer may request, and only for a file the main

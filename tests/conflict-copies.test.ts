@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import {
     isConflictCopyName,
     scanConflictCopies,
+    probeVaultFolder,
     nominateConflictCopy,
     isNominatedConflictCopy,
     resetNominationsForTests,
@@ -63,7 +64,9 @@ describe('names sync clients give conflict copies', () => {
 });
 
 describe('scanning the vault directory', () => {
-    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-copies-'));
+    // Resolved up front: the scan works on the real path, and macOS reaches
+    // its temp directory through a symlink
+    const tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-copies-')));
     afterAll(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
     const sha256 = (data: string) => crypto.createHash('sha256').update(data).digest('hex');
 
@@ -139,5 +142,33 @@ describe('nominations', () => {
         expect(isNominatedConflictCopy('/keys/vault.keyx')).toBe(false);
         expect(isNominatedConflictCopy(undefined)).toBe(false);
         expect(isNominatedConflictCopy(42)).toBe(false);
+    });
+});
+
+describe('whether the vault folder can be listed', () => {
+    const eperm = async () => { throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' }); };
+
+    it('says so for a directory that lists', async () => {
+        const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-probe-')));
+        try {
+            const vault = path.join(dir, 'vault.kdbx');
+            fs.writeFileSync(vault, 'v1');
+            expect(await probeVaultFolder(vault)).toEqual({ listable: true });
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('reads a macOS EPERM as the folder lacking its grant', async () => {
+        expect(await probeVaultFolder('/somewhere/vault.kdbx', { readdir: eperm, platform: 'darwin' }))
+            .toEqual({ listable: false, reason: 'permission', code: 'EPERM' });
+    });
+
+    it('calls every other refusal a plain failure', async () => {
+        expect(await probeVaultFolder('/somewhere/vault.kdbx', { readdir: eperm, platform: 'linux' }))
+            .toMatchObject({ listable: false, reason: 'other', code: 'EPERM' });
+        const enoent = async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); };
+        expect(await probeVaultFolder('/somewhere/vault.kdbx', { readdir: enoent, platform: 'darwin' }))
+            .toMatchObject({ listable: false, reason: 'other', code: 'ENOENT' });
     });
 });
