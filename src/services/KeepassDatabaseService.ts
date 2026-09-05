@@ -110,6 +110,13 @@ export class KeepassDatabaseService {
     // told succeeded whenever any UI save races it
     private static unmodeledEditUuids = new Map<string, number | undefined>();
 
+    // Set when reloadExternalChanges merged a version of the file Vigil did
+    // not write. The save path backs up such a version before overwriting
+    // it, and finds out by seeing the file's hash differ from its baseline;
+    // the live merge moves the baseline to the merged version, so without
+    // this the next save would see no difference and skip that backup
+    private static externalVersionMerged = false;
+
     // Converted entry models keyed by their kdbx object; see convertEntry in
     // convertKdbxToDatabase. WeakMap: closing a vault drops the entries and
     // their models with them
@@ -131,6 +138,7 @@ export class KeepassDatabaseService {
         this.currentPath = path;
         this.lastKnownMtimeMs = undefined;
         this.lastKnownHash = undefined;
+        this.externalVersionMerged = false;
         // Closing the vault: the unmodeled-object ledgers belong to it. New
         // maps rather than clear(): a save still in flight for the vault
         // being closed holds the old ones (see SaveContext) and finishes
@@ -1576,6 +1584,57 @@ export class KeepassDatabaseService {
         }
     }
 
+    // The file changed on disk while the vault is open (main-process watcher,
+    // electron/src/vault-watcher.ts). Merges the new version in now, the same
+    // way a save would, so the user sees another machine's edit as it lands
+    // instead of at the next save.
+    //
+    // 'unchanged': the bytes are the ones already known (Vigil's own save, a
+    // sync client touching the file); nothing to do. 'merged': the kdbx holds
+    // the merged state and the caller rebuilds the model from it. 'failed':
+    // the file could not be merged (it no longer opens under these
+    // credentials, or is not a kdbx); the baseline is left alone so the next
+    // save runs into the same difference and asks through the conflict
+    // resolver, as it does today
+    static async reloadExternalChanges(
+        kdbxDb: kdbxweb.Kdbx,
+        hint: { hash: string; mtimeMs: number }
+    ): Promise<'unchanged' | 'merged' | 'failed'> {
+        const generation = this.pathGeneration;
+        const live = () => this.pathGeneration === generation;
+        // A save's own write raises the event too, possibly before the save
+        // has moved the baseline to what it wrote; let it finish first
+        while (this.saveInFlight) {
+            await this.currentSave;
+        }
+        const path = this.currentPath;
+        if (!live() || !path || !window.electron) return 'unchanged';
+
+        if (this.lastKnownHash !== undefined && hint.hash === this.lastKnownHash) {
+            this.lastKnownMtimeMs = hint.mtimeMs;
+            return 'unchanged';
+        }
+
+        const external = await this.readIfChanged(path, this.lastKnownHash);
+        if (!live()) return 'unchanged';
+        if (!external.changed) {
+            this.lastKnownMtimeMs = hint.mtimeMs;
+            return 'unchanged';
+        }
+        if (!external.data) return 'failed';
+
+        const merged = await this.mergeExternalChanges(kdbxDb, external.data, this.unseenUuids);
+        // Locked meanwhile: the merge landed in a kdbx nobody shows any more,
+        // and the baseline belongs to whatever is open now
+        if (!live()) return 'unchanged';
+        if (!merged) return 'failed';
+
+        this.lastKnownHash = await this.hashBytes(external.data);
+        this.lastKnownMtimeMs = hint.mtimeMs;
+        this.externalVersionMerged = true;
+        return 'merged';
+    }
+
     // A vault just opened carries the notes every replica that touched it
     // recorded; hand them to kdbxweb so its merge can read them. Without this
     // the notes would only ever cover the current session, which is the window
@@ -1806,8 +1865,10 @@ export class KeepassDatabaseService {
             // machine, a sync client): merge instead of clobbering
             // Whether this save is about to replace a version of the file
             // Vigil did not write, which decides whether the backup below can
-            // be skipped for being too recent
-            let replacingExternalChanges = false;
+            // be skipped for being too recent. Already true when the watcher
+            // merged such a version in earlier (reloadExternalChanges): the
+            // baseline then matches the file, so the check below cannot tell
+            let replacingExternalChanges = live() && this.externalVersionMerged;
             // The live baseline while the session lasts, since setPath's
             // late stat and read can fill it in under a running save; the
             // snapshot once it is gone
@@ -1922,7 +1983,13 @@ export class KeepassDatabaseService {
             // lasts: past a lock the baseline belongs to whatever vault is
             // open now, if any
             const hash = await this.hashBytes(new Uint8Array(arrayBuffer));
-            if (live()) this.lastKnownHash = hash;
+            if (live()) {
+                this.lastKnownHash = hash;
+                // The external version the watcher merged is now backed up
+                // and overwritten; a save that failed before this point
+                // leaves the flag for the next attempt
+                this.externalVersionMerged = false;
+            }
             if (ctx.path && window.electron) {
                 const stat = await window.electron.statFile(ctx.path);
                 if (stat.success && live()) {
