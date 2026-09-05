@@ -47,7 +47,7 @@ public
 *.tsbuildinfo
 
 # native addon build output (compiled per-platform, never committed)
-electron/native/touchid/build/
+electron/native/*/build/
 
 # Signing material. The provisioning profile embeds the team name and the
 # certificate is private key material; neither belongs in a public repo.

@@ -249,7 +249,7 @@ jobs:
     - name: Install Linux dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev xvfb
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev libpcsclite-dev pkgconf xvfb
 
     # An unpacked directory is enough to inspect and boot; the AppImage
     # wrapping adds minutes and changes nothing these checks look at
@@ -357,7 +357,7 @@ jobs:
     - name: Install Linux dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev libpcsclite-dev pkgconf
 
     - name: Package
       run: |

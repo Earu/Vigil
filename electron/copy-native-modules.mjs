@@ -10,35 +10,35 @@ if (process.platform === 'win32') {
     modulesToCopy.push('passport-desktop');
 }
 
-// The Touch ID keychain addon is ours, so it is compiled here rather than
-// downloaded. macOS only: on other platforms biometrics never reaches it, and
-// building a stub that always reports "unimplemented" buys nothing
-const TOUCHID_DIR = path.join(process.cwd(), 'electron', 'native', 'touchid');
+// Addons that are ours are compiled here rather than downloaded. Node-API, so
+// one binary works across Node and every Electron version that supports the
+// same NAPI level; only the architecture has to match
+const NATIVE_DIR = path.join(process.cwd(), 'electron', 'native');
 
-// Node-API, so one binary works across Node and every Electron version that
-// supports the same NAPI level; only the architecture has to match
-function buildTouchIdAddon() {
-    const output = path.join(TOUCHID_DIR, 'build', 'Release', 'vigil_touchid.node');
-    const sources = fs.readdirSync(path.join(TOUCHID_DIR, 'src'))
-        .map(file => fs.statSync(path.join(TOUCHID_DIR, 'src', file)).mtimeMs);
+function buildAddon(name, { fallback }) {
+    const dir = path.join(NATIVE_DIR, name);
+    const target = `vigil_${name}.node`;
+    const output = path.join(dir, 'build', 'Release', target);
+    const sources = fs.readdirSync(path.join(dir, 'src'))
+        .map(file => fs.statSync(path.join(dir, 'src', file)).mtimeMs);
     const upToDate = fs.existsSync(output)
         && Math.max(...sources) < fs.statSync(output).mtimeMs
-        && fs.statSync(path.join(TOUCHID_DIR, 'binding.gyp')).mtimeMs < fs.statSync(output).mtimeMs;
+        && fs.statSync(path.join(dir, 'binding.gyp')).mtimeMs < fs.statSync(output).mtimeMs;
 
     try {
         // A full rebuild takes seconds and `npm run electron:dev` runs this on
         // every start, so skip it when nothing the binary is made of changed
         if (!upToDate) {
-            execFileSync('npx', ['node-gyp', 'rebuild'], { cwd: TOUCHID_DIR, stdio: 'inherit' });
+            execFileSync('npx', ['node-gyp', 'rebuild'], { cwd: dir, stdio: 'inherit' });
         }
     } catch (error) {
-        // A missing toolchain must not break the build; biometrics then falls
-        // back to the prompt-only path at runtime
-        console.warn('Could not build the Touch ID addon, biometric unlock will fall back:', error.message);
+        // A missing toolchain must not break the build; the feature then
+        // reports itself unavailable at runtime
+        console.warn(`Could not build the ${name} addon, ${fallback}:`, error.message);
         return;
     }
-    fs.copyFileSync(output, path.join(process.cwd(), 'dist-electron', 'vigil_touchid.node'));
-    console.log('Copied vigil_touchid.node to dist-electron');
+    fs.copyFileSync(output, path.join(process.cwd(), 'dist-electron', target));
+    console.log(`Copied ${target} to dist-electron`);
 }
 
 // Modules whose prebuild file name says nothing about the module
@@ -138,6 +138,11 @@ for (const moduleName of modulesToCopy) {
     }
 }
 
+// Touch ID is macOS only: on other platforms biometrics never reaches it, and
+// building a stub that always reports "unimplemented" buys nothing
 if (process.platform === 'darwin') {
-    buildTouchIdAddon();
+    buildAddon('touchid', { fallback: 'biometric unlock will fall back' });
 }
+// PC/SC is the YubiKey OATH transport on every platform. Linux needs the
+// pcsclite headers (see electron/native/pcsc/README.md)
+buildAddon('pcsc', { fallback: 'YubiKey OATH codes will be unavailable' });

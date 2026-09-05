@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { Background } from './components/Background';
 import { PasswordView } from './components/PasswordView';
 import { YubiKeyPanel } from './components/PasswordView/YubiKeyPanel';
+import { useYubiKeyPresence } from './components/useYubiKeyPresence';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from './types/database';
 import './App.css';
@@ -44,6 +45,8 @@ function App() {
 	// opens the security report whenever it changes
 	const [securityReportRequestId, setSecurityReportRequestId] = useState(0);
 	const [showYubiKeyPanel, setShowYubiKeyPanel] = useState(false);
+	// The OATH panel is only worth offering while there is a key to read
+	const yubikeyPresent = useYubiKeyPresence();
 	const [showSettings, setShowSettings] = useState(false);
 	const [autoLockEnabled, setAutoLockEnabled] = useState<boolean>(userSettingsService.getAutoLockEnabled());
 	const [autoLockDuration, setAutoLockDuration] = useState<number>(userSettingsService.getAutoLockDuration());
@@ -584,7 +587,7 @@ function App() {
 				onSearch={setSearchQuery}
 				onOpenSettings={() => setShowSettings(true)}
 				onOpenSecurityReport={() => setSecurityReportRequestId(id => id + 1)}
-				onOpenYubiKey={() => setShowYubiKeyPanel(true)}
+				onOpenYubiKey={yubikeyPresent ? () => setShowYubiKeyPanel(true) : undefined}
 			/>
 			<PasswordView
 				database={database}
@@ -603,7 +606,7 @@ function App() {
 			<Background />
 			<TitleBar
 				onOpenSettings={() => setShowSettings(true)}
-				onOpenYubiKey={() => setShowYubiKeyPanel(true)}
+				onOpenYubiKey={yubikeyPresent ? () => setShowYubiKeyPanel(true) : undefined}
 			/>
 			<AuthenticationView
 				onDatabaseOpen={handleDatabaseOpen}

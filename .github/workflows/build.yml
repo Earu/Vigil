@@ -72,7 +72,7 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev xvfb
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev libpcsclite-dev pkgconf xvfb
 
     # The provisioning profile is not in the repo: it embeds the team name.
     # Restored from a secret so signed builds still get it. Absent, the build
