@@ -48,6 +48,7 @@ vi.mock('../electron/src/utils', () => ({
     openExternal: vi.fn(),
     getPlatform: vi.fn(() => 'linux'),
     getAppIconPath: vi.fn(() => '/icon.png'),
+    isDevBuild: vi.fn(() => false),
 }));
 
 vi.mock('../electron/src/clipboard', () => ({

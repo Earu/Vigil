@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { LogoIcon, LockIcon, MinimizeIcon, MaximizeIcon, CloseIcon } from '../icons';
 import { SettingsIcon } from '../icons/SettingsIcon';
 import { SecurityShieldIcon } from '../icons/status/StatusIcons';
+import { UsbKeyIcon } from '../icons/actions/ActionIcons';
 import { SEARCH_INPUT_ID, focusEntryGrid } from '../services/Shortcuts';
 import './TitleBar.css';
 
@@ -12,9 +13,10 @@ interface TitleBarProps {
 	onSearch?: (query: string) => void;
 	onOpenSettings?: () => void;
 	onOpenSecurityReport?: () => void;
+	onOpenYubiKey?: () => void;
 }
 
-export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, onOpenSettings, onOpenSecurityReport }: TitleBarProps) {
+export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, onOpenSettings, onOpenSecurityReport, onOpenYubiKey }: TitleBarProps) {
 	const [isMaximized, setIsMaximized] = useState(false);
 	const [isMacOS, setIsMacOS] = useState(false);
 	const [isFullscreen, setIsFullscreen] = useState(false);
@@ -109,6 +111,11 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 			</div>
 			{!isMacOS && (
 				<div className="window-controls">
+					{onOpenYubiKey && (
+						<button className="settings-button" onClick={onOpenYubiKey} title="YubiKey codes" aria-label="YubiKey codes">
+							<UsbKeyIcon />
+						</button>
+					)}
 					{onOpenSecurityReport && (
 						<button className="settings-button" onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
 							<SecurityShieldIcon />
@@ -130,6 +137,11 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 			)}
 			{isMacOS && (
 				<>
+					{onOpenYubiKey && (
+						<button className="settings-button macos-settings macos-report" onClick={onOpenYubiKey} title="YubiKey codes" aria-label="YubiKey codes">
+							<UsbKeyIcon />
+						</button>
+					)}
 					{onOpenSecurityReport && (
 						<button className="settings-button macos-settings macos-report" onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
 							<SecurityShieldIcon />

@@ -73,6 +73,44 @@ export interface BackupInfo {
 	totalBytes: number;
 }
 
+export interface OathAccount {
+	id: string;
+	issuer: string | null;
+	name: string;
+	type: 'TOTP' | 'HOTP';
+	period: number;
+	code: string | null;
+	requiresTouch: boolean;
+}
+
+export type OathFailure =
+	| 'ykman-missing'
+	| 'no-key'
+	| 'no-pcscd'
+	| 'locked'
+	| 'wrong-password'
+	| 'timeout'
+	| 'in-use'
+	| 'failed';
+
+export interface OathPushRequest {
+	issuer: string | null;
+	name: string;
+	type: 'TOTP' | 'HOTP';
+	digits: number;
+	algorithm: string;
+	period: number;
+	counter: number;
+	requireTouch: boolean;
+}
+
+export interface OathResult<T> {
+	ok: boolean;
+	value?: T;
+	error?: OathFailure;
+	detail?: string;
+}
+
 export interface IElectronAPI {
 	focusWindow: () => Promise<void>;
 	minimizeWindow: () => Promise<void>;
@@ -157,6 +195,17 @@ export interface IElectronAPI {
 	isHardwareKeyPresent: () => Promise<boolean>;
 	listHardwareKeys: () => Promise<{ keys: HardwareKeyInfo[]; blocked: boolean }>;
 	hardwareKeyChallenge: (serial: number | null, slot: 1 | 2, challenge: ArrayBuffer) => Promise<{ success: boolean; response?: Uint8Array; error?: string }>;
+	// Read-only view of the OATH application on a connected YubiKey. These
+	// secrets never leave the key, so Vigil shows the codes and nothing else
+	// Whether to surface OATH actions: a Yubico device is present, or ykman
+	// is installed (which covers a CCID-only key no HID scan can see)
+	yubikeyOathOffer: () => Promise<boolean>;
+	yubikeyOathKeys: () => Promise<OathResult<number[]>>;
+	yubikeyOathAccounts: (serial: number | null, password: string | null) => Promise<OathResult<OathAccount[]>>;
+	// Has side effects on the key: burns an HOTP counter, prompts for touch
+	yubikeyOathCode: (serial: number | null, id: string, password: string | null) => Promise<OathResult<string>>;
+	// Writes a copy of a vault secret to the key; the vault keeps the original
+	yubikeyOathPush: (serial: number | null, request: OathPushRequest, secret: string, password: string | null) => Promise<OathResult<true>>;
 	showNotification: (options: { title: string, body: string }) => Promise<void>;
 	reportVaultOpened: (filePath: string) => Promise<{ duplicate: boolean }>;
 	reportVaultClosed: () => Promise<void>;

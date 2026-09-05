@@ -9,11 +9,13 @@ import { SshAgentService, ENABLED_KEEAGENT_SETTINGS, KeeAgentSettings } from '..
 import type { SshKeyInspection } from '../../types/electron';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
+import { UsbKeyIcon } from '../../icons/actions/ActionIcons';
 import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon, LinkActionIcon, MoveActionIcon } from '../../icons/actions/ActionIcons';
 import { PasskeyService } from '../../services/PasskeyService';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
 import { PasswordGenerator } from './PasswordGenerator';
+import { oathFailureMessage } from './oathFailures';
 import { IconPicker } from './IconPicker';
 import { ItemIcon } from './ItemIcon';
 import { KeePassIcon } from '../../icons/keepass/KeePassIcons';
@@ -194,6 +196,15 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// counter burned on the server side
 	const [hotpCode, setHotpCode] = useState('');
 	const [hotpBusy, setHotpBusy] = useState(false);
+	const [pushingToKey, setPushingToKey] = useState(false);
+	const [keyPresent, setKeyPresent] = useState(false);
+	useEffect(() => {
+		let cancelled = false;
+		void window.electron?.yubikeyOathOffer?.().then(offer => {
+			if (!cancelled) setKeyPresent(!!offer);
+		});
+		return () => { cancelled = true; };
+	}, []);
 	// Edit-mode counter text while it is not a valid number
 	const [hotpCounterDraft, setHotpCounterDraft] = useState<string | null>(null);
 
@@ -705,6 +716,45 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		}
 	};
 
+	// Copy this entry's OTP secret onto a connected YubiKey. The vault keeps
+	// its copy: the key has no instruction that reads a secret back, so the
+	// entry here is the only backup the pushed credential will ever have.
+	// Touch is always required on the copy, because a credential on the key
+	// that does not need one is easier to abuse than this entry, not harder:
+	// anything running as the user can mint codes while the key is plugged in
+	const handlePushToYubiKey = async () => {
+		if (!otpConfig || pushingToKey) return;
+		const label = editedEntry.title.trim() || 'Vigil';
+		const account = editedEntry.username.trim() || label;
+		const confirmed = await confirmDialog(
+			`Copy the one-time password secret for "${label}" onto the YubiKey? `
+			+ 'It stays in this vault too, which is the only backup it will have: the key cannot give a secret back. '
+			+ 'Generating a code from the key will require a touch.',
+			'Copy to YubiKey'
+		);
+		if (!confirmed) return;
+		setPushingToKey(true);
+		const result = await window.electron?.yubikeyOathPush?.(
+			null,
+			{
+				issuer: label,
+				name: account,
+				type: otpConfig.type === 'hotp' ? 'HOTP' : 'TOTP',
+				digits: otpConfig.digits,
+				algorithm: otpConfig.algorithm,
+				period: otpConfig.type === 'totp' ? otpConfig.period : 30,
+				counter: otpConfig.type === 'hotp' ? otpConfig.counter : 0,
+				requireTouch: true,
+			},
+			otpConfig.secret,
+			null
+		);
+		setPushingToKey(false);
+		(window as any).showToast?.(result?.ok
+			? { message: 'Copied to the YubiKey', type: 'success' }
+			: { message: oathFailureMessage(result?.error), type: 'error' });
+	};
+
 	// Resync with the service: the next counter value, saved with the form
 	const handleHotpCounterChange = (raw: string) => {
 		setHotpCounterDraft(raw);
@@ -1124,6 +1174,17 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									{totpSecondsLeft}s
 								</span>
 							</div>
+							{keyPresent && (
+								<button
+									className="generate-button"
+									onClick={handlePushToYubiKey}
+									disabled={pushingToKey}
+									title="Copy this secret onto the YubiKey" aria-label="Copy this secret onto the YubiKey"
+									type="button"
+								>
+									<UsbKeyIcon />
+								</button>
+							)}
 							{renderCopyButton(
 								() => copyToClipboard(totpCode, 'One-time code'),
 								'Copy one-time code',
@@ -1173,6 +1234,17 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							>
 								<ChevronActionIcon />
 							</button>
+							{keyPresent && (
+								<button
+									className="generate-button"
+									onClick={handlePushToYubiKey}
+									disabled={pushingToKey}
+									title="Copy this secret onto the YubiKey" aria-label="Copy this secret onto the YubiKey"
+									type="button"
+								>
+									<UsbKeyIcon />
+								</button>
+							)}
 							{renderCopyButton(
 								() => copyToClipboard(hotpCode, 'One-time code'),
 								'Copy one-time code',
