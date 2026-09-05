@@ -13,7 +13,7 @@
 // Pure, with a subscribe/snapshot pair for useSyncExternalStore, so the
 // ordering rules can be tested without React.
 
-export type ConsentKind = 'pairing' | 'access' | 'set-login' | 'passkey' | 'save-conflict';
+export type ConsentKind = 'pairing' | 'access' | 'set-login' | 'passkey' | 'save-conflict' | 'conflict-copy';
 
 export interface ConsentItem<P = unknown, R = unknown> {
     // Unique per item; the React key of its dialog

@@ -235,7 +235,7 @@ export const BreachReport = ({
                                     <span className="label">Weak {weakEntries.length === 1 ? 'Password' : 'Passwords'}</span>
                                 </div>
                                 <p className="weak-warning">
-                                    These passwords are considered weak and should be strengthened to improve security.
+                                    These passwords are weak and should be strengthened.
                                 </p>
                             </div>
                             <VirtualList
@@ -254,7 +254,7 @@ export const BreachReport = ({
                                     <span className="label">Exposed {breachedEmailEntries.length === 1 ? 'Account' : 'Accounts'}</span>
                                 </div>
                                 <p className="weak-warning">
-                                    These accounts have email addresses that have been exposed in data breaches since their passwords were last changed. It's recommended to update their passwords to ensure account security.
+                                    These email addresses have appeared in data breaches since their passwords were last changed. It's recommended to update their passwords.
                                 </p>
                             </div>
                             <VirtualList
@@ -273,7 +273,7 @@ export const BreachReport = ({
                                     <span className="label">Reused {reusedEntryCount === 1 ? 'Password' : 'Passwords'}</span>
                                 </div>
                                 <p className="weak-warning">
-                                    These entries share a password with at least one other entry. One breach then exposes every account in the group, so give each of them its own password.
+                                    These entries share a password with at least one other entry. One breach exposes every account in the group, so give each of them its own password.
                                 </p>
                             </div>
                             <VirtualList

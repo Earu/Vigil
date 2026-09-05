@@ -74,7 +74,7 @@ describe('a save still running when the vault is locked', () => {
 
         expect(writes).toEqual(['/a.kdbx']);
         expect(dialogs).toBe(0);
-        expect(env.toasts).toContain('Database saved successfully');
+        expect(env.toasts).toContain('Database saved');
         const onDisk = await loadSaved(env);
         expect(onDisk.getDefaultGroup().entries[0].fields.get('Notes')).toBe('edited');
     });

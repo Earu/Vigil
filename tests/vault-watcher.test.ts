@@ -258,6 +258,55 @@ describe('a file momentarily absent', () => {
     });
 });
 
+describe('a conflict copy beside the vault', () => {
+    it('is reported through its own callback with the copy path and hash, never as the vault', async () => {
+        const file = newVault('main');
+        const win = fakeWindow();
+        const { watch: w, fire } = fakeWatch();
+        const copies: Array<[string, string]> = [];
+        watch(win, file, { watch: w, onConflictCopy: (copyPath, hash) => copies.push([copyPath, hash]) });
+
+        const copyName = `${path.basename(file, '.kdbx')} 2.kdbx`;
+        const copyPath = path.join(path.dirname(file), copyName);
+        fs.writeFileSync(copyPath, 'from the phone');
+        fire(copyName);
+        await sleep(DEBOUNCE * 3);
+
+        expect(win.sent).toHaveLength(0);
+        expect(copies).toEqual([[copyPath, sha256(Buffer.from('from the phone'))]]);
+    });
+
+    it('settles independently of the vault: both arrive when both change', async () => {
+        const file = newVault('main');
+        const win = fakeWindow();
+        const { watch: w, fire } = fakeWatch();
+        const copies: string[] = [];
+        watch(win, file, { watch: w, onConflictCopy: (copyPath) => copies.push(copyPath) });
+
+        const copyName = `${path.basename(file, '.kdbx')}-LAPTOP.kdbx`;
+        fs.writeFileSync(path.join(path.dirname(file), copyName), 'onedrive');
+        fire(path.basename(file));
+        fire(copyName);
+        await sleep(DEBOUNCE * 3);
+
+        expect(win.sent).toHaveLength(1);
+        expect(copies).toHaveLength(1);
+    });
+
+    it('is ignored when nobody asked to hear about copies', async () => {
+        const file = newVault('main');
+        const win = fakeWindow();
+        const { watch: w, fire } = fakeWatch();
+        watch(win, file, { watch: w });
+
+        const copyName = `${path.basename(file, '.kdbx')} 2.kdbx`;
+        fs.writeFileSync(path.join(path.dirname(file), copyName), 'x');
+        fire(copyName);
+        await sleep(DEBOUNCE * 3);
+        expect(win.sent).toHaveLength(0);
+    });
+});
+
 describe('with the real fs.watch', () => {
     it('sees a rename replacing the file, the way saves and sync clients write', async () => {
         const dir = fs.mkdtempSync(path.join(tmpRoot, 'real-'));

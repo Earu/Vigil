@@ -619,7 +619,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	);
 
 	const handleRemovePasskey = () => {
-		if (!window.confirm('Remove the passkey from this entry? Also remove it from the website\'s account settings, it will stop working there.')) return;
+		if (!window.confirm('Remove the passkey from this entry? Remove it from the website\'s account settings too.')) return;
 		const cleaned = {
 			...editedEntry,
 			customFields: editedEntry.customFields.filter(f => !PasskeyService.isPasskeyFieldKey(f.key)),
@@ -840,7 +840,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					<SecurityShieldIcon className="weak-password-warning-icon" />
 					<div className="weak-password-warning-content">
 						<h3>Email Address Exposed</h3>
-						<p>The email address associated with this entry has been found in recent data breaches. Consider using a different email address or monitoring for suspicious activity.</p>
+						<p>This email address has appeared in a data breach since the password was last changed. Consider using a different email address or monitoring for suspicious activity.</p>
 					</div>
 				</div>
 			)}
@@ -860,7 +860,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 					<SecurityShieldIcon className="weak-password-warning-icon" />
 					<div className="weak-password-warning-content">
 						<h3>Weak Password</h3>
-						<p>{passwordStrength.feedback.warning || 'This password is considered weak. Consider using a stronger password to improve security.'}</p>
+						<p>{passwordStrength.feedback.warning || 'Use a stronger password.'}</p>
 					</div>
 				</div>
 			)}

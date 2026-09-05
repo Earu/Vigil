@@ -36,7 +36,7 @@ export const BrowserPairingDialog = ({ fingerprint, existingNames, onSubmit, onC
                     <p>
                         This database already has a connection named
                         “{overwriting}”. Replacing it disconnects the browser
-                        using it, which will have to be paired again.
+                        using it.
                     </p>
                     <div className="pairing-actions">
                         <button className="pairing-cancel-button" onClick={() => setOverwriting(null)}>
