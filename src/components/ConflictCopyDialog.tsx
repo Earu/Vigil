@@ -1,3 +1,4 @@
+import { Modal } from './Modal';
 import './BrowserPairingDialog.css';
 import { MergeSummary } from '../services/KeepassDatabaseService';
 
@@ -38,10 +39,16 @@ export const describeChanges = (changes: MergeSummary): string => {
 export const ConflictCopyDialog = ({ request, onTrash, onKeep }: ConflictCopyDialogProps) => {
     const changed = hasChanges(request.changes);
     return (
-        <div className="pairing-overlay">
-            <div className="pairing-dialog">
-                <h3>Conflict Copy Found</h3>
-                <p>
+        <Modal
+            overlayClassName="pairing-overlay"
+            className="pairing-dialog"
+            role="alertdialog"
+            labelledBy="conflict-copy-title"
+            describedBy="conflict-copy-message"
+            onClose={onKeep}
+        >
+                <h3 id="conflict-copy-title">Conflict Copy Found</h3>
+                <p id="conflict-copy-message">
                     Your sync client kept a second version of <strong>{request.vaultName}</strong> as{' '}
                     <strong>{request.copyName}</strong>.{' '}
                     {changed
@@ -54,7 +61,6 @@ export const ConflictCopyDialog = ({ request, onTrash, onKeep }: ConflictCopyDia
                         {changed ? 'Save and Trash the Copy' : 'Trash the Copy'}
                     </button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };

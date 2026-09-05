@@ -11,7 +11,7 @@ interface IconProps {
 }
 
 export const LockAuthIcon: React.FC<AuthIconProps> = ({ className, color = 'currentColor', style }) => (
-	<svg
+	<svg aria-hidden="true"
 			xmlns="http://www.w3.org/2000/svg"
 			viewBox="0 0 24 24"
 			fill="none"
@@ -26,7 +26,7 @@ export const LockAuthIcon: React.FC<AuthIconProps> = ({ className, color = 'curr
 );
 
 export const UploadAuthIcon: React.FC<AuthIconProps> = ({ className, color = 'currentColor', style }) => (
-	<svg
+	<svg aria-hidden="true"
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 24 24"
 		fill="none"
@@ -44,7 +44,7 @@ export const UploadAuthIcon: React.FC<AuthIconProps> = ({ className, color = 'cu
 );
 
 export const BrowseAuthIcon: React.FC<AuthIconProps> = ({ className, color = 'currentColor', style }) => (
-	<svg
+	<svg aria-hidden="true"
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 24 24"
 		fill="none"
@@ -63,7 +63,7 @@ export const BiometricAuthIcon: React.FC<AuthIconProps> = ({ className, color = 
 
 	if (isWindows) {
 		return (
-			<svg version="1.0" xmlns="http://www.w3.org/2000/svg"
+			<svg aria-hidden="true" version="1.0" xmlns="http://www.w3.org/2000/svg"
 				viewBox="0 0 800.000000 680.000000"
 				preserveAspectRatio="xMidYMid meet"
 				className={className}
@@ -93,7 +93,7 @@ export const BiometricAuthIcon: React.FC<AuthIconProps> = ({ className, color = 
 
 	// Generic biometrics logo (fingerprint)
 	return (
-		<svg
+		<svg aria-hidden="true"
 			viewBox="0 0 24 24"
 			fill="none"
 			xmlns="http://www.w3.org/2000/svg"
@@ -107,7 +107,7 @@ export const BiometricAuthIcon: React.FC<AuthIconProps> = ({ className, color = 
 };
 
 export const ShowPasswordIcon: React.FC<AuthIconProps> = ({ className, color = 'currentColor', style }) => (
-	<svg
+	<svg aria-hidden="true"
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 24 24"
 		fill="none"
@@ -122,7 +122,7 @@ export const ShowPasswordIcon: React.FC<AuthIconProps> = ({ className, color = '
 );
 
 export const HidePasswordIcon: React.FC<AuthIconProps> = ({ className, color = 'currentColor', style }) => (
-	<svg
+	<svg aria-hidden="true"
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 24 24"
 		fill="none"
@@ -137,7 +137,7 @@ export const HidePasswordIcon: React.FC<AuthIconProps> = ({ className, color = '
 );
 
 export const UnlockAuthIcon: React.FC<AuthIconProps> = ({ className, color = 'currentColor', style }) => (
-	<svg
+	<svg aria-hidden="true"
 		xmlns="http://www.w3.org/2000/svg"
 		viewBox="0 0 24 24"
 		fill="none"
@@ -152,7 +152,7 @@ export const UnlockAuthIcon: React.FC<AuthIconProps> = ({ className, color = 'cu
 );
 
 export const ImportAuthIcon = ({ className }: IconProps) => (
-	<svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+	<svg aria-hidden="true" className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
 		<path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2v-4M17 8l-5-5-5 5M12 3v12"/>
 	</svg>
 );

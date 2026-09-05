@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Entry, Group, Database } from '../../types/database';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
@@ -22,7 +22,15 @@ interface EntryListProps {
 	onEmptyRecycleBin?: () => void;
 	// Present only while a search is scoped to a subgroup; widens it to the root
 	onSearchEverywhere?: () => void;
+	// Enter on a row: the caller moves focus into the details panel
+	onOpenEntry?: (entry: Entry) => void;
+	// The scrolling grid element, for a caller that hands focus back to it
+	gridRef?: React.Ref<HTMLDivElement>;
 }
+
+// Entry ids are base64 and may hold characters that are awkward in an id
+// attribute; base64url is the same id, one to one
+const rowId = (entryId: string) => `entry-row-${entryId.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
 
 export const EntryList = ({
 	group,
@@ -35,6 +43,8 @@ export const EntryList = ({
 	onMoveEntry,
 	onEmptyRecycleBin,
 	onSearchEverywhere,
+	onOpenEntry,
+	gridRef,
 }: EntryListProps) => {
 	// Re-render when breach statuses change so the indicators stay current
 	useSyncExternalStore(BreachStatusStore.subscribe, BreachStatusStore.getVersion);
@@ -59,7 +69,12 @@ export const EntryList = ({
 	// Windowed rendering: only the rows in (and around) the viewport exist in
 	// the DOM; spacer divs keep the scrollbar geometry of the full list
 	const OVERSCAN = 10;
-	const entriesRef = useRef<HTMLDivElement>(null);
+	const entriesRef = useRef<HTMLDivElement | null>(null);
+	const setEntriesRef = (el: HTMLDivElement | null) => {
+		entriesRef.current = el;
+		if (typeof gridRef === 'function') gridRef(el);
+		else if (gridRef) (gridRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+	};
 	const [scrollTop, setScrollTop] = useState(0);
 	const [viewportHeight, setViewportHeight] = useState(600);
 	const [rowHeight, setRowHeight] = useState(44);
@@ -80,7 +95,28 @@ export const EntryList = ({
 		const el = entriesRef.current;
 		if (el) el.scrollTop = 0;
 		setScrollTop(0);
+		setActiveId(null);
 	}, [group.id, searchQuery]);
+
+	// Keyboard focus stays on the grid; the row it is "on" is the active
+	// descendant. Rows unmount when scrolled out of the window, so focusing
+	// them directly would lose focus
+	const [activeId, setActiveId] = useState<string | null>(null);
+	const lastActiveIndex = useRef(0);
+	const activeIndex = activeId ? sortedEntries.findIndex((e) => e.id === activeId) : -1;
+	if (activeIndex >= 0) lastActiveIndex.current = activeIndex;
+
+	// A click selects through the parent; the active row follows
+	useEffect(() => {
+		if (selectedEntry) setActiveId(selectedEntry.id);
+	}, [selectedEntry?.id]);
+
+	// After a removal the active row is gone; land on its neighbour
+	useEffect(() => {
+		if (activeId && activeIndex < 0) {
+			setActiveId(sortedEntries[Math.min(lastActiveIndex.current, sortedEntries.length - 1)]?.id ?? null);
+		}
+	}, [sortedEntries, activeId, activeIndex]);
 
 	// Row height comes from CSS; measure a real row once instead of guessing.
 	// Measuring on every render loops forever when rows have unequal heights:
@@ -101,6 +137,71 @@ export const EntryList = ({
 	const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN);
 	const endIndex = Math.min(sortedEntries.length, Math.ceil((scrollTop + viewportHeight) / rowHeight) + OVERSCAN);
 	const visibleEntries = sortedEntries.slice(startIndex, endIndex);
+
+	// The estimate above gets the row rendered; this lines it up exactly,
+	// which matters when rows turned out taller than the one measured
+	const snapToActive = useRef(false);
+	useLayoutEffect(() => {
+		if (!snapToActive.current || !activeId) return;
+		snapToActive.current = false;
+		const row = document.getElementById(rowId(activeId));
+		if (row && typeof row.scrollIntoView === 'function') row.scrollIntoView({ block: 'nearest' });
+	}, [activeId]);
+
+	// The scroll and the active row change in the same event, so the row
+	// referenced by aria-activedescendant is rendered in the same commit.
+	// Nothing else sets the active row by index
+	const moveTo = (index: number) => {
+		if (sortedEntries.length === 0) return;
+		const i = Math.max(0, Math.min(sortedEntries.length - 1, index));
+		const el = entriesRef.current;
+		if (el) {
+			const top = i * rowHeight;
+			const bottom = top + rowHeight;
+			let next = el.scrollTop;
+			if (top < next) next = top;
+			else if (bottom > next + viewportHeight) next = bottom - viewportHeight;
+			if (next !== el.scrollTop) {
+				el.scrollTop = next;
+				setScrollTop(next);
+			}
+		}
+		const entry = sortedEntries[i];
+		snapToActive.current = true;
+		setActiveId(entry.id);
+		onEntrySelect(entry);
+	};
+
+	const handleGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+		// Keys from a row's buttons are their own
+		if (e.target !== e.currentTarget) return;
+		const pageSize = Math.max(1, Math.floor(viewportHeight / rowHeight));
+		const active = activeIndex >= 0 ? sortedEntries[activeIndex] : null;
+		switch (e.key) {
+			case 'ArrowDown': e.preventDefault(); moveTo(activeIndex < 0 ? 0 : activeIndex + 1); return;
+			case 'ArrowUp': e.preventDefault(); moveTo(activeIndex < 0 ? sortedEntries.length - 1 : activeIndex - 1); return;
+			case 'Home': e.preventDefault(); moveTo(0); return;
+			case 'End': e.preventDefault(); moveTo(sortedEntries.length - 1); return;
+			case 'PageDown': e.preventDefault(); moveTo(Math.max(0, activeIndex) + pageSize); return;
+			case 'PageUp': e.preventDefault(); moveTo(Math.max(0, activeIndex) - pageSize); return;
+			case 'Enter':
+				if (!active) return;
+				e.preventDefault();
+				if (selectedEntry?.id !== active.id) onEntrySelect(active);
+				onOpenEntry?.(active);
+				return;
+			case 'Delete':
+				if (!active) return;
+				e.preventDefault();
+				onRemoveEntry(active);
+				return;
+		}
+	};
+
+	const handleGridFocus = (e: React.FocusEvent<HTMLDivElement>) => {
+		if (e.target !== e.currentTarget || activeId !== null || sortedEntries.length === 0) return;
+		setActiveId(selectedEntry?.id ?? sortedEntries[0].id);
+	};
 
 	const handleDragStart = (e: React.DragEvent, entry: Entry) => {
 		e.stopPropagation();
@@ -189,20 +290,31 @@ export const EntryList = ({
 			</div>
 			<div
 				className="entries"
-				ref={entriesRef}
+				ref={setEntriesRef}
+				role="grid"
+				aria-label={searchQuery ? 'Search results' : 'Entries'}
+				aria-rowcount={sortedEntries.length}
+				aria-activedescendant={activeIndex >= 0 ? rowId(activeId!) : undefined}
+				tabIndex={0}
+				onKeyDown={handleGridKeyDown}
+				onFocus={handleGridFocus}
 				onScroll={(e) => setScrollTop((e.target as HTMLElement).scrollTop)}
 			>
 				<div style={{ height: startIndex * rowHeight }} aria-hidden="true" />
-				{visibleEntries.map((entry) => (
+				{visibleEntries.map((entry, i) => (
 					<div
 						key={entry.id}
-						className={`entry-item ${selectedEntry?.id === entry.id ? 'selected' : ''}`}
+						id={rowId(entry.id)}
+						role="row"
+						aria-rowindex={startIndex + i + 1}
+						aria-selected={selectedEntry?.id === entry.id}
+						className={`entry-item ${selectedEntry?.id === entry.id ? 'selected' : ''} ${activeId === entry.id ? 'active' : ''}`}
 						draggable={true}
 						onDragStart={(e) => handleDragStart(e, entry)}
 						onDragEnd={handleDragEnd}
 						onClick={() => onEntrySelect(entry)}
 					>
-						<div className="entry-content">
+						<div className="entry-content" role="gridcell">
 							<div className="entry-icon">
 								<ItemIcon
 									icon={entry.icon}
@@ -230,12 +342,12 @@ export const EntryList = ({
 								<div className="entry-title">
 									{displayText(entry.title, entry)}
 									{KeepassDatabaseService.isEntryExpired(entry) && (
-										<span className="expired-indicator" title={`Expired ${entry.expiryTime?.toLocaleString()}`}>
+										<span className="expired-indicator" role="img" title={`Expired ${entry.expiryTime?.toLocaleString()}`} aria-label={`Expired ${entry.expiryTime?.toLocaleString()}`}>
 											<ExpiredClockIcon className="expired-icon" />
 										</span>
 									)}
 									{PasskeyService.passkeyFromFields(entry.customFields) && (
-										<span className="passkey-indicator" title="This entry holds a passkey">
+										<span className="passkey-indicator" role="img" title="This entry holds a passkey" aria-label="This entry holds a passkey">
 											<PasskeyActionIcon className="passkey-list-icon" />
 										</span>
 									)}
@@ -244,12 +356,15 @@ export const EntryList = ({
 										return (
 											<>
 												{status?.isPwned && (
-													<span className="breach-indicator" title={`Password found in ${status.count} data breaches`}>
+													<span className="breach-indicator" role="img" title={`Password found in ${status.count} data breaches`} aria-label={`Password found in ${status.count} data breaches`}>
 														<BreachWarningIcon className="breach-icon" />
 													</span>
 												)}
 												{!status?.isPwned && ((status?.strength && status?.strength?.score < 3) || status?.breachedEmail) && (
-													<span className="weak-password-indicator" title={
+													<span className="weak-password-indicator" role="img" title={
+														status?.breachedEmail ? 'Email address found in data breaches' :
+														status?.strength?.feedback.warning || 'Weak password'
+													} aria-label={
 														status?.breachedEmail ? 'Email address found in data breaches' :
 														status?.strength?.feedback.warning || 'Weak password'
 													}>
@@ -269,24 +384,28 @@ export const EntryList = ({
 							)}
 						</div>
 						{database && onMoveEntry && recycleBinEntryIds.has(entry.id) && (
-							<button
-								className="restore-entry-button"
-								onClick={(e) => {
-									e.stopPropagation();
-									onMoveEntry(entry, KeepassDatabaseService.restoreTargetGroup(database, entry));
-								}}
-								title="Restore entry"
-							>
-								<RestoreActionIcon />
-							</button>
+							<div className="entry-cell-action" role="gridcell">
+								<button
+									className="restore-entry-button"
+									onClick={(e) => {
+										e.stopPropagation();
+										onMoveEntry(entry, KeepassDatabaseService.restoreTargetGroup(database, entry));
+									}}
+									title="Restore entry" aria-label="Restore entry"
+								>
+									<RestoreActionIcon />
+								</button>
+							</div>
 						)}
-						<button
-							className="remove-entry-button"
-							onClick={() => onRemoveEntry(entry)}
-							title="Remove entry"
-						>
-							<CloseActionIcon />
-						</button>
+						<div className="entry-cell-action" role="gridcell">
+							<button
+								className="remove-entry-button"
+								onClick={() => onRemoveEntry(entry)}
+								title="Remove entry" aria-label="Remove entry"
+							>
+								<CloseActionIcon />
+							</button>
+						</div>
 					</div>
 				))}
 				<div style={{ height: Math.max(0, (sortedEntries.length - endIndex) * rowHeight) }} aria-hidden="true" />

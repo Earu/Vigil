@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useSyncExternalStore } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Entry, EntryVersion, Attachment, CustomField } from '../../types/database';
 import { TotpService, MigrationAccount, OtpConfig } from '../../services/TotpService';
@@ -22,6 +22,7 @@ import { PlaceholderService } from '../../services/PlaceholderService';
 import { ReferenceWizard, ReferenceFieldCode } from './ReferenceWizard';
 import { PasswordStrength } from '../../services/BreachStatusStore';
 import { ClipboardService } from '../../services/ClipboardService';
+import { Modal } from '../Modal';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -33,7 +34,20 @@ interface EntryDetailsProps {
 	allTags?: string[];
 	// Clicking a tag searches for it across the vault
 	onTagClick?: (tag: string) => void;
+	// The panel element, so the list can hand focus to it on Enter
+	panelRef?: React.RefObject<HTMLDivElement>;
+	// Escape while viewing: the caller takes focus back
+	onReturnFocus?: () => void;
 }
+
+// Escape leaves the panel while viewing. While editing it does nothing: the
+// editor has Cancel with its own discard prompt
+const isEditableTarget = (target: EventTarget | null): boolean => {
+	const el = target as HTMLElement | null;
+	if (!el) return false;
+	if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return !el.readOnly;
+	return el instanceof HTMLSelectElement;
+};
 
 const fieldText = (value: string | kdbxweb.ProtectedValue | undefined): string =>
 	value === undefined ? '' : KeepassDatabaseService.getFieldString(value);
@@ -121,7 +135,7 @@ const PasswordStrengthIndicator = ({ score, warning, suggestions }: PasswordStre
 	);
 };
 
-export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick }: EntryDetailsProps) => {
+export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyChange, allTags = [], onTagClick, panelRef, onReturnFocus }: EntryDetailsProps) => {
 	const [showPassword, setShowPassword] = useState(false);
 	const [isEditing, setIsEditing] = useState(isNew);
 	const [showIconPicker, setShowIconPicker] = useState(false);
@@ -305,11 +319,16 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		}
 	};
 
+	const cancelMigration = () => {
+		setMigrationAccounts(null);
+		setMigrationSelected(0);
+	};
+
 	const renderReferenceButton = (code: ReferenceFieldCode) => (
 		<button
 			className="generate-button"
 			onClick={() => setRefWizardField(code)}
-			title="Insert a reference to another entry's field"
+			title="Insert a reference to another entry's field" aria-label="Insert a reference to another entry's field"
 			type="button"
 		>
 			<LinkActionIcon />
@@ -324,7 +343,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			<button
 				className="copy-button"
 				onClick={onClick}
-				title={title}
+				title={title} aria-label={title}
 			>
 				<CopyActionIcon />
 				{clipboard.secondsLeft > 0 && clipboard.source === copySource(field) && (
@@ -805,8 +824,15 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		setPasswordStrength(newPassword ? HaveIBeenPwnedService.checkPasswordStrength(newPassword) : null);
 	};
 
+	const handlePanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+		if (e.key !== 'Escape' || e.defaultPrevented || isEditing || !onReturnFocus) return;
+		if (isEditableTarget(e.target)) return;
+		e.preventDefault();
+		onReturnFocus();
+	};
+
 	return (
-		<div className="entry-details">
+		<div className="entry-details" ref={panelRef} tabIndex={-1} onKeyDown={handlePanelKeyDown}>
 			<div className="entry-details-header">
 				<h2>{isNew ? 'New Entry' : editedEntry.title}</h2>
 				<div className="entry-details-actions">
@@ -814,12 +840,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 						<button
 							className="edit-button"
 							onClick={() => setIsEditing(true)}
-							title="Edit entry"
+							title="Edit entry" aria-label="Edit entry"
 						>
 							<EditActionIcon />
 						</button>
 					)}
-					<button className="entry-close-button" onClick={handleClose}>
+					<button className="entry-close-button" onClick={handleClose} aria-label="Close entry">
 						<CloseActionIcon />
 					</button>
 				</div>
@@ -867,9 +893,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 
 			<div className="entry-fields">
 				<div className="field-group">
-					<label>Title</label>
+					<label htmlFor="entry-title">Title</label>
 					<div className="field-value-container">
 						<input
+							id="entry-title"
 							type="text"
 							value={display(editedEntry.title)}
 							onChange={(e) => setEditedEntry({ ...editedEntry, title: e.target.value })}
@@ -939,9 +966,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				)}
 
 				<div className="field-group">
-					<label>Username</label>
+					<label htmlFor="entry-username">Username</label>
 					<div className="field-value-container">
 						<input
+							id="entry-username"
 							type="text"
 							value={display(editedEntry.username)}
 							onChange={(e) => setEditedEntry({ ...editedEntry, username: e.target.value })}
@@ -959,9 +987,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				</div>
 
 				<div className="field-group">
-					<label>Password</label>
+					<label htmlFor="entry-password">Password</label>
 					<div className="field-value-container">
 						<input
+							id="entry-password"
 							type={showPassword ? 'text' : 'password'}
 							value={display(KeepassDatabaseService.getPasswordString(editedEntry.password))}
 							onChange={handlePasswordChange}
@@ -972,7 +1001,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 						<button
 							className="visibility-button"
 							onClick={() => setShowPassword(!showPassword)}
-							title={showPassword ? 'Hide password' : 'Show password'}
+							title={showPassword ? 'Hide password' : 'Show password'} aria-label={showPassword ? 'Hide password' : 'Show password'}
 						>
 							{showPassword ? <HidePasswordIcon /> : <ShowPasswordIcon />}
 						</button>
@@ -983,7 +1012,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									e.preventDefault();
 									setShowPasswordGenerator(true);
 								}}
-								title="Generate password"
+								title="Generate password" aria-label="Generate password"
 								type="button"
 							>
 								<GenerateActionIcon />
@@ -1052,7 +1081,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								className="generate-button"
 								onClick={handleGenerateHotp}
 								disabled={hotpBusy}
-								title="Generate the next code, copy it and advance the counter"
+								title="Generate the next code, copy it and advance the counter" aria-label="Generate the next code, copy it and advance the counter"
 								type="button"
 							>
 								<GenerateActionIcon />
@@ -1094,7 +1123,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								<button
 									className="field-remove-button"
 									onClick={handleRemoveTotp}
-									title="Remove one-time password"
+									title="Remove one-time password" aria-label="Remove one-time password"
 									type="button"
 								>
 									<CloseActionIcon />
@@ -1120,15 +1149,15 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									</button>
 									{window.electron && (
 										<>
-											<button className="totp-qr-button" onClick={handleScanScreen} type="button" title="Scan a QR code shown on your screen (the window hides itself while scanning)">
+											<button className="totp-qr-button" onClick={handleScanScreen} type="button" title="Scan a QR code shown on your screen (the window hides itself while scanning)" aria-label="Scan a QR code shown on your screen (the window hides itself while scanning)">
 												<MonitorActionIcon />
 											</button>
-											<button className="totp-qr-button" onClick={handleScanClipboard} type="button" title="Read a QR code from a screenshot in the clipboard">
+											<button className="totp-qr-button" onClick={handleScanClipboard} type="button" title="Read a QR code from a screenshot in the clipboard" aria-label="Read a QR code from a screenshot in the clipboard">
 												<ClipboardActionIcon />
 											</button>
 										</>
 									)}
-									<button className="totp-qr-button" onClick={handleScanImageFile} type="button" title="Read a QR code from an image file">
+									<button className="totp-qr-button" onClick={handleScanImageFile} type="button" title="Read a QR code from an image file" aria-label="Read a QR code from an image file">
 										<ImageActionIcon />
 									</button>
 								</div>
@@ -1139,9 +1168,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				)}
 
 				<div className="field-group">
-					<label>URL</label>
+					<label htmlFor="entry-url">URL</label>
 					<div className="field-value-container">
 						<input
+							id="entry-url"
 							type="text"
 							value={display(editedEntry.url ?? '')}
 							onChange={(e) => setEditedEntry({ ...editedEntry, url: e.target.value })}
@@ -1170,7 +1200,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										}
 									}}
 									className="open-button"
-									title="Open URL"
+									title="Open URL" aria-label="Open URL"
 								>
 									<OpenUrlActionIcon />
 								</button>
@@ -1195,6 +1225,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							{editedEntry.expires && (
 								<input
 									type="datetime-local"
+									aria-label="Expiry date"
 									className="field-value expiry-input"
 									value={toLocalInputValue(editedEntry.expiryTime)}
 									readOnly={!isEditing}
@@ -1227,9 +1258,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				)}
 
 				<div className="field-group">
-					<label>Notes</label>
+					<label htmlFor="entry-notes">Notes</label>
 					<div className="field-value-container notes-container">
 						<textarea
+							id="entry-notes"
 							value={display(editedEntry.notes ?? '')}
 							onChange={(e) => setEditedEntry({ ...editedEntry, notes: e.target.value })}
 							className="field-value notes"
@@ -1242,7 +1274,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 
 				{(isEditing || (editedEntry.tags ?? []).length > 0) && (
 					<div className="field-group">
-						<label>Tags</label>
+						<label htmlFor="entry-tags">Tags</label>
 						<div className={`tag-list ${isEditing ? 'editing' : ''}`}>
 							{(editedEntry.tags ?? []).map(tag => (
 								isEditing ? (
@@ -1251,7 +1283,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										<button
 											className="tag-chip-remove"
 											onClick={() => handleRemoveTag(tag)}
-											title={`Remove ${tag}`}
+											title={`Remove ${tag}`} aria-label={`Remove ${tag}`}
 											type="button"
 										>
 											<CloseActionIcon />
@@ -1262,7 +1294,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										className="tag-chip clickable"
 										key={tag}
 										onClick={() => onTagClick?.(tag)}
-										title={`Show everything tagged ${tag}`}
+										title={`Show everything tagged ${tag}`} aria-label={`Show everything tagged ${tag}`}
 										type="button"
 									>
 										{tag}
@@ -1273,6 +1305,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								<>
 									<input
 										type="text"
+										id="entry-tags"
 										className="tag-input"
 										value={tagDraft}
 										list="vigil-tag-suggestions"
@@ -1299,9 +1332,10 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 
 				{!isEditing && visibleCustomFields.map(({ field, index }) => (
 					<div className="field-group" key={index}>
-						<label>{field.key}</label>
+						<label htmlFor={`entry-custom-${index}`}>{field.key}</label>
 						<div className="field-value-container">
 							<input
+								id={`entry-custom-${index}`}
 								type={field.protected && !revealedCustomFields.has(index) ? 'password' : 'text'}
 								value={resolved(KeepassDatabaseService.getFieldString(field.value))}
 								className={`field-value ${field.protected ? 'monospace' : ''}`}
@@ -1311,7 +1345,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								<button
 									className="visibility-button"
 									onClick={() => toggleCustomFieldReveal(index)}
-									title={revealedCustomFields.has(index) ? 'Hide value' : 'Show value'}
+									title={revealedCustomFields.has(index) ? 'Hide value' : 'Show value'} aria-label={revealedCustomFields.has(index) ? 'Hide value' : 'Show value'}
 								>
 									{revealedCustomFields.has(index) ? <HidePasswordIcon /> : <ShowPasswordIcon />}
 								</button>
@@ -1336,6 +1370,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										className="field-value custom-field-key"
 										value={field.key}
 										placeholder="Name"
+										aria-label="Field name"
 										onChange={(e) => handleCustomFieldChange(index, { key: e.target.value })}
 									/>
 									<input
@@ -1343,12 +1378,13 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										className="field-value custom-field-value"
 										value={KeepassDatabaseService.getFieldString(field.value)}
 										placeholder="Value"
+										aria-label="Field value"
 										onChange={(e) => handleCustomFieldChange(index, { value: e.target.value })}
 									/>
 									<button
 										className={`custom-field-protect ${field.protected ? 'active' : ''}`}
 										onClick={() => handleCustomFieldChange(index, { protected: !field.protected })}
-										title={field.protected ? 'Value is protected (stored encrypted, shown masked)' : 'Protect value'}
+										title={field.protected ? 'Value is protected (stored encrypted, shown masked)' : 'Protect value'} aria-label={field.protected ? 'Value is protected (stored encrypted, shown masked)' : 'Protect value'}
 										type="button"
 									>
 										<SecurityShieldIcon />
@@ -1356,7 +1392,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									<button
 										className="field-remove-button"
 										onClick={() => handleRemoveCustomField(index)}
-										title="Remove field"
+										title="Remove field" aria-label="Remove field"
 										type="button"
 									>
 										<CloseActionIcon />
@@ -1417,7 +1453,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									<span className="ssh-key-text">
 										Key file outside the vault{sshSettings.fileName ? ` (${sshSettings.fileName})` : ''}. Vigil loads keys from attachments only and leaves this as is
 									</span>
-									<button className="field-remove-button" onClick={() => updateSshSettings(null)} title="Forget this key" type="button">
+									<button className="field-remove-button" onClick={() => updateSshSettings(null)} title="Forget this key" aria-label="Forget this key" type="button">
 										<CloseActionIcon />
 									</button>
 								</div>
@@ -1487,7 +1523,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										<button
 											className="attachment-action-button"
 											onClick={() => handleDownloadAttachment(attachment)}
-											title="Save file"
+											title="Save file" aria-label="Save file"
 										>
 											<DownloadActionIcon />
 										</button>
@@ -1495,7 +1531,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										<button
 											className="attachment-action-button remove"
 											onClick={() => handleRemoveAttachment(attachment.name)}
-											title="Remove file"
+											title="Remove file" aria-label="Remove file"
 										>
 											<CloseActionIcon />
 										</button>
@@ -1590,7 +1626,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 												<button
 													className="history-reveal-button"
 													onClick={() => setShowVersionPassword(!showVersionPassword)}
-													title={showVersionPassword ? 'Hide password' : 'Show password'}
+													title={showVersionPassword ? 'Hide password' : 'Show password'} aria-label={showVersionPassword ? 'Hide password' : 'Show password'}
 												>
 													{showVersionPassword ? <HidePasswordIcon /> : <ShowPasswordIcon />}
 												</button>
@@ -1649,9 +1685,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 				)}
 
 				{migrationAccounts && (
-					<div className="pairing-overlay">
-						<div className="pairing-dialog">
-							<h3>Choose an account</h3>
+					<Modal overlayClassName="pairing-overlay" className="pairing-dialog" labelledBy="migration-title" onClose={cancelMigration}>
+							<h3 id="migration-title">Choose an account</h3>
 							<p>The Google Authenticator export holds {migrationAccounts.length} accounts. Pick the one for this entry.</p>
 							<div className="passkey-entry-list">
 								{migrationAccounts.map((account, i) => (
@@ -1670,10 +1705,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							<div className="pairing-actions">
 								<button
 									className="pairing-cancel-button"
-									onClick={() => {
-										setMigrationAccounts(null);
-										setMigrationSelected(0);
-									}}
+									onClick={cancelMigration}
 								>
 									Cancel
 								</button>
@@ -1688,8 +1720,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									Use this account
 								</button>
 							</div>
-						</div>
-					</div>
+					</Modal>
 				)}
 				{showPasswordGenerator && (
 					<PasswordGenerator

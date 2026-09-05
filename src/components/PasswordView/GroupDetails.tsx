@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Group } from '../../types/database';
 import { CloseActionIcon } from '../../icons/actions/ActionIcons';
 import { IconPicker } from './IconPicker';
@@ -47,12 +47,20 @@ export const GroupDetails = ({ group, onClose, onSave }: GroupDetailsProps) => {
 			: { name: name.trim() });
 	};
 
+	// Escape closes the editor the way Cancel does; the caller returns
+	// focus to the tree
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+		if (e.key !== 'Escape' || e.defaultPrevented) return;
+		e.preventDefault();
+		onClose();
+	};
+
 	return (
-		<div className="entry-details">
+		<div className="entry-details" tabIndex={-1} onKeyDown={handleKeyDown}>
 			<div className="entry-details-header">
 				<h2>Edit Group</h2>
 				<div className="entry-details-actions">
-					<button className="entry-close-button" onClick={onClose}>
+					<button className="entry-close-button" onClick={onClose} aria-label="Close group editor">
 						<CloseActionIcon />
 					</button>
 				</div>
@@ -60,9 +68,10 @@ export const GroupDetails = ({ group, onClose, onSave }: GroupDetailsProps) => {
 
 			<div className="entry-fields">
 				<div className="field-group">
-					<label>Name</label>
+					<label htmlFor="group-name">Name</label>
 					<div className="field-value-container">
 						<input
+							id="group-name"
 							type="text"
 							className="field-value"
 							value={name}

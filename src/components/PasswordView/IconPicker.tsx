@@ -65,7 +65,7 @@ export const IconPicker = ({ defaultIndex, icon, customIcon, onChange }: IconPic
 							key={id}
 							className={`group-icon-option ${customIcon === id ? 'selected' : ''}`}
 							onClick={() => onChange(undefined, id)}
-							title="Custom icon stored in the database"
+							title="Custom icon stored in the database" aria-label="Custom icon stored in the database"
 						>
 							<img src={url} alt="" />
 						</button>
@@ -78,7 +78,7 @@ export const IconPicker = ({ defaultIndex, icon, customIcon, onChange }: IconPic
 						key={index}
 						className={`group-icon-option ${!customIcon && selectedIndex === index ? 'selected' : ''}`}
 						onClick={() => onChange(index === defaultIndex ? undefined : index, undefined)}
-						title={index === defaultIndex ? `${KEEPASS_ICON_NAMES[index]} (default)` : KEEPASS_ICON_NAMES[index]}
+						title={index === defaultIndex ? `${KEEPASS_ICON_NAMES[index]} (default)` : KEEPASS_ICON_NAMES[index]} aria-label={index === defaultIndex ? `${KEEPASS_ICON_NAMES[index]} (default)` : KEEPASS_ICON_NAMES[index]}
 					>
 						<KeePassIcon index={index} />
 					</button>

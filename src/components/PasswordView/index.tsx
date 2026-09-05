@@ -269,6 +269,23 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		setIsCreatingNew(false);
 	};
 
+	// Keyboard hand-offs between the three panes. The panels mount on the
+	// render after the state change, so the focus call waits a tick
+	const gridRef = useRef<HTMLDivElement | null>(null);
+	const detailsRef = useRef<HTMLDivElement>(null);
+	const treeRef = useRef<HTMLDivElement>(null);
+	const focusDetails = () => {
+		setTimeout(() => detailsRef.current?.focus(), 0);
+	};
+	const focusGrid = () => gridRef.current?.focus();
+	const focusTree = () => {
+		setTimeout(() => treeRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus(), 0);
+	};
+	const handleCloseGroupEditor = () => {
+		setEditingGroup(null);
+		focusTree();
+	};
+
 	const handleNewGroup = (parentGroup: Group) => {
 		const updatedDatabase = KeepassDatabaseService.addNewGroup(database, parentGroup);
 		onDatabaseChange?.(updatedDatabase);
@@ -391,6 +408,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					onMoveGroup={handleMoveGroup}
 					onMoveEntry={handleMoveEntry}
 					onDatabaseChange={onDatabaseChange}
+					treeRef={treeRef}
 				/>
 				<div
 					className={`resize-handle left ${isResizing === 'left' ? 'resizing' : ''}`}
@@ -409,6 +427,8 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					onSearchEverywhere={selectedGroup.id !== database.root.id
 						? () => handleGroupSelect(database.root)
 						: undefined}
+					onOpenEntry={focusDetails}
+					gridRef={gridRef}
 				/>
 				<div
 					className={`resize-handle right ${isResizing === 'right' ? 'resizing' : ''}`}
@@ -417,7 +437,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 				{editingGroup && (
 					<GroupDetails
 						group={editingGroup}
-						onClose={() => setEditingGroup(null)}
+						onClose={handleCloseGroupEditor}
 						onSave={handleGroupSave}
 					/>
 				)}
@@ -430,6 +450,8 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 						onDirtyChange={handleDirtyChange}
 						allTags={allTags}
 						onTagClick={handleTagClick}
+						panelRef={detailsRef}
+						onReturnFocus={focusGrid}
 					/>
 				)}
 			</div>

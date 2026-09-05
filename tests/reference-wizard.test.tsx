@@ -6,6 +6,7 @@ import * as kdbxweb from 'kdbxweb';
 import { ReferenceWizard } from '../src/components/PasswordView/ReferenceWizard';
 import { PlaceholderService, uuidBase64ToHex } from '../src/services/PlaceholderService';
 import { Entry, Group } from '../src/types/database';
+import { expectNoA11yViolations } from './a11y';
 
 // The reference wizard: lists the vault's entries, filters on search,
 // excludes the entry being edited, and inserts a UUID-form {REF:...} token
@@ -33,6 +34,19 @@ afterEach(() => {
 });
 
 describe('ReferenceWizard', () => {
+    it('is a dialog with the search focused, and Escape closes it', async () => {
+        PlaceholderService.setModelRoot(root);
+        const onClose = vi.fn();
+        const { container, getByPlaceholderText } = render(
+            <ReferenceWizard defaultField="P" excludeEntryId={me.id} onInsert={() => {}} onClose={onClose} />
+        );
+        expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+        expect(document.activeElement).toBe(getByPlaceholderText('Search entries'));
+        await expectNoA11yViolations(container);
+        fireEvent.keyDown(getByPlaceholderText('Search entries'), { key: 'Escape' });
+        expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
     it('lists entries, filters, excludes the edited entry, and inserts a UUID token', () => {
         PlaceholderService.setModelRoot(root);
         const onInsert = vi.fn();

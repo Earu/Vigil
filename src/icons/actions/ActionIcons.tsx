@@ -7,7 +7,7 @@ interface ActionIconProps {
 }
 
 export const CloseActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -24,7 +24,7 @@ export const CloseActionIcon: React.FC<ActionIconProps> = ({ className, color = 
 );
 
 export const CopyActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -41,7 +41,7 @@ export const CopyActionIcon: React.FC<ActionIconProps> = ({ className, color = '
 );
 
 export const RefreshActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -58,7 +58,7 @@ export const RefreshActionIcon: React.FC<ActionIconProps> = ({ className, color 
 );
 
 export const EditActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -75,7 +75,7 @@ export const EditActionIcon: React.FC<ActionIconProps> = ({ className, color = '
 );
 
 export const OpenUrlActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -93,7 +93,7 @@ export const OpenUrlActionIcon: React.FC<ActionIconProps> = ({ className, color 
 );
 
 export const GenerateActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -110,7 +110,7 @@ export const GenerateActionIcon: React.FC<ActionIconProps> = ({ className, color
 );
 
 export const ChevronActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -126,7 +126,7 @@ export const ChevronActionIcon: React.FC<ActionIconProps> = ({ className, color 
 );
 
 export const AddActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -143,7 +143,7 @@ export const AddActionIcon: React.FC<ActionIconProps> = ({ className, color = 'c
 );
 
 export const KeyActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -158,7 +158,7 @@ export const KeyActionIcon: React.FC<ActionIconProps> = ({ className, color = 'c
     </svg>
 );
 export const UsbKeyIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -176,7 +176,7 @@ export const UsbKeyIcon: React.FC<ActionIconProps> = ({ className, color = 'curr
 );
 
 export const AttachmentActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -192,7 +192,7 @@ export const AttachmentActionIcon: React.FC<ActionIconProps> = ({ className, col
 );
 
 export const DownloadActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -210,7 +210,7 @@ export const DownloadActionIcon: React.FC<ActionIconProps> = ({ className, color
 );
 
 export const TrashActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -229,7 +229,7 @@ export const TrashActionIcon: React.FC<ActionIconProps> = ({ className, color = 
 );
 
 export const RestoreActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -246,7 +246,7 @@ export const RestoreActionIcon: React.FC<ActionIconProps> = ({ className, color 
 );
 
 export const MonitorActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -264,7 +264,7 @@ export const MonitorActionIcon: React.FC<ActionIconProps> = ({ className, color 
 );
 
 export const ClipboardActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -281,7 +281,7 @@ export const ClipboardActionIcon: React.FC<ActionIconProps> = ({ className, colo
 );
 
 export const ImageActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -300,7 +300,7 @@ export const ImageActionIcon: React.FC<ActionIconProps> = ({ className, color = 
 
 // Person-in-circle, the common passkey glyph
 export const PasskeyActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -320,7 +320,7 @@ export const PasskeyActionIcon: React.FC<ActionIconProps> = ({ className, color 
 
 // Chain links, for inserting a field reference to another entry
 export const LinkActionIcon: React.FC<ActionIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"

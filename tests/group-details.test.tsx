@@ -5,6 +5,7 @@ import React from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { GroupDetails } from '../src/components/PasswordView/GroupDetails';
 import { Group } from '../src/types/database';
+import { expectNoA11yViolations } from './a11y';
 
 // The group editing panel: name and icon changes reach onSave; the default
 // folder selection maps to "no icon set"; a stored custom icon shows with a
@@ -19,6 +20,14 @@ function makeGroup(over: Partial<Group> = {}): Group {
 afterEach(cleanup);
 
 describe('GroupDetails', () => {
+    it('labels its fields and passes axe', async () => {
+        const { getByLabelText, container } = render(
+            <GroupDetails group={makeGroup()} onClose={vi.fn()} onSave={vi.fn()} />
+        );
+        expect(getByLabelText('Name')).toBeTruthy();
+        await expectNoA11yViolations(container);
+    });
+
     it('saves a rename', () => {
         const onSave = vi.fn();
         const { getByPlaceholderText, getByText } = render(

@@ -7,7 +7,7 @@ interface StatusIconProps {
 }
 
 export const SuccessIcon: React.FC<StatusIconProps> = ({ className, color = '#10b981', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -23,7 +23,7 @@ export const SuccessIcon: React.FC<StatusIconProps> = ({ className, color = '#10
 );
 
 export const ErrorIcon: React.FC<StatusIconProps> = ({ className, color = '#ef4444', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -41,7 +41,7 @@ export const ErrorIcon: React.FC<StatusIconProps> = ({ className, color = '#ef44
 );
 
 export const InfoIcon: React.FC<StatusIconProps> = ({ className, color = '#3b82f6', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -59,7 +59,7 @@ export const InfoIcon: React.FC<StatusIconProps> = ({ className, color = '#3b82f
 );
 
 export const WarningIcon: React.FC<StatusIconProps> = ({ className, color = '#f59e0b', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -77,7 +77,7 @@ export const WarningIcon: React.FC<StatusIconProps> = ({ className, color = '#f5
 );
 
 export const SpinnerIcon: React.FC<StatusIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         className={className}
         viewBox="0 0 24 24"
         fill="none"
@@ -90,7 +90,7 @@ export const SpinnerIcon: React.FC<StatusIconProps> = ({ className, color = 'cur
 );
 
 export const BreachWarningIcon: React.FC<StatusIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -106,7 +106,7 @@ export const BreachWarningIcon: React.FC<StatusIconProps> = ({ className, color 
 );
 
 export const SecurityShieldIcon: React.FC<StatusIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"
@@ -123,7 +123,7 @@ export const SecurityShieldIcon: React.FC<StatusIconProps> = ({ className, color
     </svg>
 );
 export const ExpiredClockIcon: React.FC<StatusIconProps> = ({ className, color = 'currentColor', style }) => (
-    <svg
+    <svg aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
         fill="none"

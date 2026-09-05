@@ -7,6 +7,7 @@ import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 import { EntryDetails } from '../src/components/PasswordView/EntryDetails';
 import { Entry } from '../src/types/database';
+import { expectNoA11yViolations } from './a11y';
 
 // A HOTP code is stored state: generating one advances the counter and saves
 // the entry from view mode. That save refreshes the same entry, and the code
@@ -53,14 +54,16 @@ describe('an otp field that does not parse', () => {
 });
 
 describe('a HOTP entry in view mode', () => {
-    it('hides the otp field and shows the counter with no code', () => {
-        const { queryByText, getByText, getByTitle, container } = render(
+    it('hides the otp field and shows the counter with no code', async () => {
+        const { queryByText, getByText, getByTitle, getByLabelText, container } = render(
             <EntryDetails entry={makeEntry('id-a', hotpUri(0))} onClose={() => {}} onSave={() => {}} />
         );
         expect(queryByText('otp')).toBeNull();
         expect(getByText('#0')).toBeTruthy();
         expect(getByTitle(GENERATE)).toBeTruthy();
         expect(codeText(container)).toBeNull();
+        expect(getByLabelText('Username')).toBeTruthy();
+        await expectNoA11yViolations(container);
     });
 
     it('generates, copies, saves the advanced counter and keeps the code through the refresh', async () => {

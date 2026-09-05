@@ -4,6 +4,7 @@ import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { PlaceholderService, uuidBase64ToHex } from '../../services/PlaceholderService';
 import { CloseActionIcon } from '../../icons/actions/ActionIcons';
 import { ItemIcon } from './ItemIcon';
+import { Modal } from '../Modal';
 import './ReferenceWizard.css';
 
 // Builds a {REF:...} token without making the user learn the syntax: pick
@@ -54,11 +55,10 @@ export const ReferenceWizard = ({ defaultField, excludeEntryId, onInsert, onClos
 	};
 
 	return (
-		<div className="reference-wizard-overlay" onClick={onClose}>
-			<div className="reference-wizard" onClick={(e) => e.stopPropagation()}>
+		<Modal overlayClassName="reference-wizard-overlay" className="reference-wizard" labelledBy="reference-wizard-title" onClose={onClose} closeOnOverlayClick>
 				<div className="reference-wizard-header">
-					<h2>Insert Reference</h2>
-					<button className="entry-close-button" onClick={onClose}>
+					<h2 id="reference-wizard-title">Insert Reference</h2>
+					<button className="entry-close-button" onClick={onClose} aria-label="Close">
 						<CloseActionIcon />
 					</button>
 				</div>
@@ -68,6 +68,7 @@ export const ReferenceWizard = ({ defaultField, excludeEntryId, onInsert, onClos
 						type="text"
 						className="field-value"
 						placeholder="Search entries"
+						aria-label="Search entries"
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
 						autoFocus
@@ -95,8 +96,9 @@ export const ReferenceWizard = ({ defaultField, excludeEntryId, onInsert, onClos
 						)}
 					</div>
 					<div className="reference-field-row">
-						<label>Field</label>
+						<label htmlFor="reference-field">Field</label>
 						<select
+							id="reference-field"
 							className="field-value"
 							value={field}
 							onChange={(e) => setField(e.target.value as ReferenceFieldCode)}
@@ -116,7 +118,6 @@ export const ReferenceWizard = ({ defaultField, excludeEntryId, onInsert, onClos
 						Insert
 					</button>
 				</div>
-			</div>
-		</div>
+		</Modal>
 	);
 };

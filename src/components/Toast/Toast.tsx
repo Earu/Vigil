@@ -27,12 +27,16 @@ const ToastItem = ({ toast, onRemove }: ToastProps) => {
 
 	const iconStyle = { width: '16px', height: '16px' };
 
+	// Colour and icon are the only visible type cues; the prefix carries
+	// them to screen readers. Errors interrupt, the rest wait their turn
 	return (
-		<div className={`toast ${toast.type}`}>
+		<div className={`toast ${toast.type}`} role={toast.type === 'error' ? 'alert' : undefined}>
 			{toast.type === 'success' && <SuccessIcon style={iconStyle} />}
 			{toast.type === 'error' && <ErrorIcon style={iconStyle} />}
 			{toast.type === 'info' && <InfoIcon style={iconStyle} />}
 			{toast.type === 'warning' && <WarningIcon style={iconStyle} />}
+			{toast.type === 'error' && <span className="sr-only">Error: </span>}
+			{toast.type === 'warning' && <span className="sr-only">Warning: </span>}
 			{toast.message}
 		</div>
 	);
@@ -67,8 +71,10 @@ export const ToastContainer = () => {
 		};
 	}, []);
 
+	// The region exists before any toast does, so insertions announce. It
+	// stays live while a modal makes the rest of the page inert
 	return (
-		<div className="toast-container">
+		<div className="toast-container" role="status" aria-live="polite" aria-relevant="additions text" data-modal-exempt="">
 			{toasts.map((toast) => (
 				<ToastItem key={toast.id} toast={toast} onRemove={removeToast} />
 			))}

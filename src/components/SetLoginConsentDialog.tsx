@@ -1,5 +1,6 @@
 import { SetLoginConsentRequest } from '../services/BrowserIntegrationService';
 import { BrowserIntegrationService } from '../services/BrowserIntegrationService';
+import { Modal } from './Modal';
 import './BrowserPairingDialog.css';
 
 interface SetLoginConsentDialogProps {
@@ -13,9 +14,8 @@ export const SetLoginConsentDialog = ({ request, onSubmit, onCancel }: SetLoginC
     const isUpdate = request.mode === 'update';
 
     return (
-        <div className="pairing-overlay">
-            <div className="pairing-dialog">
-                <h3>{isUpdate ? 'Update Login' : 'Save Login'}</h3>
+        <Modal overlayClassName="pairing-overlay" className="pairing-dialog" labelledBy="set-login-title" onClose={onCancel}>
+                <h3 id="set-login-title">{isUpdate ? 'Update Login' : 'Save Login'}</h3>
                 <p>
                     A browser is asking to {isUpdate ? 'update the password for' : 'save a new login for'}{' '}
                     <strong>{host}</strong>
@@ -29,7 +29,6 @@ export const SetLoginConsentDialog = ({ request, onSubmit, onCancel }: SetLoginC
                         {isUpdate ? 'Update' : 'Save'}
                     </button>
                 </div>
-            </div>
-        </div>
+        </Modal>
     );
 };
