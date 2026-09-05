@@ -24,6 +24,37 @@
     border-radius: var(--radius-md);
 }
 
+.toast.dismissible {
+	pointer-events: auto;
+}
+
+.toast-message {
+	flex: 1;
+}
+
+.toast-dismiss {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 22px;
+	height: 22px;
+	padding: 0;
+	margin: -4px -8px -4px 0;
+	border: 1px solid transparent;
+	background: none;
+	color: var(--text-tertiary);
+}
+
+.toast-dismiss:hover {
+	background-color: var(--overlay-medium);
+	color: var(--text-primary);
+}
+
+.toast-dismiss svg {
+	width: 12px;
+	height: 12px;
+}
+
 .toast.success {
 	border-left: 4px solid var(--color-success);
 }

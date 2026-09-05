@@ -5,6 +5,7 @@ import { GroupSummary } from '../../services/BreachCheckService';
 import { BreachWarningIcon, SecurityShieldIcon } from '../../icons/status/StatusIcons';
 import { ChevronActionIcon, AddActionIcon, EditActionIcon, CloseActionIcon, MoveActionIcon } from '../../icons/actions/ActionIcons';
 import { ItemIcon } from './ItemIcon';
+import { isTypeAheadKey, useTypeAhead } from '../typeAhead';
 
 interface SidebarProps {
 	database: Database;
@@ -47,6 +48,8 @@ interface GroupItemProps {
 	onRowFocus: (groupId: string) => void;
 	// Selects a group by id, for arrow moves that land on another row
 	onSelectId: (groupId: string) => void;
+	// A printable key typed on a row; see typeAhead.ts
+	onTypeAhead: (key: string, row: HTMLElement) => void;
 }
 
 const EMPTY_SUMMARY: GroupSummary = { breached: false, weak: false, breachedEmail: false, entryCount: 0 };
@@ -59,7 +62,7 @@ const rowsOf = (row: HTMLElement): HTMLElement[] =>
 const parentRowOf = (row: HTMLElement): HTMLElement | null =>
 	row.parentElement?.parentElement?.closest('.group-item')?.querySelector<HTMLElement>(':scope > .group-header') ?? null;
 
-const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onEditGroup, onMoveGroup, onMoveEntry, onMoveGroupRequest, database, collapsed, onToggle, tabbableId, onRowFocus, onSelectId }: GroupItemProps) => {
+const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect, onNewGroup, onRemoveGroup, onEditGroup, onMoveGroup, onMoveEntry, onMoveGroupRequest, database, collapsed, onToggle, tabbableId, onRowFocus, onSelectId, onTypeAhead }: GroupItemProps) => {
 	const isExpanded = !collapsed.has(group.id);
 	const [isDragging, setIsDragging] = useState(false);
 	const [isDragOver, setIsDragOver] = useState(false);
@@ -190,6 +193,10 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 				onNewGroup(group);
 				return;
 		}
+		if (isTypeAheadKey(e)) {
+			e.preventDefault();
+			onTypeAhead(e.key, row);
+		}
 	};
 
 	const count = summary.entryCount;
@@ -212,6 +219,7 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 				aria-label={label}
 				tabIndex={tabbableId === group.id ? 0 : -1}
 				data-group-id={group.id}
+				data-group-name={group.name}
 				onFocus={(e) => { if (e.target === e.currentTarget) onRowFocus(group.id); }}
 				onKeyDown={handleKeyDown}
 				onClick={() => onGroupSelect(group)}
@@ -327,6 +335,7 @@ const GroupItem = ({ group, level, selectedGroup, groupSummaries, onGroupSelect,
 							tabbableId={tabbableId}
 							onRowFocus={onRowFocus}
 							onSelectId={onSelectId}
+							onTypeAhead={onTypeAhead}
 						/>
 					))}
 				</div>
@@ -375,6 +384,15 @@ export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect
 	const selectId = (groupId: string) => {
 		const group = KeepassDatabaseService.findGroupInDatabase(groupId, database.root);
 		if (group) onGroupSelect(group);
+	};
+
+	const typeAhead = useTypeAhead();
+	const handleTypeAhead = (key: string, row: HTMLElement) => {
+		const rows = rowsOf(row);
+		const i = typeAhead(key, rows.map((r) => r.dataset.groupName ?? ''), rows.indexOf(row));
+		if (i < 0) return;
+		rows[i].focus();
+		selectId(rows[i].dataset.groupId!);
 	};
 
 	useEffect(() => {
@@ -462,6 +480,7 @@ export const Sidebar = ({ database, selectedGroup, groupSummaries, onGroupSelect
 					tabbableId={tabbableId}
 					onRowFocus={setFocusedId}
 					onSelectId={selectId}
+					onTypeAhead={handleTypeAhead}
 				/>
 			</div>
 		</div>

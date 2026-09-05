@@ -109,6 +109,27 @@ describe('the group tree', () => {
         expect(onRemove).toHaveBeenCalledWith(expect.objectContaining({ id: 'home' }));
     });
 
+    it('jumps to a group by typing its name', () => {
+        const { getByRole } = render(<Harness database={makeModel()} />);
+        const root = row(getByRole, /^Root/);
+        root.focus();
+        fireEvent.keyDown(root, { key: 'h' });
+        const home = row(getByRole, /^Home/);
+        expect(document.activeElement).toBe(home);
+        expect(home.getAttribute('aria-selected')).toBe('true');
+        vi.useFakeTimers();
+        try {
+            vi.advanceTimersByTime(1100);
+            fireEvent.keyDown(home, { key: 'w' });
+            fireEvent.keyDown(row(getByRole, /^Work/), { key: 'o' });
+            expect(document.activeElement).toBe(row(getByRole, /^Work/));
+            fireEvent.keyDown(row(getByRole, /^Work/), { key: 'x', ctrlKey: true });
+            expect(document.activeElement).toBe(row(getByRole, /^Work/));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('ignores Enter from a nested action button', () => {
         const onEdit = vi.fn();
         const { getByRole } = render(<Harness database={makeModel()} onEdit={onEdit} />);

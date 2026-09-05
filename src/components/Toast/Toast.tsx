@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { SuccessIcon, ErrorIcon, InfoIcon, WarningIcon } from '../../icons';
+import { CloseActionIcon } from '../../icons/actions/ActionIcons';
 import './Toast.css';
 
 export interface Toast {
@@ -28,16 +29,24 @@ const ToastItem = ({ toast, onRemove }: ToastProps) => {
 	const iconStyle = { width: '16px', height: '16px' };
 
 	// Colour and icon are the only visible type cues; the prefix carries
-	// them to screen readers. Errors interrupt, the rest wait their turn
+	// them to screen readers. Errors interrupt, the rest wait their turn.
+	// A persistent toast is the only one worth a dismiss button: the others
+	// leave on their own
+	const persistent = toast.duration === 0;
 	return (
-		<div className={`toast ${toast.type}`} role={toast.type === 'error' ? 'alert' : undefined}>
+		<div className={`toast ${toast.type} ${persistent ? 'dismissible' : ''}`} role={toast.type === 'error' ? 'alert' : undefined}>
 			{toast.type === 'success' && <SuccessIcon style={iconStyle} />}
 			{toast.type === 'error' && <ErrorIcon style={iconStyle} />}
 			{toast.type === 'info' && <InfoIcon style={iconStyle} />}
 			{toast.type === 'warning' && <WarningIcon style={iconStyle} />}
 			{toast.type === 'error' && <span className="sr-only">Error: </span>}
 			{toast.type === 'warning' && <span className="sr-only">Warning: </span>}
-			{toast.message}
+			<span className="toast-message">{toast.message}</span>
+			{persistent && (
+				<button type="button" className="toast-dismiss" onClick={() => onRemove(toast.id)} aria-label="Dismiss">
+					<CloseActionIcon />
+				</button>
+			)}
 		</div>
 	);
 };

@@ -9,6 +9,7 @@ import { BrowserIntegrationService } from '../../services/BrowserIntegrationServ
 import { PasskeyService } from '../../services/PasskeyService';
 import { PlaceholderService } from '../../services/PlaceholderService';
 import { userSettingsService } from '../../services/UserSettingsService';
+import { isTypeAheadKey, useTypeAhead } from '../typeAhead';
 
 interface EntryListProps {
 	group: Group;
@@ -172,9 +173,16 @@ export const EntryList = ({
 		onEntrySelect(entry);
 	};
 
+	const typeAhead = useTypeAhead();
 	const handleGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
 		// Keys from a row's buttons are their own
 		if (e.target !== e.currentTarget) return;
+		if (isTypeAheadKey(e)) {
+			e.preventDefault();
+			const i = typeAhead(e.key, sortedEntries.map((entry) => displayText(entry.title, entry)), activeIndex);
+			if (i >= 0) moveTo(i);
+			return;
+		}
 		const pageSize = Math.max(1, Math.floor(viewportHeight / rowHeight));
 		const active = activeIndex >= 0 ? sortedEntries[activeIndex] : null;
 		switch (e.key) {

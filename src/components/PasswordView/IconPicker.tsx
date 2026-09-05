@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { KeePassIcon, KEEPASS_ICON_COUNT, KEEPASS_ICON_NAMES } from '../../icons/keepass/KeePassIcons';
 
@@ -41,6 +41,71 @@ async function iconBytesFromFile(file: File): Promise<Uint8Array | null> {
 	}
 }
 
+interface IconGridProps {
+	label: string;
+	className?: string;
+	count: number;
+	selectedIndex: number;
+	nameOf: (index: number) => string;
+	onPick: (index: number) => void;
+	renderIcon: (index: number) => React.ReactNode;
+}
+
+// The buttons behind each icon, in DOM order
+const buttonsOf = (grid: HTMLElement) => Array.from(grid.querySelectorAll<HTMLButtonElement>('.group-icon-option'));
+
+// Columns come from layout: the first button on the second row ends the
+// first. With no layout (tests) the grid is one row
+const columnsOf = (buttons: HTMLElement[]) => {
+	const wrap = buttons.findIndex((b, i) => i > 0 && b.offsetTop > buttons[0].offsetTop);
+	return wrap < 0 ? buttons.length : wrap;
+};
+
+// One Tab stop per grid, arrows move between icons, Enter/Space pick
+const IconGrid = ({ label, className = '', count, selectedIndex, nameOf, onPick, renderIcon }: IconGridProps) => {
+	const [focusedIndex, setFocusedIndex] = useState(Math.max(0, selectedIndex));
+	const tabbable = focusedIndex < count ? focusedIndex : 0;
+
+	const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+		const buttons = buttonsOf(e.currentTarget);
+		const current = buttons.indexOf(e.target as HTMLButtonElement);
+		if (current < 0) return;
+		const columns = columnsOf(buttons);
+		let next: number;
+		switch (e.key) {
+			case 'ArrowRight': next = current + 1; break;
+			case 'ArrowLeft': next = current - 1; break;
+			case 'ArrowDown': next = current + columns; break;
+			case 'ArrowUp': next = current - columns; break;
+			case 'Home': next = 0; break;
+			case 'End': next = buttons.length - 1; break;
+			default: return;
+		}
+		e.preventDefault();
+		if (next < 0 || next >= buttons.length) return;
+		buttons[next].focus();
+	};
+
+	return (
+		<div className={`group-icon-grid ${className}`} role="group" aria-label={label} onKeyDown={handleKeyDown}>
+			{Array.from({ length: count }, (_, index) => (
+				<button
+					key={index}
+					type="button"
+					className={`group-icon-option ${selectedIndex === index ? 'selected' : ''}`}
+					tabIndex={tabbable === index ? 0 : -1}
+					aria-pressed={selectedIndex === index}
+					onFocus={() => setFocusedIndex(index)}
+					onClick={() => onPick(index)}
+					title={nameOf(index)} aria-label={nameOf(index)}
+				>
+					{renderIcon(index)}
+				</button>
+			))}
+		</div>
+	);
+};
+
 export const IconPicker = ({ defaultIndex, icon, customIcon, onChange }: IconPickerProps) => {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const customIcons = KeepassDatabaseService.listCustomIcons();
@@ -59,31 +124,24 @@ export const IconPicker = ({ defaultIndex, icon, customIcon, onChange }: IconPic
 	return (
 		<div className="icon-picker">
 			{customIcons.length > 0 && (
-				<div className="group-icon-grid custom-icon-grid">
-					{customIcons.map(({ id, url }) => (
-						<button
-							key={id}
-							className={`group-icon-option ${customIcon === id ? 'selected' : ''}`}
-							onClick={() => onChange(undefined, id)}
-							title="Custom icon stored in the database" aria-label="Custom icon stored in the database"
-						>
-							<img src={url} alt="" />
-						</button>
-					))}
-				</div>
+				<IconGrid
+					label="Custom icons"
+					className="custom-icon-grid"
+					count={customIcons.length}
+					selectedIndex={customIcons.findIndex(({ id }) => id === customIcon)}
+					nameOf={() => 'Custom icon stored in the database'}
+					onPick={(i) => onChange(undefined, customIcons[i].id)}
+					renderIcon={(i) => <img src={customIcons[i].url} alt="" />}
+				/>
 			)}
-			<div className="group-icon-grid">
-				{Array.from({ length: KEEPASS_ICON_COUNT }, (_, index) => (
-					<button
-						key={index}
-						className={`group-icon-option ${!customIcon && selectedIndex === index ? 'selected' : ''}`}
-						onClick={() => onChange(index === defaultIndex ? undefined : index, undefined)}
-						title={index === defaultIndex ? `${KEEPASS_ICON_NAMES[index]} (default)` : KEEPASS_ICON_NAMES[index]} aria-label={index === defaultIndex ? `${KEEPASS_ICON_NAMES[index]} (default)` : KEEPASS_ICON_NAMES[index]}
-					>
-						<KeePassIcon index={index} />
-					</button>
-				))}
-			</div>
+			<IconGrid
+				label="Standard icons"
+				count={KEEPASS_ICON_COUNT}
+				selectedIndex={customIcon ? -1 : selectedIndex}
+				nameOf={(index) => index === defaultIndex ? `${KEEPASS_ICON_NAMES[index]} (default)` : KEEPASS_ICON_NAMES[index]}
+				onPick={(index) => onChange(index === defaultIndex ? undefined : index, undefined)}
+				renderIcon={(index) => <KeePassIcon index={index} />}
+			/>
 			<div className="icon-picker-actions">
 				<button className="icon-picker-file-button" onClick={() => fileInputRef.current?.click()} type="button">
 					Use image file...
