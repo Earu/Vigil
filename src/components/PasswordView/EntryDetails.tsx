@@ -360,11 +360,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			? `${title}, clipboard clears in ${clipboard.secondsLeft} seconds`
 			: title;
 
-	const renderCopyButton = (onClick: () => void, title: string, field: string) => (
+	const renderCopyButton = (onClick: () => void, title: string, field: string, disabled = false) => (
 		<>
 			<button
 				className="copy-button"
 				onClick={onClick}
+				disabled={disabled}
 				title={title}
 				aria-label={countdownLabel(title, field)}
 			>
@@ -671,26 +672,34 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		onSave(KeepassDatabaseService.prepareEntryForSave(cleaned));
 	};
 
-	// One click: the code is shown and copied, and the counter it consumed
-	// is advanced and saved right away (the same view-mode write path as
-	// removing a passkey). If the browser extension advanced the counter
-	// out-of-model moments ago, this click may reuse it: the kdbx keeps the
-	// higher value (registerUnmodeledEdits), the user gets one rejected code
-	const handleGenerateHotp = async () => {
-		if (!hotpConfig || hotpBusy) return;
+	// Both steps show a code and save the counter right away (the same
+	// view-mode write path as removing a passkey). The counter is the next
+	// value to use, so the code on screen is always the one made from the
+	// value before it, in either direction: overshoot by two and two steps
+	// back leave both the code and the counter where the service expects
+	// them. Below counter 1 there is no consumed value to show. If the
+	// browser extension advanced the counter out-of-model moments ago, a
+	// forward step may reuse it: the kdbx keeps the higher value
+	// (registerUnmodeledEdits), the user gets one rejected code
+	const handleStepHotp = async (direction: 1 | -1): Promise<string | null> => {
+		if (!hotpConfig || hotpBusy) return null;
+		const next = hotpConfig.counter + direction;
+		if (next < 0) return null;
+		const used = next - 1;
 		setHotpBusy(true);
 		try {
-			const code = await TotpService.generateCode(hotpConfig);
+			const code = used < 0 ? '' : await TotpService.generateCode({ ...hotpConfig, counter: used });
 			setHotpCode(code);
-			copyToClipboard(code, 'One-time code');
-			const advanced = {
+			const stepped = {
 				...editedEntry,
-				customFields: TotpService.withCounter(editedEntry.customFields, hotpConfig.counter + 1),
+				customFields: TotpService.withCounter(editedEntry.customFields, next),
 			};
-			setEditedEntry(advanced);
-			onSave(KeepassDatabaseService.prepareEntryForSave(advanced));
+			setEditedEntry(stepped);
+			onSave(KeepassDatabaseService.prepareEntryForSave(stepped));
+			return code || null;
 		} catch {
 			setHotpCode('');
+			return null;
 		} finally {
 			setHotpBusy(false);
 		}
@@ -865,10 +874,15 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		save: handleSave,
 		copyPassword: () => copyToClipboard(KeepassDatabaseService.getPasswordString(editedEntry.password), 'Password'),
 		copyUsername: () => copyToClipboard(editedEntry.username, 'Username'),
-		// TOTP shows a code; HOTP has to generate one, which also copies it
-		copyOtp: () => {
-			if (totpCode) copyToClipboard(totpCode, 'One-time code');
-			else if (hotpConfig) handleGenerateHotp();
+		// TOTP always has a code on screen; HOTP only has one once a step
+		// generated it, so an untouched entry burns the next counter value
+		copyOtp: async () => {
+			const shown = totpCode || hotpCode;
+			if (shown) copyToClipboard(shown, 'One-time code');
+			else if (hotpConfig) {
+				const code = await handleStepHotp(1);
+				if (code) copyToClipboard(code, 'One-time code');
+			}
 		},
 		openUrl,
 		edit: () => setIsEditing(true),
@@ -1135,25 +1149,35 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										{hotpCode.slice(0, Math.ceil(hotpCode.length / 2))}&thinsp;{hotpCode.slice(Math.ceil(hotpCode.length / 2))}
 									</span>
 								) : (
-									<span className="hotp-placeholder">Counter-based, generated on demand</span>
+									<span className="hotp-placeholder">Generated on demand</span>
 								)}
 								<span className="totp-countdown" title="Next counter value">
 									#{hotpConfig.counter}
 								</span>
 							</div>
 							<button
-								className="generate-button"
-								onClick={handleGenerateHotp}
-								disabled={hotpBusy}
-								title="Generate the next code, copy it and advance the counter" aria-label="Generate the next code, copy it and advance the counter"
+								className="generate-button hotp-step-back"
+								onClick={() => handleStepHotp(-1)}
+								disabled={hotpBusy || hotpConfig.counter === 0}
+								title="Go back to the previous code and rewind the counter" aria-label="Go back to the previous code and rewind the counter"
 								type="button"
 							>
-								<GenerateActionIcon />
+								<ChevronActionIcon />
 							</button>
-							{hotpCode && renderCopyButton(
+							<button
+								className="generate-button"
+								onClick={() => handleStepHotp(1)}
+								disabled={hotpBusy}
+								title="Generate the next code and advance the counter" aria-label="Generate the next code and advance the counter"
+								type="button"
+							>
+								<ChevronActionIcon />
+							</button>
+							{renderCopyButton(
 								() => copyToClipboard(hotpCode, 'One-time code'),
 								'Copy one-time code',
-								'One-time code'
+								'One-time code',
+								!hotpCode
 							)}
 						</div>
 					</div>
