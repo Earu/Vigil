@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { LogoIcon, LockIcon, MinimizeIcon, MaximizeIcon, CloseIcon } from '../icons';
 import { SettingsIcon } from '../icons/SettingsIcon';
 import { SecurityShieldIcon } from '../icons/status/StatusIcons';
+import { SEARCH_INPUT_ID, focusEntryGrid } from '../services/Shortcuts';
 import './TitleBar.css';
 
 interface TitleBarProps {
@@ -81,6 +82,7 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 							    swaps branches on `database`), so this fires
 							    once per unlock rather than on every render */}
 							<input
+								id={SEARCH_INPUT_ID}
 								type="text"
 								className="search-input"
 								placeholder="Search passwords..."
@@ -88,6 +90,14 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 								value={localQuery}
 								autoFocus
 								onChange={(e) => setLocalQuery(e.target.value)}
+								onKeyDown={(e) => {
+									// Escape clears the search and goes back to the list
+									if (e.key !== 'Escape') return;
+									e.preventDefault();
+									setLocalQuery('');
+									onSearch?.('');
+									focusEntryGrid();
+								}}
 							/>
 						</div>
 						<button className="lock-button" onClick={onLock} title="Lock database">

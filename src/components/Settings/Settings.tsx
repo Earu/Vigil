@@ -17,7 +17,17 @@ import * as kdbxweb from 'kdbxweb';
 import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
 import { Modal } from '../Modal';
 import { TabStrip, tabPanelProps } from '../TabStrip';
+import { SHORTCUT_GROUPS, chordKeys } from '../../services/Shortcuts';
 import './Settings.css';
+
+const REPO_URL = 'https://github.com/Earu/Vigil';
+const ISSUES_URL = `${REPO_URL}/issues`;
+const RELEASES_URL = `${REPO_URL}/releases`;
+
+const openLink = (url: string) => {
+    if (window.electron) window.electron.openExternal(url).catch(() => {});
+    else window.open(url, '_blank', 'noopener');
+};
 
 interface SettingsProps {
     isOpen: boolean;
@@ -74,7 +84,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [pwError, setPwError] = useState('');
     const [kdfInfo, setKdfInfo] = useState<KdfInfo | null>(null);
     const [historyMax, setHistoryMax] = useState(10);
-    const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security'>('general');
+    const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security' | 'info'>('general');
     const [browserIntegration, setBrowserIntegration] = useState<{ supported: boolean; enabled: boolean; running: boolean } | null>(null);
     const [browserAssociations, setBrowserAssociations] = useState<Array<{ name: string; key: string }>>([]);
     const [contentProtection, setContentProtection] = useState<{ supported: boolean; enabled: boolean } | null>(null);
@@ -542,6 +552,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         { id: 'general' as const, label: 'General' },
                         ...(kdbxDb ? [{ id: 'database' as const, label: 'Database' }] : []),
                         { id: 'security' as const, label: 'Security' },
+                        { id: 'info' as const, label: 'Info' },
                     ]}
                     active={currentTab}
                     onChange={setActiveTab}
@@ -1162,7 +1173,22 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         </div>
                     )}
 
-                    {currentTab === 'general' && window.electron && (
+                    {currentTab === 'info' && (
+                        <div className="settings-section">
+                            <h3>About</h3>
+                            <div className="info-about">
+                                <p className="info-version">Vigil {__APP_VERSION__}</p>
+                                <p className="auto-lock-help">A password manager for KeePass vaults. Free software under the GPL-3.0 licence.</p>
+                                <div className="info-links">
+                                    <button className="clear-cache-button" onClick={() => openLink(ISSUES_URL)}>Report a bug</button>
+                                    <button className="clear-cache-button" onClick={() => openLink(RELEASES_URL)}>Release notes</button>
+                                    <button className="clear-cache-button" onClick={() => openLink(REPO_URL)}>Source code</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {currentTab === 'info' && window.electron && (
                         <div className="settings-section">
                             <h3>Updates</h3>
                             <div className="update-controls">
@@ -1185,7 +1211,32 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                         </button>
                                     )}
                                 </div>
-                                <p className="auto-lock-help">Version {__APP_VERSION__}. Downloaded updates install automatically when the app closes.</p>
+                                <p className="auto-lock-help">Downloaded updates install automatically when the app closes.</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {currentTab === 'info' && (
+                        <div className="settings-section">
+                            <h3>Keyboard shortcuts</h3>
+                            <div className="shortcut-groups">
+                                {SHORTCUT_GROUPS.map((group) => (
+                                    <table className="shortcut-table" key={group.title}>
+                                        <caption>{group.title}</caption>
+                                        <tbody>
+                                            {group.rows.map((row) => (
+                                                <tr key={row.chord}>
+                                                    <th scope="row">
+                                                        {chordKeys(row.chord).map((key, i) => (
+                                                            <span key={i}>{i > 0 && ' '}<kbd>{key}</kbd></span>
+                                                        ))}
+                                                    </th>
+                                                    <td>{row.label}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                ))}
                             </div>
                         </div>
                     )}

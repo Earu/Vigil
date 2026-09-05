@@ -23,6 +23,7 @@ import { ReferenceWizard, ReferenceFieldCode } from './ReferenceWizard';
 import { PasswordStrength } from '../../services/BreachStatusStore';
 import { ClipboardService } from '../../services/ClipboardService';
 import { Modal } from '../Modal';
+import { matchesChord, dialogOpen } from '../../services/Shortcuts';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -270,25 +271,28 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		}
 	}, [entry, isNew]);
 
+	// Entry shortcuts, window-wide so they work wherever focus is (the search
+	// box usually holds it). The handlers change with every render, so the
+	// listener reads the latest through a ref
+	const shortcutActions = useRef<Record<string, () => void>>({});
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
-			if (isEditing || isNew) return;
-
-			const isCmdOrCtrl = e.metaKey || e.ctrlKey;
-			if (!isCmdOrCtrl) return;
-
-			if (e.key === 'c') {
+			// A generator, wizard or picker on top owns the keyboard
+			if (dialogOpen()) return;
+			const chords = isEditing || isNew
+				? { 'Mod+Enter': 'save' }
+				: { 'Mod+C': 'copyPassword', 'Mod+B': 'copyUsername', 'Mod+T': 'copyOtp', 'Mod+U': 'openUrl', 'Mod+E': 'edit' };
+			for (const [chord, action] of Object.entries(chords)) {
+				if (!matchesChord(e, chord)) continue;
 				e.preventDefault();
-				copyToClipboard(KeepassDatabaseService.getPasswordString(editedEntry.password), 'Password');
-			} else if (e.key === 'b') {
-				e.preventDefault();
-				copyToClipboard(editedEntry.username, 'Username');
+				shortcutActions.current[action]?.();
+				return;
 			}
 		};
 
 		window.addEventListener('keydown', handleKeyDown);
 		return () => window.removeEventListener('keydown', handleKeyDown);
-	}, [isEditing, isNew, editedEntry]);
+	}, [isEditing, isNew]);
 
 	// This panel is not remounted when the selection changes, so the entry has
 	// to be part of what identifies a copy button. Without it the countdown
@@ -356,6 +360,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	);
 
 	const handleSave = () => {
+		if (!editedEntry.title.trim()) return;
 		const updatedEntry = KeepassDatabaseService.prepareEntryForSave({
 			...editedEntry,
 			// Nameless fields cannot be stored in the kdbx
@@ -824,6 +829,32 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		setPasswordStrength(newPassword ? HaveIBeenPwnedService.checkPasswordStrength(newPassword) : null);
 	};
 
+	const openUrl = async () => {
+		if (!editedEntry.url) return;
+		// Non-web schemes are refused in the main process; say so rather
+		// than leaving the button looking broken
+		const result = await window.electron?.openExternal(resolved(editedEntry.url));
+		if (result && !result.success) {
+			(window as any).showToast?.({
+				message: result.error ?? 'Failed to open the link',
+				type: 'error'
+			});
+		}
+	};
+
+	shortcutActions.current = {
+		save: handleSave,
+		copyPassword: () => copyToClipboard(KeepassDatabaseService.getPasswordString(editedEntry.password), 'Password'),
+		copyUsername: () => copyToClipboard(editedEntry.username, 'Username'),
+		// TOTP shows a code; HOTP has to generate one, which also copies it
+		copyOtp: () => {
+			if (totpCode) copyToClipboard(totpCode, 'One-time code');
+			else if (hotpConfig) handleGenerateHotp();
+		},
+		openUrl,
+		edit: () => setIsEditing(true),
+	};
+
 	const handlePanelKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
 		if (e.key !== 'Escape' || e.defaultPrevented || isEditing || !onReturnFocus) return;
 		if (isEditableTarget(e.target)) return;
@@ -1188,17 +1219,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									'URL'
 								)}
 								<button
-									onClick={async () => {
-										// Non-web schemes are refused in the main process; say so
-										// rather than leaving the button looking broken
-										const result = await window.electron?.openExternal(resolved(editedEntry.url!));
-										if (result && !result.success) {
-											(window as any).showToast?.({
-												message: result.error ?? 'Failed to open the link',
-												type: 'error'
-											});
-										}
-									}}
+									onClick={openUrl}
 									className="open-button"
 									title="Open URL" aria-label="Open URL"
 								>

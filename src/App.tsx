@@ -16,6 +16,7 @@ import { HaveIBeenPwnedService } from './services/HaveIBeenPwnedService';
 import { BreachStatusStore } from './services/BreachStatusStore';
 import { EmailBreachStatusStore } from './services/EmailBreachStatusStore';
 import { ClipboardService } from './services/ClipboardService';
+import { matchesChord, dialogOpen, focusSearch } from './services/Shortcuts';
 import { BreachCacheCrypto } from './services/BreachCacheCrypto';
 import { userSettingsService } from './services/UserSettingsService';
 import { BrowserIntegrationService } from './services/BrowserIntegrationService';
@@ -412,6 +413,30 @@ function App() {
 	// effect, so a lock is visible to a promise resolving in the same tick
 	const kdbxDbRef = useRef<kdbxweb.Kdbx | null>(null);
 
+	// Vault-wide shortcuts. Handlers change with state, so the listener
+	// reads the latest through a ref instead of re-subscribing
+	const shortcutActions = useRef({ lock: () => {}, vaultOpen: false });
+	useEffect(() => {
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (matchesChord(e, 'Mod+,')) {
+				if (dialogOpen()) return;
+				e.preventDefault();
+				setShowSettings(true);
+				return;
+			}
+			if (!shortcutActions.current.vaultOpen) return;
+			if (matchesChord(e, 'Mod+L')) {
+				e.preventDefault();
+				shortcutActions.current.lock();
+			} else if (matchesChord(e, 'Mod+F') && !dialogOpen()) {
+				e.preventDefault();
+				focusSearch();
+			}
+		};
+		window.addEventListener('keydown', onKeyDown);
+		return () => window.removeEventListener('keydown', onKeyDown);
+	}, []);
+
 	// force skips the unsaved-edits prompt, for locks that have to happen
 	// whatever the answer would be (idle timeout, suspend, screen lock)
 	const handleLock = (options?: { force?: boolean }) => {
@@ -449,6 +474,7 @@ function App() {
 		BreachCacheCrypto.lock();
 		window.electron?.reportVaultClosed().catch(() => {});
 	};
+	shortcutActions.current = { lock: () => handleLock(), vaultOpen: database !== null };
 
 	// Rethrows on failure so callers that answer someone (browser integration)
 	// report the save as failed instead of claiming success. UI callers go
