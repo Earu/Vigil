@@ -130,6 +130,12 @@ export interface IElectronAPI {
 	// Files beside the vault that a sync client named as copies of it; each
 	// comes read-granted so the renderer can open and compare it
 	listConflictCopies: (vaultPath: string) => Promise<Array<{ copyPath: string; hash: string }>>;
+	// Whether the folder around the vault can be listed. On macOS 'permission'
+	// means it needs the Files and Folders grant the vault itself already has
+	vaultFolderAccess: (vaultPath: string) => Promise<{ listable: true } | { listable: false; reason: 'permission' | 'other'; code: string }>;
+	// Asks for that grant the way macOS gives it, an open dialog on the
+	// folder; the directory watch is armed again when it lands
+	requestVaultFolderAccess: (vaultPath: string) => Promise<{ granted: true } | { granted: false; reason: 'cancelled' | 'other-folder' | 'still-denied' }>;
 	// Moves a listed or watcher-reported conflict copy to the trash; refused
 	// for any other path
 	trashConflictCopy: (copyPath: string) => Promise<{ success: boolean; error?: string }>;

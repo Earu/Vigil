@@ -21,9 +21,19 @@ import { isConflictCopyName, resolveVaultFile } from './conflict-copies';
 // Events come in bursts (a rename is two, a sync client may touch the file
 // several times), so nothing is read until the file has been quiet for a
 // moment, and one notification covers the burst.
+//
+// A directory that cannot be watched gets polled instead: the vault's stat by
+// path every couple of seconds, which follows the rename replacement just as
+// well, and the directory listing on the same beat for copies appearing or
+// changing beside it. macOS refuses the directory open when the app holds
+// the file but not the folder around it (conflict-copies.ts probeVaultFolder
+// says so, and window.ts asks the user for the folder); Linux gets there by
+// running out of inotify descriptors, and some filesystems have no change
+// notification at all.
 
 export const VAULT_CHANGED_CHANNEL = 'vault-file-changed';
 export const DEBOUNCE_MS = 1500;
+export const POLL_MS = 2000;
 
 export interface VaultChange {
     // The path as the renderer knows it (what it reported on vault-opened),
@@ -41,6 +51,10 @@ export interface WatchTarget {
 
 export interface WatchDeps {
     watch?: (dir: string, listener: (eventType: string, filename: string | Buffer | null) => void) => fs.FSWatcher;
+    // The fallback when the directory cannot be watched; returns the stop
+    pollFile?: (filePath: string, listener: () => void) => () => void;
+    pollMs?: number;
+    readdir?: (dir: string) => Promise<string[]>;
     // Where the bytes actually land: a vault reached through a symlink is
     // written at the link's target (file-operations resolveWriteTarget)
     resolve?: (filePath: string) => string;
@@ -61,13 +75,22 @@ interface Pending {
 }
 
 interface ActiveWatch {
-    watcher: fs.FSWatcher;
+    stop: () => void;
     // One countdown per file name seen in the directory: the vault and each
     // conflict copy settle independently
     pending: Map<string, Pending>;
 }
 
 const watches = new Map<WatchTarget, ActiveWatch>();
+
+// fs.watchFile compares everything but the access time between polls, so a
+// touch that changes nothing stays quiet; a spurious hit costs one read and
+// the hash comparison in the renderer
+function pollFile(filePath: string, listener: () => void, intervalMs: number): () => void {
+    const onStat = () => listener();
+    fs.watchFile(filePath, { interval: intervalMs }, onStat);
+    return () => fs.unwatchFile(filePath, onStat);
+}
 
 export function watchVault(win: WatchTarget, filePath: string, deps: WatchDeps = {}): void {
     unwatchWindow(win);
@@ -125,21 +148,69 @@ export function watchVault(win: WatchTarget, filePath: string, deps: WatchDeps =
         entry.timer = setTimeout(() => { void notify(active, fileName); }, debounceMs);
     };
 
+    const onEvent = (filename: string | Buffer | null | undefined) => {
+        const current = watches.get(win);
+        if (!current) return;
+        // Some platforms omit the name; then the vault itself is the
+        // candidate and the hash comparison in the renderer settles it
+        const seen = filename === null || filename === undefined ? name : filename.toString();
+        if (seen === name) {
+            schedule(current, name);
+        } else if (deps.onConflictCopy && isConflictCopyName(name, seen)) {
+            schedule(current, seen);
+        }
+    };
+
+    // Polling stands in for the directory watch (see the top of the file).
+    // The vault is followed through its stat; the directory is listed on the
+    // same beat for conflict copies, when it can be listed at all. A copy
+    // new to the listing, or with a different mtime, is an event. What is
+    // there at the first look is the renderer's to ask about (it lists the
+    // copies when it starts listening), so only later looks report
+    const startPolling = (): (() => void) => {
+        const intervalMs = deps.pollMs ?? POLL_MS;
+        const stopFile = deps.pollFile
+            ? deps.pollFile(target, () => onEvent(name))
+            : pollFile(target, () => onEvent(name), intervalMs);
+        if (!deps.onConflictCopy) return stopFile;
+        const readdir = deps.readdir ?? (d => fs.promises.readdir(d));
+        let seen: Map<string, number> | null = null;
+        let looking = false;
+        const look = async () => {
+            if (looking) return;
+            looking = true;
+            try {
+                const copies = (await readdir(dir)).filter(candidate => isConflictCopyName(name, candidate));
+                const now = new Map<string, number>();
+                for (const copy of copies) {
+                    try {
+                        now.set(copy, (await stat(path.join(dir, copy))).mtimeMs);
+                    } catch { /* gone between the listing and the stat */ }
+                }
+                if (seen) {
+                    for (const [copy, mtimeMs] of now) {
+                        if (seen.get(copy) !== mtimeMs) onEvent(copy);
+                    }
+                }
+                seen = now;
+            } catch {
+                // A directory that cannot be listed has no copies to report
+            } finally {
+                looking = false;
+            }
+        };
+        void look();
+        const timer = setInterval(() => { void look(); }, intervalMs);
+        return () => {
+            clearInterval(timer);
+            stopFile();
+        };
+    };
+
     let active: ActiveWatch;
     try {
-        const watcher = (deps.watch ?? fs.watch)(dir, (_eventType, filename) => {
-            const current = watches.get(win);
-            if (!current) return;
-            // Some platforms omit the name; then the vault itself is the
-            // candidate and the hash comparison in the renderer settles it
-            const seen = filename === null || filename === undefined ? name : filename.toString();
-            if (seen === name) {
-                schedule(current, name);
-            } else if (deps.onConflictCopy && isConflictCopyName(name, seen)) {
-                schedule(current, seen);
-            }
-        });
-        active = { watcher, pending: new Map() };
+        const watcher = (deps.watch ?? fs.watch)(dir, (_eventType, filename) => onEvent(filename));
+        active = { stop: () => watcher.close(), pending: new Map() };
         watcher.on('error', (error) => {
             // A watch the OS drops (the directory went away, a mount gone) is
             // closed rather than left half alive; the save path still merges
@@ -147,10 +218,15 @@ export function watchVault(win: WatchTarget, filePath: string, deps: WatchDeps =
             if (watches.get(win) === active) unwatchWindow(win);
         });
     } catch (error) {
-        // No inotify on this filesystem, or out of watch descriptors: the
-        // vault stays unwatched and external changes surface at save time
-        console.error('Could not watch the vault file:', error);
-        return;
+        try {
+            active = { stop: startPolling(), pending: new Map() };
+            console.warn('Cannot watch the vault directory, polling instead:', error);
+        } catch (pollError) {
+            // The vault stays unwatched and external changes surface at save
+            // time
+            console.error('Could not watch the vault file:', error, pollError);
+            return;
+        }
     }
     watches.set(win, active);
 }
@@ -164,7 +240,7 @@ export function unwatchWindow(win: WatchTarget): void {
     }
     active.pending.clear();
     try {
-        active.watcher.close();
+        active.stop();
     } catch { /* already closed by the OS */ }
 }
 

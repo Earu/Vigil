@@ -12,7 +12,9 @@ import { watchVault, unwatchWindow, watchedCount, VAULT_CHANGED_CHANNEL, WatchTa
 // real fs.watch to prove the directory-plus-basename approach survives the
 // rename replacement every save (Vigil's or a sync client's) performs.
 
-const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-watch-'));
+// Resolved up front: the watcher works on the real path, and macOS reaches
+// its temp directory through a symlink
+const tmpRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-watch-')));
 afterAll(() => fs.rmSync(tmpRoot, { recursive: true, force: true }));
 
 const sha256 = (data: Buffer) => crypto.createHash('sha256').update(data).digest('hex');
@@ -207,13 +209,46 @@ describe('lifecycle', () => {
         expect(win.sent).toHaveLength(0);
     });
 
-    it('a watch the OS refuses leaves the vault unwatched without throwing', () => {
+    it('a directory the OS refuses to watch has the vault polled instead', async () => {
+        const file = newVault('v1');
+        const win = fakeWindow();
+        const poll: { file?: string; listener?: () => void; stopped: boolean } = { stopped: false };
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            expect(() => watch(win, file, {
+                watch: () => { throw Object.assign(new Error('EPERM: operation not permitted, watch'), { code: 'EPERM' }); },
+                pollFile: (filePath, listener) => {
+                    poll.file = filePath;
+                    poll.listener = listener;
+                    return () => { poll.stopped = true; };
+                },
+            })).not.toThrow();
+            expect(watchedCount()).toBe(1);
+            expect(warn).toHaveBeenCalled();
+        } finally {
+            warn.mockRestore();
+        }
+        // The file itself, where the app has access, not the directory
+        expect(poll.file).toBe(fs.realpathSync(file));
+
+        fs.writeFileSync(file, 'v2');
+        poll.listener!();
+        await untilSent(win, 1);
+        expect(win.sent).toHaveLength(1);
+        expect((win.sent[0][1] as { hash: string }).hash).toBe(sha256(Buffer.from('v2')));
+
+        unwatchWindow(win);
+        expect(poll.stopped).toBe(true);
+    });
+
+    it('a vault that can be neither watched nor polled stays unwatched without throwing', () => {
         const file = newVault();
         const win = fakeWindow();
         const error = vi.spyOn(console, 'error').mockImplementation(() => {});
         try {
             expect(() => watch(win, file, {
                 watch: () => { throw Object.assign(new Error('ENOSPC: System limit for number of file watchers reached'), { code: 'ENOSPC' }); },
+                pollFile: () => { throw new Error('no stat either'); },
             })).not.toThrow();
             expect(watchedCount()).toBe(0);
             expect(error).toHaveBeenCalled();
@@ -382,23 +417,129 @@ describe('a conflict copy beside the vault', () => {
     });
 });
 
+// A save (Vigil's or a sync client's) writes a temp file and renames it over
+// the vault; both real mechanisms have to see the new bytes at the old name
+async function replacedByRename(deps: Parameters<typeof watchVault>[2]) {
+    const dir = fs.mkdtempSync(path.join(tmpRoot, 'real-'));
+    const file = path.join(dir, 'vault.kdbx');
+    fs.writeFileSync(file, 'v1');
+    const win = fakeWindow();
+    watch(win, file, { debounceMs: 100, ...deps });
+
+    // Let the OS watch (or the first poll) settle before the write
+    await sleep(100);
+    const tmp = path.join(dir, '.vault.kdbx.tmp-deadbeef');
+    fs.writeFileSync(tmp, 'v2');
+    fs.renameSync(tmp, file);
+
+    const deadline = Date.now() + 5000;
+    while (win.sent.length === 0 && Date.now() < deadline) await sleep(50);
+    expect(win.sent.length).toBeGreaterThanOrEqual(1);
+    expect((win.sent[0][1] as { hash: string }).hash).toBe(sha256(Buffer.from('v2')));
+}
+
 describe('with the real fs.watch', () => {
     it('sees a rename replacing the file, the way saves and sync clients write', async () => {
-        const dir = fs.mkdtempSync(path.join(tmpRoot, 'real-'));
+        await replacedByRename({});
+    }, 10000);
+});
+
+describe('polling, when the directory cannot be watched', () => {
+    const refused = () => { throw Object.assign(new Error('EPERM: operation not permitted, watch'), { code: 'EPERM' }); };
+
+    // The directory is listed on the same beat as the file is polled, so a
+    // sync client's copy is still seen without a watch on the directory
+    it('reports a conflict copy that appears beside the vault, never as the vault', async () => {
+        const dir = fs.mkdtempSync(path.join(tmpRoot, 'poll-'));
         const file = path.join(dir, 'vault.kdbx');
         fs.writeFileSync(file, 'v1');
         const win = fakeWindow();
-        watch(win, file, { debounceMs: 100 });
+        const copies: Array<[string, string]> = [];
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            watch(win, file, {
+                watch: refused,
+                pollFile: () => () => {},
+                pollMs: 20,
+                onConflictCopy: (copyPath, hash) => { copies.push([copyPath, hash]); },
+            });
+            // The first look is the baseline, not an event
+            await sleep(60);
+            const copyPath = path.join(dir, 'vault 2.kdbx');
+            fs.writeFileSync(copyPath, 'from the other machine');
+            await until(() => copies.length >= 1, 3000);
+            expect(copies).toEqual([[copyPath, sha256(Buffer.from('from the other machine'))]]);
+            expect(win.sent).toHaveLength(0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
 
-        // Let the OS watch settle before the write
-        await sleep(100);
-        const tmp = path.join(dir, '.vault.kdbx.tmp-deadbeef');
-        fs.writeFileSync(tmp, 'v2');
-        fs.renameSync(tmp, file);
+    it('reports a copy present from the start only once it changes', async () => {
+        const dir = fs.mkdtempSync(path.join(tmpRoot, 'poll-'));
+        const file = path.join(dir, 'vault.kdbx');
+        fs.writeFileSync(file, 'v1');
+        const copyPath = path.join(dir, 'vault 2.kdbx');
+        fs.writeFileSync(copyPath, 'old');
+        const win = fakeWindow();
+        const copies: Array<[string, string]> = [];
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            watch(win, file, {
+                watch: refused,
+                pollFile: () => () => {},
+                pollMs: 20,
+                onConflictCopy: (copyPath, hash) => { copies.push([copyPath, hash]); },
+            });
+            await sleep(120);
+            expect(copies).toHaveLength(0);
+            fs.writeFileSync(copyPath, 'new');
+            // Same-millisecond rewrites can share an mtime; move it explicitly
+            const later = new Date(Date.now() + 5000);
+            fs.utimesSync(copyPath, later, later);
+            await until(() => copies.length >= 1, 3000);
+            expect(copies).toEqual([[copyPath, sha256(Buffer.from('new'))]]);
+        } finally {
+            warn.mockRestore();
+        }
+    });
 
-        const deadline = Date.now() + 5000;
-        while (win.sent.length === 0 && Date.now() < deadline) await sleep(50);
-        expect(win.sent.length).toBeGreaterThanOrEqual(1);
-        expect((win.sent[0][1] as { hash: string }).hash).toBe(sha256(Buffer.from('v2')));
+    it('lists nothing from a directory that cannot be read, and keeps following the vault', async () => {
+        const file = newVault('v1');
+        const win = fakeWindow();
+        const poll: { listener?: () => void } = {};
+        const copies: unknown[] = [];
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            watch(win, file, {
+                watch: refused,
+                pollFile: (_, listener) => { poll.listener = listener; return () => {}; },
+                pollMs: 20,
+                readdir: async () => { throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); },
+                onConflictCopy: copy => { copies.push(copy); },
+            });
+            await sleep(80);
+            fs.writeFileSync(file, 'v2');
+            poll.listener!();
+            await untilSent(win, 1);
+            expect((win.sent[0][1] as { hash: string }).hash).toBe(sha256(Buffer.from('v2')));
+            expect(copies).toHaveLength(0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+});
+
+describe('with the real fs.watchFile, when the directory cannot be watched', () => {
+    it('sees a rename replacing the file: the poll follows the path, not the inode', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        try {
+            await replacedByRename({
+                watch: () => { throw Object.assign(new Error('EPERM: operation not permitted, watch'), { code: 'EPERM' }); },
+                pollMs: 50,
+            });
+        } finally {
+            warn.mockRestore();
+        }
     }, 10000);
 });
