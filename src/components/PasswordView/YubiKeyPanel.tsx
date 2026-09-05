@@ -62,6 +62,10 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
     }, []);
 
     const inFlight = useRef(false);
+    // A single-code calculation is in flight, possibly waiting on a touch
+    const calculating = useRef(false);
+    // Drives the countdown bars, and rolls the codes over with their window
+    const [now, setNow] = useState(() => Date.now());
 
     const load = useCallback(async (withPassword: string | null) => {
         if (inFlight.current) return;
@@ -86,16 +90,73 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
 
     useEffect(() => { void load(null); }, [load]);
 
+    // A window closing invalidates every TOTP code on screen, so the key gets
+    // read again. Unlike the refresh button this never tears the panel down:
+    // a key pulled out mid-window only clears the codes it can no longer
+    // vouch for, and the error surfaces when the user asks for one again
+    const refreshCodes = useCallback(async () => {
+        // One command at a time reaches the card. A read landing on top of a
+        // calculation would fight it for the channel, and the key may be
+        // sitting there blinking for a touch
+        if (inFlight.current || calculating.current) return;
+        inFlight.current = true;
+        const result = await window.electron?.yubikeyOathAccounts?.(null, heldPassword?.getText() ?? null);
+        inFlight.current = false;
+        if (!result?.ok || !result.value) {
+            setAccounts(current => current?.map(a => (a.type === 'TOTP' ? { ...a, code: null } : a)) ?? current);
+            return;
+        }
+        const fresh = result.value;
+        // The batch read hands back no code for HOTP or touch-protected
+        // accounts. An HOTP code keeps until it is used, so one already on
+        // screen stays; a touch account's code expired with the window
+        setAccounts(current => fresh.map(account => {
+            if (account.code || account.type !== 'HOTP') return account;
+            const shown = current?.find(a => a.id === account.id)?.code ?? null;
+            return shown ? { ...account, code: shown } : account;
+        }));
+    }, [heldPassword]);
+
+    // The key has no clock: the host sends the timestamp the code is computed
+    // from, so the panel knows when each window ends without asking
+    const windowsSeen = useRef(new Map<number, number>());
+    const periods = accounts?.filter(a => a.type === 'TOTP' && a.code).map(a => a.period) ?? [];
+    const ticking = periods.length > 0;
+
+    useEffect(() => {
+        if (!ticking) {
+            windowsSeen.current.clear();
+            return;
+        }
+        const tick = () => {
+            const at = Date.now();
+            setNow(at);
+            let rolled = false;
+            for (const period of periods) {
+                const index = Math.floor(at / (period * 1000));
+                const seen = windowsSeen.current.get(period);
+                windowsSeen.current.set(period, index);
+                if (seen !== undefined && seen !== index) rolled = true;
+            }
+            if (rolled) void refreshCodes();
+        };
+        tick();
+        const timer = setInterval(tick, 1000);
+        return () => clearInterval(timer);
+    }, [ticking, periods.join(','), refreshCodes]);
+
     // HOTP and touch-required accounts hand back no code from the batch read,
     // because calculating one has a consequence: an HOTP counter moves on the
     // key and cannot be moved back, and a touch account lights up and waits
     const generate = async (account: OathAccount) => {
+        calculating.current = true;
         setBusyId(account.id);
         // The key blinks and waits as soon as the command reaches it, so the
         // prompt goes up before the call. An HOTP account may be
         // touch-protected too, and the batch read cannot tell us
         setTouchPending(account.requiresTouch || account.type === 'HOTP');
         const result = await window.electron?.yubikeyOathCode?.(null, account.id, heldText());
+        calculating.current = false;
         setTouchPending(false);
         setBusyId(null);
         if (!result?.ok || !result.value) {
@@ -120,44 +181,69 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
         }
     };
 
-    const renderRow = (account: OathAccount) => (
+    const renderRow = (account: OathAccount) => {
+        const period = account.period * 1000;
+        const secondsLeft = account.type === 'TOTP' && account.code
+            ? Math.ceil((period - (now % period)) / 1000)
+            : null;
+        return (
         <div className="yubikey-row" key={account.id}>
-            <div className="yubikey-row-labels">
-                <span className="yubikey-row-name">{account.name}</span>
-                {account.issuer && <span className="yubikey-row-issuer">{account.issuer}</span>}
-            </div>
-            <span className="yubikey-row-type">
-                {account.type}
-                {account.type === 'TOTP' && account.period !== 30 && ` ${account.period}s`}
-            </span>
-            {account.code ? (
-                <span className="yubikey-row-code">
-                    {account.code.slice(0, Math.ceil(account.code.length / 2))}&thinsp;{account.code.slice(Math.ceil(account.code.length / 2))}
+            <div className="yubikey-row-main">
+                <div className="yubikey-row-labels">
+                    <span className="yubikey-row-name">{account.name}</span>
+                    {account.issuer && <span className="yubikey-row-issuer">{account.issuer}</span>}
+                </div>
+                <span className="yubikey-row-type">
+                    {account.type}
+                    {account.type === 'TOTP' && account.period !== 30 && ` ${account.period}s`}
                 </span>
-            ) : (
+                {account.code ? (
+                    <span className="yubikey-row-code">
+                        {account.code.slice(0, Math.ceil(account.code.length / 2))}&thinsp;{account.code.slice(Math.ceil(account.code.length / 2))}
+                    </span>
+                ) : (
+                    <button
+                        className="generate-button"
+                        onClick={() => generate(account)}
+                        disabled={busyId !== null}
+                        title={account.requiresTouch ? 'Generate a code, then touch the key' : 'Generate a code and advance the counter on the key'}
+                        aria-label={account.requiresTouch ? 'Generate a code, then touch the key' : 'Generate a code and advance the counter on the key'}
+                        type="button"
+                    >
+                        {busyId === account.id ? <SpinnerIcon className="spinner" /> : <GenerateActionIcon />}
+                    </button>
+                )}
+                {secondsLeft !== null && (
+                    <span
+                        className={`yubikey-row-countdown ${secondsLeft <= 5 ? 'expiring' : ''}`}
+                        role="timer"
+                        aria-label={`Code changes in ${secondsLeft} seconds`}
+                    >
+                        {secondsLeft}s
+                    </span>
+                )}
                 <button
-                    className="generate-button"
-                    onClick={() => generate(account)}
-                    disabled={busyId !== null}
-                    title={account.requiresTouch ? 'Generate a code, then touch the key' : 'Generate a code and advance the counter on the key'}
-                    aria-label={account.requiresTouch ? 'Generate a code, then touch the key' : 'Generate a code and advance the counter on the key'}
+                    className="copy-button"
+                    onClick={() => account.code && copy(account.code)}
+                    disabled={!account.code}
+                    title="Copy one-time code"
+                    aria-label="Copy one-time code"
                     type="button"
                 >
-                    {busyId === account.id ? <SpinnerIcon className="spinner" /> : <GenerateActionIcon />}
+                    <CopyActionIcon />
                 </button>
+            </div>
+            {secondsLeft !== null && (
+                <div className="yubikey-row-progress">
+                    <div
+                        className="yubikey-row-progress-bar"
+                        style={{ width: `${(secondsLeft / account.period) * 100}%` }}
+                    />
+                </div>
             )}
-            <button
-                className="copy-button"
-                onClick={() => account.code && copy(account.code)}
-                disabled={!account.code}
-                title="Copy one-time code"
-                aria-label="Copy one-time code"
-                type="button"
-            >
-                <CopyActionIcon />
-            </button>
         </div>
-    );
+        );
+    };
 
     return (
         <Modal

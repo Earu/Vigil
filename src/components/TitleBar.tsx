@@ -136,21 +136,21 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 				</div>
 			)}
 			{isMacOS && (
-				<>
+				<div className="macos-actions">
 					{onOpenYubiKey && (
-						<button className="settings-button macos-settings macos-report" onClick={onOpenYubiKey} title="YubiKey codes" aria-label="YubiKey codes">
+						<button className="settings-button" onClick={onOpenYubiKey} title="YubiKey codes" aria-label="YubiKey codes">
 							<UsbKeyIcon />
 						</button>
 					)}
 					{onOpenSecurityReport && (
-						<button className="settings-button macos-settings macos-report" onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
+						<button className="settings-button" onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
 							<SecurityShieldIcon />
 						</button>
 					)}
-					<button className="settings-button macos-settings" onClick={onOpenSettings} title="Settings" aria-label="Settings">
+					<button className="settings-button" onClick={onOpenSettings} title="Settings" aria-label="Settings">
 						<SettingsIcon />
 					</button>
-				</>
+				</div>
 			)}
 		</div>
 	);
