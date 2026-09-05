@@ -303,6 +303,12 @@ export async function handleDecryptedMessage(action: string, rawMessage: any, se
         case 'get-databasehash':
             return await askVaults('get-databasehash', {}, 5000);
         case 'associate': {
+            // The key inside the message must be the one this session was
+            // set up with (KeePassXC's handleAssociate checks the same):
+            // a client may only pair itself, never a key it does not hold
+            if (typeof message.key !== 'string' || message.key !== b64(session.clientPublicKey)) {
+                return { errorCode: ERROR_ASSOCIATION_FAILED };
+            }
             const result = await askVaults('associate', { key: message.key, idKey: message.idKey }, 120000);
             if (!result.errorCode) {
                 session.associated = true;

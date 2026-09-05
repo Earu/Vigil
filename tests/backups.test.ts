@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
     BrowserWindow: {},
 }));
 
-const { backupBeforeWrite, listBackups, backupDir, getBackupInfo, revealBackups } =
+const { backupBeforeWrite, listBackups, backupDir, getBackupInfo, revealBackups, purgeBackups } =
     await import('../electron/src/backups');
 const { saveToFile } = await import('../electron/src/file-operations');
 
@@ -237,5 +237,32 @@ describe('vault backups', () => {
 
         expect(result).toEqual({ success: true });
         expect(fs.readFileSync(vault)).toEqual(Buffer.from([1, 2, 3]));
+    });
+});
+
+// After a master password change every copy still opens with the old
+// password; the user may want them gone
+describe('purgeBackups', () => {
+    it('removes every copy and reports how many', async () => {
+        const vault = newVault('v1');
+        await saveToFile(vault, new Uint8Array([1]), ON);
+        age((await listBackups(vault))[0], HALF_HOUR + 1000);
+        await saveToFile(vault, new Uint8Array([2]), ON);
+        expect(await listBackups(vault)).toHaveLength(2);
+
+        expect(await purgeBackups(vault)).toEqual({ success: true, removed: 2 });
+        expect(await listBackups(vault)).toEqual([]);
+        expect((await getBackupInfo(vault)).count).toBe(0);
+    });
+
+    it('is a no-op for a vault that has none', async () => {
+        expect(await purgeBackups(newVault())).toEqual({ success: true, removed: 0 });
+    });
+
+    it('leaves the vault itself alone', async () => {
+        const vault = newVault('keep me');
+        await saveToFile(vault, new Uint8Array([9]), ON);
+        await purgeBackups(vault);
+        expect(fs.readFileSync(vault)).toEqual(Buffer.from([9]));
     });
 });

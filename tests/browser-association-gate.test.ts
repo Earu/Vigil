@@ -154,13 +154,29 @@ describe('where set-login lands', () => {
     });
 });
 
+// The key inside an associate message is the client's own public key
+const ownKey = (session: { clientPublicKey: Uint8Array }) => Buffer.from(session.clientPublicKey).toString('base64');
+
 describe('what sets the association flag', () => {
+    it('associate refuses a key other than the one the session was set up with', async () => {
+        windows = [fakeWindow()];
+        rendererReply = { hash: 'deadbeef', id: 'Vigil' };
+        const session = Session();
+        const foreign = Buffer.from(nacl.box.keyPair().publicKey).toString('base64');
+
+        const result = await handleDecryptedMessage('associate', { key: foreign, idKey: 'idk' }, session);
+
+        expect(result.errorCode).toBe(ERROR_ASSOCIATION_FAILED);
+        expect(session.associated).toBe(false);
+        expect(await handleDecryptedMessage('associate', { idKey: 'idk' }, session)).toEqual({ errorCode: ERROR_ASSOCIATION_FAILED });
+    });
+
     it('associate marks the session associated when it succeeds', async () => {
         windows = [fakeWindow()];
         rendererReply = { hash: 'deadbeef', id: 'Vigil' };
         const session = Session();
 
-        await handleDecryptedMessage('associate', { key: 'k', idKey: 'idk' }, session);
+        await handleDecryptedMessage('associate', { key: ownKey(session), idKey: 'idk' }, session);
 
         expect(session.associated).toBe(true);
     });
@@ -206,7 +222,7 @@ describe('what sets the association flag', () => {
         }];
         const session = Session();
 
-        const result = await handleDecryptedMessage('associate', { key: 'k', idKey: 'idk' }, session);
+        const result = await handleDecryptedMessage('associate', { key: ownKey(session), idKey: 'idk' }, session);
 
         expect(result.errorCode).toBe(ERROR_ASSOCIATION_FAILED);
         expect(session.associated).toBe(false);
@@ -217,7 +233,7 @@ describe('what sets the association flag', () => {
         rendererReply = { errorCode: ERROR_ASSOCIATION_FAILED };
         const session = Session();
 
-        await handleDecryptedMessage('associate', { key: 'k', idKey: 'idk' }, session);
+        await handleDecryptedMessage('associate', { key: ownKey(session), idKey: 'idk' }, session);
         const totp = await handleDecryptedMessage('get-totp', { uuid: 'abc' }, session);
 
         expect(totp.errorCode).toBe(ERROR_ASSOCIATION_FAILED);

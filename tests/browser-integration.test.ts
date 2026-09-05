@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as kdbxweb from 'kdbxweb';
 import { installMockWindow, cred } from './helpers';
 
@@ -475,6 +475,10 @@ describe('hotp', () => {
         return { db, entry };
     };
     const otpText = (entry: kdbxweb.KdbxEntry) => (entry.fields.get('otp') as kdbxweb.ProtectedValue).getText();
+    // get-totp serves only entries get-logins handed to the browser
+    const release = (db: kdbxweb.Kdbx, ctx: any) => Svc.handleRequest('get-logins', {
+        url: 'https://counter.example', keys: [{ id: 'FF', key: 'good' }],
+    }, ctx);
 
     it('get-logins offers the entry without a code', async () => {
         const { db } = hotpDb({ otp: `otpauth://hotp/Counter?secret=${RFC_SECRET}&counter=0` });
@@ -489,6 +493,7 @@ describe('hotp', () => {
     it('get-totp serves the code, advances the counter in the otp URI and saves', async () => {
         const { db, entry } = hotpDb({ otp: `otpauth://hotp/Counter?secret=${RFC_SECRET}&issuer=Ex&counter=0` });
         const ctx = ctxFor(db);
+        await release(db, ctx);
         // RFC 4226 vectors for counters 0 and 1
         expect(await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx)).toEqual({ totp: '755224' });
         expect(otpText(entry)).toContain('counter=1');
@@ -504,6 +509,7 @@ describe('hotp', () => {
     it('get-totp advances HmacOtp-Counter in place for a KeePass-style entry', async () => {
         const { db, entry } = hotpDb({ 'HmacOtp-Secret-Base32': RFC_SECRET, 'HmacOtp-Counter': '3' });
         const ctx = ctxFor(db);
+        await release(db, ctx);
         expect(await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx)).toEqual({ totp: '969429' });
         expect(entry.fields.get('HmacOtp-Counter')).toBe('4');
         expect(entry.fields.has('otp')).toBe(false);
@@ -513,6 +519,7 @@ describe('hotp', () => {
     it('get-totp still answers the code when the save fails', async () => {
         const { db, entry } = hotpDb({ otp: `otpauth://hotp/Counter?secret=${RFC_SECRET}&counter=0` });
         const ctx = { ...ctxFor(db), saveDatabase: vi.fn(async () => { throw new Error('disk full'); }) };
+        await release(db, ctx);
         expect(await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx)).toEqual({ totp: '755224' });
         expect(otpText(entry)).toContain('counter=1');
     });
@@ -520,6 +527,7 @@ describe('hotp', () => {
     it('get-totp does not save for a TOTP entry', async () => {
         const { db, entry } = hotpDb({ otp: `otpauth://totp/Counter?secret=${RFC_SECRET}` });
         const ctx = ctxFor(db);
+        await release(db, ctx);
         const result = await Svc.handleRequest('get-totp', { uuid: uuidOf(entry) }, ctx);
         expect(result.totp).toMatch(/^\d{6}$/);
         expect(ctx.saveDatabase).not.toHaveBeenCalled();
@@ -528,34 +536,170 @@ describe('hotp', () => {
 });
 
 describe('get-totp', () => {
+    const hex = (entry: kdbxweb.KdbxEntry) => [...kdbxweb.ByteUtils.base64ToBytes(entry.uuid.id)]
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    const totpDb = (group?: (db: kdbxweb.Kdbx) => kdbxweb.KdbxGroup) => {
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db.setVersion(3);
+        db.meta.customData.set('KPXC_BROWSER_FF', { value: 'good' });
+        const entry = db.createEntry(group ? group(db) : db.getDefaultGroup());
+        entry.fields.set('Title', 'Live');
+        entry.fields.set('URL', 'https://live.example');
+        entry.fields.set('otp', 'otpauth://totp/x?secret=JBSWY3DPEHPK3PXP');
+        return { db, entry };
+    };
+    const login = (ctx: any) => Svc.handleRequest('get-logins', { url: 'https://live.example', keys: [{ id: 'FF', key: 'good' }] }, ctx);
+
+    beforeEach(() => Svc.resetReleasesForTests());
+
     it('refuses a code from an entry in the recycle bin', async () => {
+        const { db, entry } = totpDb(db => {
+            const bin = db.createGroup(db.getDefaultGroup(), 'Recycle Bin');
+            db.meta.recycleBinUuid = bin.uuid;
+            db.meta.recycleBinEnabled = true;
+            return bin;
+        });
+        const ctx = ctxFor(db);
+        await login(ctx);
+        expect(await Svc.handleRequest('get-totp', { uuid: hex(entry) }, ctx)).toEqual({ errorCode: 15 });
+    });
+
+    it('serves an entry get-logins released to the browser', async () => {
+        const { db, entry } = totpDb();
+        const ctx = ctxFor(db);
+        await login(ctx);
+        const result = await Svc.handleRequest('get-totp', { uuid: hex(entry) }, ctx);
+        expect(result.totp).toMatch(/^\d{6}$/);
+    });
+
+    // Association says the caller holds the extension's key, nothing about
+    // this entry: a uuid remembered from an earlier grant is not a grant
+    it('refuses an entry get-logins never released', async () => {
+        const { db, entry } = totpDb();
+        expect(await Svc.handleRequest('get-totp', { uuid: hex(entry) }, ctxFor(db))).toEqual({ errorCode: 17 });
+    });
+
+    it('refuses an entry the user withheld from the site', async () => {
+        const { db, entry } = totpDb();
+        const ctx = { ...ctxFor(db), requestAccessConsent: vi.fn(async () => ({ allowedIds: [], remember: false })) };
+        expect((await login(ctx)).errorCode).toBe(15);
+        expect(await Svc.handleRequest('get-totp', { uuid: hex(entry) }, ctx)).toEqual({ errorCode: 17 });
+    });
+
+    it('forgets a release after ten minutes', async () => {
+        const { db, entry } = totpDb();
+        const ctx = ctxFor(db);
+        await login(ctx);
+        const now = Date.now();
+        const clock = vi.spyOn(Date, 'now').mockReturnValue(now + 11 * 60 * 1000);
+        try {
+            expect(await Svc.handleRequest('get-totp', { uuid: hex(entry) }, ctx)).toEqual({ errorCode: 17 });
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it('requires a well-formed uuid', async () => {
+        const { db } = totpDb();
+        for (const uuid of [undefined, 42, 'abc', 'zz'.repeat(16), {}]) {
+            expect(await Svc.handleRequest('get-totp', { uuid }, ctxFor(db))).toEqual({ errorCode: 18 });
+        }
+    });
+});
+
+// KeePassXC's per-entry browser options live in entry custom data; a vault
+// moved between the two apps keeps them
+describe('entry browser options', () => {
+    const optionDb = (options: Record<string, string>) => {
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db.setVersion(4);
+        db.meta.customData.set('KPXC_BROWSER_FF', { value: 'good' });
+        const entry = db.createEntry(db.getDefaultGroup());
+        entry.fields.set('Title', 'Opted');
+        entry.fields.set('UserName', 'user');
+        entry.fields.set('Password', kdbxweb.ProtectedValue.fromString('pw'));
+        entry.fields.set('URL', 'https://opt.example');
+        entry.customData = new Map(Object.entries(options).map(([k, v]) => [k, { value: v }]));
+        return db;
+    };
+    const logins = (db: kdbxweb.Kdbx, extra: Record<string, unknown> = {}) =>
+        Svc.handleRequest('get-logins', { url: 'https://opt.example', keys: [{ id: 'FF', key: 'good' }], ...extra }, ctxFor(db));
+
+    it('never offers a hidden entry', async () => {
+        expect((await logins(optionDb({ BrowserHideEntry: 'true' }))).errorCode).toBe(15);
+        expect((await logins(optionDb({ BrowserHideEntry: 'false' }))).entries).toHaveLength(1);
+    });
+
+    it('offers an HTTP-auth-only entry to HTTP auth prompts alone', async () => {
+        const db = optionDb({ BrowserOnlyHttpAuth: 'true' });
+        expect((await logins(db)).errorCode).toBe(15);
+        expect((await logins(db, { httpAuth: true })).entries).toHaveLength(1);
+        expect((await logins(db, { httpAuth: 'true' })).entries).toHaveLength(1);
+    });
+
+    it('keeps a not-for-HTTP-auth entry away from HTTP auth prompts', async () => {
+        const db = optionDb({ BrowserNotHttpAuth: 'true' });
+        expect((await logins(db, { httpAuth: true })).errorCode).toBe(15);
+        expect((await logins(db)).entries).toHaveLength(1);
+    });
+
+    it('passes skip-auto-submit through to the browser', async () => {
+        const result = await logins(optionDb({ BrowserSkipAutoSubmit: 'true' }));
+        expect(result.entries[0].skipAutoSubmit).toBe('true');
+        expect((await logins(optionDb({}))).entries[0].skipAutoSubmit).toBeUndefined();
+    });
+});
+
+describe('set-login on a recycled entry', () => {
+    it('creates a new entry rather than reviving the recycled one', async () => {
         const db = kdbxweb.Kdbx.create(cred(), 'Vault');
         db.setVersion(3);
         const bin = db.createGroup(db.getDefaultGroup(), 'Recycle Bin');
         db.meta.recycleBinUuid = bin.uuid;
         db.meta.recycleBinEnabled = true;
+        const recycled = db.createEntry(bin);
+        recycled.fields.set('Title', 'Old');
+        recycled.fields.set('Password', kdbxweb.ProtectedValue.fromString('old-pw'));
+        const uuid = [...kdbxweb.ByteUtils.base64ToBytes(recycled.uuid.id)].map(b => b.toString(16).padStart(2, '0')).join('');
 
-        const entry = db.createEntry(bin);
-        entry.fields.set('Title', 'Deleted');
-        entry.fields.set('otp', 'otpauth://totp/x?secret=JBSWY3DPEHPK3PXP');
-        const uuid = [...kdbxweb.ByteUtils.base64ToBytes(entry.uuid.id)]
-            .map(b => b.toString(16).padStart(2, '0')).join('');
+        const ctx = ctxFor(db);
+        const result = await Svc.handleRequest('set-login', { url: 'https://x.test', login: 'me', password: 'new-pw', uuid }, ctx);
 
-        const ctx: any = { database: {}, kdbxDb: db, saveDatabase: async () => {}, requestPairing: async () => null };
-        expect(await Svc.handleRequest('get-totp', { uuid }, ctx)).toEqual({ errorCode: 15 });
+        expect(result.hash).toBeDefined();
+        expect((recycled.fields.get('Password') as kdbxweb.ProtectedValue).getText()).toBe('old-pw');
+        expect(ctx.requestSetLoginConsent).toHaveBeenCalledWith(expect.objectContaining({ mode: 'create' }));
+        const created = db.getDefaultGroup().groups.find(g => g.name === 'Browser Passwords')?.entries[0];
+        expect(created?.fields.get('UserName')).toBe('me');
     });
+});
 
-    it('still serves one from a live entry', async () => {
-        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
-        db.setVersion(3);
-        const entry = db.createEntry(db.getDefaultGroup());
-        entry.fields.set('Title', 'Live');
-        entry.fields.set('otp', 'otpauth://totp/x?secret=JBSWY3DPEHPK3PXP');
-        const uuid = [...kdbxweb.ByteUtils.base64ToBytes(entry.uuid.id)]
-            .map(b => b.toString(16).padStart(2, '0')).join('');
+// Whatever holds the extension's storage can put anything on the socket.
+// No shape of payload may throw, create an entry, or touch the vault
+describe('malformed payloads', () => {
+    const junk: unknown[] = [
+        undefined, null, 0, 42, '', 'string', true, [], [1, 2], () => {},
+        {}, { url: undefined }, { url: null }, { url: 1 }, { url: {} }, { url: [] },
+        { url: 'https://github.com', keys: 'nope' }, { url: 'https://github.com', keys: [null, 5, {}] },
+        { url: 'https://github.com', keys: [{ id: 1, key: 2 }] },
+        { url: 'https://github.com', login: 5, password: 'x' }, { url: 'https://github.com', login: 'x', password: {} },
+        { url: 'https://github.com', uuid: 7 }, { url: 'https://github.com', uuid: 'short' }, { url: 'https://github.com', uuid: {} },
+        { url: 'https://github.com', submitUrl: 9 }, { url: 'https://github.com', httpAuth: {} },
+        { idKey: 5 }, { idKey: '' }, { idKey: 'x'.repeat(200) }, { idKey: {} }, { id: 5, key: 'k' }, { id: 'FF', key: null },
+        { uuid: 5 }, { uuid: null }, { uuid: 'g'.repeat(32) },
+    ];
+    const actions = ['associate', 'test-associate', 'get-logins', 'set-login', 'get-totp', 'generate-password', 'get-databasehash', 'nonsense'];
 
-        const ctx: any = { database: {}, kdbxDb: db, saveDatabase: async () => {}, requestPairing: async () => null };
-        const result = await Svc.handleRequest('get-totp', { uuid }, ctx);
-        expect(result.totp).toMatch(/^\d{6}$/);
+    it.each(actions)('%s survives every junk payload without touching the vault', async (action) => {
+        const db = await makeDb();
+        const before = { entries: [...db.getDefaultGroup().allEntries()].length, groups: [...db.getDefaultGroup().allGroups()].length, custom: db.meta.customData.size };
+        const ctx = ctxFor(db, 'Pairing');
+        for (const payload of junk) {
+            const result = await Svc.handleRequest(action, payload, ctx);
+            expect(result, `${action} ${JSON.stringify(payload)}`).toBeTypeOf('object');
+        }
+        expect([...db.getDefaultGroup().allEntries()].length).toBe(before.entries);
+        expect([...db.getDefaultGroup().allGroups()].length).toBe(before.groups);
+        expect(db.meta.customData.size).toBe(before.custom);
+        expect(ctx.saveDatabase).not.toHaveBeenCalled();
     });
 });

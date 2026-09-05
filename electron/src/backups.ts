@@ -161,6 +161,21 @@ export async function backupBeforeWrite(vaultPath: string, options: BackupReques
     await prune(vaultPath, options.keep);
 }
 
+// Every copy here opens with the password the vault had when it was taken.
+// After a master password change the user decides whether they stay
+export async function purgeBackups(vaultPath: string): Promise<{ success: boolean; removed: number; error?: string }> {
+    let removed = 0;
+    try {
+        for (const file of await listBackups(vaultPath)) {
+            await fs.promises.unlink(file);
+            removed++;
+        }
+        return { success: true, removed };
+    } catch (error) {
+        return { success: false, removed, error: error instanceof Error ? error.message : 'Failed to delete the backups' };
+    }
+}
+
 export async function getBackupInfo(vaultPath: string): Promise<{
     directory: string;
     count: number;

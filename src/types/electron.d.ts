@@ -86,6 +86,7 @@ export interface IElectronAPI {
 	saveToFile: (filePath: string, data: Uint8Array, backup?: BackupOptions) => Promise<{ success: boolean; error?: string }>;
 	getBackupInfo: (filePath: string) => Promise<BackupInfo>;
 	revealBackups: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+	purgeBackups: (filePath: string) => Promise<{ success: boolean; removed: number; error?: string }>;
 	// Files beside the vault that a sync client named as copies of it; each
 	// comes read-granted so the renderer can open and compare it
 	listConflictCopies: (vaultPath: string) => Promise<Array<{ copyPath: string; hash: string }>>;
@@ -93,6 +94,7 @@ export interface IElectronAPI {
 	// for any other path
 	trashConflictCopy: (copyPath: string) => Promise<{ success: boolean; error?: string }>;
 	saveAttachment: (name: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+	saveKeyFile: (name: string, data: Uint8Array) => Promise<{ success: boolean; filePath?: string; error?: string }>;
 	// Resolves a dropped/picked File to its real path and grants it in the
 	// main process (vault files only); null when the File has no disk path
 	registerDroppedFile: (file: File) => Promise<string | null>;
