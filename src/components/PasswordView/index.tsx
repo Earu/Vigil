@@ -7,7 +7,7 @@ import { GroupDetails, GroupChanges } from './GroupDetails';
 import { BreachReport } from './BreachReport';
 import { installPaneCycle } from './paneCycle';
 import { MoveToGroupDialog, parentGroupOf, parentOfGroup } from './MoveToGroupDialog';
-import { matchesChord, dialogOpen } from '../../services/Shortcuts';
+import { matchesChord, dialogOpen, registerAction } from '../../services/Shortcuts';
 import { confirmDialog } from '../../services/Dialogs';
 import { BreachCheckService, BreachedEntry, BreachedEmailEntry } from '../../services/BreachCheckService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
@@ -307,20 +307,25 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const shortcutRefs = useRef({ newEntry: () => {}, move: (_from: 'tree' | 'entry') => {} });
 	shortcutRefs.current = { newEntry: handleNewEntry, move: requestMove };
 	useEffect(() => {
+		const newEntry = () => shortcutRefs.current.newEntry();
+		const move = () => shortcutRefs.current.move(document.activeElement?.closest('.sidebar') ? 'tree' : 'entry');
+		const unregister = [registerAction('newEntry', newEntry), registerAction('move', move)];
 		const onKeyDown = (e: KeyboardEvent) => {
 			if (dialogOpen()) return;
 			if (matchesChord(e, 'Mod+N')) {
 				e.preventDefault();
-				shortcutRefs.current.newEntry();
+				newEntry();
 			} else if (matchesChord(e, 'Mod+M')) {
 				e.preventDefault();
-				shortcutRefs.current.move(document.activeElement?.closest('.sidebar') ? 'tree' : 'entry');
+				move();
 			}
 		};
 		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
+		return () => {
+			window.removeEventListener('keydown', onKeyDown);
+			for (const stop of unregister) stop();
+		};
 	}, []);
-
 	const handleNewGroup = (parentGroup: Group) => {
 		const updatedDatabase = KeepassDatabaseService.addNewGroup(database, parentGroup);
 		onDatabaseChange?.(updatedDatabase);

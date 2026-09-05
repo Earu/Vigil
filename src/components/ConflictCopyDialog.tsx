@@ -41,6 +41,7 @@ export const ConflictCopyDialog = ({ request, onTrash, onKeep }: ConflictCopyDia
     return (
         <Modal
             overlayClassName="pairing-overlay"
+            quietInitialFocus
             className="pairing-dialog"
             role="alertdialog"
             labelledBy="conflict-copy-title"

@@ -64,3 +64,26 @@ describe('zoomAction', () => {
         expect(zoomAction(ev({ key: '=', metaKey: true }))).toBe('in');
     });
 });
+
+describe('the action registry', () => {
+    it('runs the registered action and forgets it on unregister', async () => {
+        const { registerAction, runAction } = await import('../src/services/Shortcuts');
+        const calls: string[] = [];
+        const stop = registerAction('lock', () => calls.push('lock'));
+        expect(runAction('lock')).toBe(true);
+        expect(runAction('search')).toBe(false);
+        stop();
+        expect(runAction('lock')).toBe(false);
+        expect(calls).toEqual(['lock']);
+    });
+
+    it('lets a newer registration replace an older one without the old cleanup removing it', async () => {
+        const { registerAction, runAction } = await import('../src/services/Shortcuts');
+        const calls: string[] = [];
+        const stopOld = registerAction('edit', () => calls.push('old'));
+        registerAction('edit', () => calls.push('new'));
+        stopOld();
+        runAction('edit');
+        expect(calls).toEqual(['new']);
+    });
+});

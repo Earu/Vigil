@@ -14,6 +14,7 @@ interface SaveConflictDialogProps {
 export const SaveConflictDialog = ({ message, onOverwrite, onCancel }: SaveConflictDialogProps) => (
     <Modal
         overlayClassName="pairing-overlay"
+            quietInitialFocus
         className="pairing-dialog"
         role="alertdialog"
         labelledBy="save-conflict-title"

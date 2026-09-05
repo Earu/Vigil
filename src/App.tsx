@@ -16,7 +16,7 @@ import { HaveIBeenPwnedService } from './services/HaveIBeenPwnedService';
 import { BreachStatusStore } from './services/BreachStatusStore';
 import { EmailBreachStatusStore } from './services/EmailBreachStatusStore';
 import { ClipboardService } from './services/ClipboardService';
-import { matchesChord, dialogOpen, focusSearch, zoomAction } from './services/Shortcuts';
+import { matchesChord, dialogOpen, focusSearch, zoomAction, registerAction, runAction, ActionId } from './services/Shortcuts';
 import { confirmDialog } from './services/Dialogs';
 import { ConfirmDialog, ConfirmRequest } from './components/ConfirmDialog';
 import { BreachCacheCrypto } from './services/BreachCacheCrypto';
@@ -419,6 +419,15 @@ function App() {
 	// reads the latest through a ref instead of re-subscribing
 	const shortcutActions = useRef({ lock: () => {}, vaultOpen: false });
 	useEffect(() => {
+		const openSettings = () => { if (!dialogOpen()) setShowSettings(true); };
+		const lock = () => { if (shortcutActions.current.vaultOpen) shortcutActions.current.lock(); };
+		const search = () => { if (shortcutActions.current.vaultOpen && !dialogOpen()) focusSearch(); };
+		const unregister = [registerAction('settings', openSettings), registerAction('lock', lock), registerAction('search', search)];
+		// The macOS menu bar; its items name the same actions
+		const unsubscribeMenu = window.electron?.on('menu-action', (id: ActionId) => {
+			if (dialogOpen() && id !== 'lock') return;
+			runAction(id);
+		});
 		const onKeyDown = (e: KeyboardEvent) => {
 			const zoom = zoomAction(e);
 			if (zoom) {
@@ -429,20 +438,24 @@ function App() {
 			if (matchesChord(e, 'Mod+,')) {
 				if (dialogOpen()) return;
 				e.preventDefault();
-				setShowSettings(true);
+				openSettings();
 				return;
 			}
 			if (!shortcutActions.current.vaultOpen) return;
 			if (matchesChord(e, 'Mod+L')) {
 				e.preventDefault();
-				shortcutActions.current.lock();
+				lock();
 			} else if (matchesChord(e, 'Mod+F') && !dialogOpen()) {
 				e.preventDefault();
-				focusSearch();
+				search();
 			}
 		};
 		window.addEventListener('keydown', onKeyDown);
-		return () => window.removeEventListener('keydown', onKeyDown);
+		return () => {
+			window.removeEventListener('keydown', onKeyDown);
+			unsubscribeMenu?.();
+			for (const stop of unregister) stop();
+		};
 	}, []);
 
 	// force skips the unsaved-edits prompt, for locks that have to happen

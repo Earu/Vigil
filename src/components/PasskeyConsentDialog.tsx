@@ -17,7 +17,7 @@ export const PasskeyConsentDialog = ({ request, onSubmit, onCancel }: PasskeyCon
     const isRegister = request.kind === 'register';
 
     return (
-        <Modal overlayClassName="pairing-overlay" className="pairing-dialog passkey-dialog" labelledBy="passkey-title" onClose={onCancel}>
+        <Modal overlayClassName="pairing-overlay" quietInitialFocus className="pairing-dialog passkey-dialog" labelledBy="passkey-title" onClose={onCancel}>
                 <h3 id="passkey-title">{isRegister ? 'Create Passkey' : 'Use Passkey'}</h3>
                 {isRegister ? (
                     <p>

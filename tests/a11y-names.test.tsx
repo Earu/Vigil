@@ -68,6 +68,8 @@ describe('the consent dialogs', () => {
         const { getByRole, container } = render(<SetLoginConsentDialog request={request} onSubmit={noop} onCancel={noop} />);
         expect(getByRole('dialog', { name: 'Save Login' })).toBeTruthy();
         expect(document.activeElement).toBe(getByRole('button', { name: 'Deny' }));
+        // Opened by a browser request, not a key press: no ring until one
+        expect(getByRole('dialog').hasAttribute('data-quiet-focus')).toBe(true);
         await expectNoA11yViolations(container);
     });
 
