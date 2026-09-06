@@ -10,7 +10,7 @@ import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
 import { FocusTooltip } from './components/FocusTooltip';
 import { AuthenticationView } from './components/Authentication/AuthenticationView';
-import { KeepassDatabaseService } from './services/KeepassDatabaseService';
+import { KeepassDatabaseService, PendingCredentialChange } from './services/KeepassDatabaseService';
 import { SshAgentService } from './services/SshAgentService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
@@ -557,7 +557,7 @@ function App() {
 	// through handleDatabaseChangeFromUi below, which swallows the rejection:
 	// the save path has already toasted, and the flags set here keep the close
 	// and lock guards honest about the unpersisted state
-	const handleDatabaseChange = async (updatedDatabase: Database, rekeyTo?: kdbxweb.ProtectedValue) => {
+	const handleDatabaseChange = async (updatedDatabase: Database, rekeyTo?: PendingCredentialChange) => {
 		// Before setDatabase: a stale caller (a background task finishing
 		// after a lock) must not put a model back on screen
 		if (!kdbxDb) {

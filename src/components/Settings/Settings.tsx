@@ -10,7 +10,7 @@ import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
 import { ImportService } from '../../services/ImportService';
 import { ExportService } from '../../services/ExportService';
 import { BrowserIntegrationService } from '../../services/BrowserIntegrationService';
-import { KeepassDatabaseService, KdfInfo } from '../../services/KeepassDatabaseService';
+import { KeepassDatabaseService, PendingCredentialChange, KdfInfo } from '../../services/KeepassDatabaseService';
 import { changeMasterPassword } from '../../services/MasterPasswordChange';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
@@ -42,7 +42,7 @@ interface SettingsProps {
     // fire and forget; the password change waits on it
     // rekeyTo, when given, is a master password change for the save to apply
     // once it has merged whatever is on disk; see MasterPasswordChange
-    onDatabaseChange?: (rekeyTo?: kdbxweb.ProtectedValue) => void | Promise<boolean>;
+    onDatabaseChange?: (rekeyTo?: PendingCredentialChange) => void | Promise<boolean>;
 }
 
 export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLockEnabled, autoLockDuration, setAutoLockDuration, onDatabaseChange }: SettingsProps) {
@@ -229,11 +229,11 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         }
     };
 
-    const handleRemoveAssociation = (name: string) => {
+    const handleRemoveAssociation = async (name: string) => {
         if (!kdbxDb) return;
         BrowserIntegrationService.removeAssociation(kdbxDb, name);
-        onDatabaseChange?.();
         setBrowserAssociations(BrowserIntegrationService.listAssociations(kdbxDb));
+        await saveAndReport('Connection removed', 'The connection was removed here but not saved');
     };
 
     const handleCsvExport = async () => {
@@ -346,13 +346,10 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                 // saving there avoids a redundant second save
                 ImportService.writeEntries(result, kdbxDb);
                 setShowImportModal(false);
-                onDatabaseChange?.();
-
-                (window as any).showToast?.({
-                    message: `Imported ${result.entries.length} entries from ${result.source}`,
-                    type: 'success',
-                    duration: 3000
-                });
+                await saveAndReport(
+                    `Imported ${result.entries.length} entries from ${result.source}`,
+                    `Imported ${result.entries.length} entries from ${result.source}, but they were not saved`
+                );
             } catch (err) {
                 console.error('Failed to import:', err);
                 (window as any).showToast?.({
@@ -372,20 +369,21 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         if (!kdbxDb) return;
 
         try {
-            await kdbxDb.credentials.setKeyFile(keyFileData);
-            // Re-encrypts the database with the new composite key
-            onDatabaseChange?.();
+            // The save applies it, after it has read and merged the file. Set
+            // here instead and a failed save would leave the vault holding a
+            // composite key the file does not have, and the remembered path
+            // naming a key file it does not want
+            const saved = await saveAndReport(
+                successMessage,
+                'The key file was not changed',
+                { keyFile: keyFileData }
+            );
+            if (!saved) return;
 
             const dbPath = KeepassDatabaseService.getPath();
             if (dbPath) {
                 userSettingsService.setKeyFilePath(dbPath, keyFilePath);
             }
-
-            (window as any).showToast?.({
-                message: successMessage,
-                type: 'success',
-                duration: 3000
-            });
         } catch (err) {
             console.error('Failed to update key file:', err);
             (window as any).showToast?.({
@@ -448,12 +446,22 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         (window as any).showToast?.({ message, type, duration: 3000 });
     };
 
+    // A settings change is only worth announcing once it has reached the file.
+    // The save path has already said what went wrong, so a failure here only
+    // has to withdraw the claim that anything was applied. The edit stays in
+    // the model either way and rides the next successful save, which is what
+    // the unsaved-changes guards are for
+    const saveAndReport = async (success: string, failure: string, rekeyTo?: PendingCredentialChange): Promise<boolean> => {
+        const saved = (await onDatabaseChange?.(rekeyTo)) === true;
+        showSettingsToast(saved ? success : failure, saved ? 'success' : 'error');
+        return saved;
+    };
+
     const handleApplyDetails = () => {
         if (!kdbxDb || !dbName.trim()) return;
         kdbxDb.meta.name = dbName.trim();
         kdbxDb.meta.desc = dbDesc;
-        onDatabaseChange?.();
-        showSettingsToast('Database details saved');
+        void saveAndReport('Database details saved', 'The database details were not saved');
     };
 
     const handleChangePassword = async () => {
@@ -532,16 +540,14 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             return;
         }
         KeepassDatabaseService.setKdf(kdbxDb, kdfInfo);
-        onDatabaseChange?.();
         setKdfInfo(KeepassDatabaseService.getKdfInfo(kdbxDb));
-        showSettingsToast('Key derivation settings applied');
+        void saveAndReport('Key derivation settings applied', 'The key derivation settings were not saved');
     };
 
     const handleApplyHistory = () => {
         if (!kdbxDb) return;
         KeepassDatabaseService.setHistoryMaxItems(kdbxDb, historyMax);
-        onDatabaseChange?.();
-        showSettingsToast('History retention updated');
+        void saveAndReport('History retention updated', 'The history retention setting was not saved');
     };
 
     return (

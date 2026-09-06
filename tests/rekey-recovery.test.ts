@@ -168,7 +168,7 @@ describe('changing the password while the file already changed on disk', () => {
         // Now the password is changed here, with that version unmerged
         await Svc.saveDatabase(
             Svc.convertKdbxToDatabase(local), local,
-            kdbxweb.ProtectedValue.fromString(NEW_PW)
+            { password: kdbxweb.ProtectedValue.fromString(NEW_PW) }
         );
 
         // Nothing was thrown away and nothing was asked
@@ -191,7 +191,7 @@ describe('changing the password while the file already changed on disk', () => {
         try {
             await expect(Svc.saveDatabase(
                 Svc.convertKdbxToDatabase(local), local,
-                kdbxweb.ProtectedValue.fromString(NEW_PW)
+                { password: kdbxweb.ProtectedValue.fromString(NEW_PW) }
             )).rejects.toThrow();
         } finally {
             electron.saveToFile = realSave;

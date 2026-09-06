@@ -1,5 +1,5 @@
 import * as kdbxweb from 'kdbxweb';
-import { KeepassDatabaseService } from './KeepassDatabaseService';
+import { KeepassDatabaseService, PendingCredentialChange } from './KeepassDatabaseService';
 
 // What became of biometric unlock: 'off' means it was turned off here,
 // with the reason in `reason`; 'kept' means the save failed, the old
@@ -28,7 +28,7 @@ type BiometricsBridge = Pick<NonNullable<typeof window.electron>, 'hasBiometrics
 // the file on the next save of anything
 export async function changeMasterPassword(
     newPassword: string,
-    save: (rekeyTo: kdbxweb.ProtectedValue) => Promise<boolean>,
+    save: (rekeyTo: PendingCredentialChange) => Promise<boolean>,
     bridge: BiometricsBridge | undefined = window.electron,
     dbPath: string | undefined = KeepassDatabaseService.getPath()
 ): Promise<PasswordChangeOutcome> {
@@ -44,7 +44,7 @@ export async function changeMasterPassword(
 
     let saved: boolean;
     try {
-        saved = await save(kdbxweb.ProtectedValue.fromString(newPassword));
+        saved = await save({ password: kdbxweb.ProtectedValue.fromString(newPassword) });
     } catch {
         saved = false;
     }
