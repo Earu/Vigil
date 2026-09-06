@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { join } from 'path';
 
 // YubiKey OTP HID challenge-response driver, ported from KeePassXC's vendored
@@ -62,19 +63,26 @@ const OPEN_OPTS = { nonExclusive: true };
 
 let hidApi: HidApi | null | undefined;
 
+// Keyed on the pinned binary being there rather than on NODE_ENV, like
+// crypto.ts and get-passport.ts: an environment variable must not be able to
+// choose which native module a packaged build loads, which is the same reason
+// isDevBuild() in utils.ts checks isPackaged as well. A packaged build always
+// has the pinned copy and never the npm package, so the pin is on the bytes
+// that actually run; tests and plain Node get the wrapper
 function loadHid(): HidApi | null {
     if (hidApi !== undefined) return hidApi;
     try {
-        if (process.env.NODE_ENV === 'development') {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const mod = require('node-hid');
-            hidApi = { devices: () => mod.devices(), open: (path: string) => mod.HIDAsync.open(path, OPEN_OPTS) };
-        } else {
+        const pinned = join(__dirname, 'node-hid.node');
+        if (fs.existsSync(pinned)) {
             // The raw N-API binding: same devices()/openAsyncHIDDevice() the
             // node-hid wrapper delegates to
             // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const binding = require(join(__dirname, 'node-hid.node'));
+            const binding = require(pinned);
             hidApi = { devices: () => binding.devices(), open: async (path: string) => binding.openAsyncHIDDevice(path, OPEN_OPTS) };
+        } else {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const mod = require('node-hid');
+            hidApi = { devices: () => mod.devices(), open: (path: string) => mod.HIDAsync.open(path, OPEN_OPTS) };
         }
     } catch (error) {
         console.error('Failed to load node-hid:', error);

@@ -780,10 +780,20 @@ process.stdin.on('end', () => process.exit(0));
 // byte moves. Electron given the main.js path runs it directly.
 // The browser's own arguments are forwarded: nothing reads them, but a proxy
 // that quietly drops them would be the wrong thing to debug against later
+// Single quotes, not double: sh expands $( ), ` ` and $VAR inside double
+// quotes, and the executable is process.env.APPIMAGE when that is set, so a
+// path carrying any of those became a command the browser runs on every
+// proxy launch. Setting the variable already takes local code execution, so
+// this closes an odd shape rather than a way in. Inside single quotes sh
+// expands nothing at all; a literal quote is the usual '\'' dance
+const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`;
+
 export function wrapperScript(executable: string, appEntry?: string): string {
-    const appArgument = appEntry ? ` "${appEntry}"` : '';
+    const appArgument = appEntry ? ` ${shellQuote(appEntry)}` : '';
+    // "$@" stays double quoted: that is the idiom that forwards the browser's
+    // arguments as separate words rather than as one
     return `#!/bin/sh
-exec "${executable}"${appArgument} --browser-proxy "$@"
+exec ${shellQuote(executable)}${appArgument} --browser-proxy "$@"
 `;
 }
 

@@ -30,7 +30,7 @@ describe('the unix wrapper', () => {
 
     it('runs the binary it was given, and forwards the browser arguments', () => {
         const script = wrapperScript('/tmp/Vigil.AppImage');
-        expect(script).toContain('exec "/tmp/Vigil.AppImage" --browser-proxy "$@"');
+        expect(script).toContain(`exec '/tmp/Vigil.AppImage' --browser-proxy "$@"`);
     });
 
     it('passes the app entry file only when there is one to pass', () => {
@@ -38,12 +38,25 @@ describe('the unix wrapper', () => {
         expect(wrapperScript('/Applications/Vigil.app/Contents/MacOS/Vigil'))
             .not.toMatch(/--browser-proxy.*\S.*--browser-proxy/);
         expect(wrapperScript('/bin/electron')).toBe(
-            '#!/bin/sh\nexec "/bin/electron" --browser-proxy "$@"\n');
+            `#!/bin/sh\nexec '/bin/electron' --browser-proxy "$@"\n`);
         // Dev: the bare Electron binary has no app of its own to load. The
         // entry file, never a directory: dist-electron has no package.json,
         // so Electron refuses it and the browser's key exchange fails
         expect(wrapperScript('/bin/electron', '/repo/dist-electron/main.js')).toBe(
-            '#!/bin/sh\nexec "/bin/electron" "/repo/dist-electron/main.js" --browser-proxy "$@"\n');
+            `#!/bin/sh\nexec '/bin/electron' '/repo/dist-electron/main.js' --browser-proxy "$@"\n`);
+    });
+
+    // The executable is process.env.APPIMAGE when that is set, and sh expands
+    // $( ), backticks and $VAR inside double quotes, so a path carrying any
+    // of them used to become a command the browser runs on every launch
+    it('quotes the paths so the shell expands nothing in them', () => {
+        const script = wrapperScript('/tmp/$(touch /tmp/pwned).AppImage', '/repo/`id`/main.js');
+        expect(script).toBe(
+            `#!/bin/sh\nexec '/tmp/$(touch /tmp/pwned).AppImage' '/repo/\`id\`/main.js' --browser-proxy "$@"\n`);
+        // A quote in the path closes and reopens the literal rather than
+        // escaping out of it
+        expect(wrapperScript("/tmp/it's here/vigil")).toBe(
+            `#!/bin/sh\nexec '/tmp/it'\\''s here/vigil' --browser-proxy "$@"\n`);
     });
 
     it('starts with a shebang so the browser can exec it', () => {
