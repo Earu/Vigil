@@ -202,3 +202,65 @@ describe('changing the password while the file already changed on disk', () => {
         expect(titles(await kdbxweb.Kdbx.load(await local.save(), cred()))).toContain('Mine');
     });
 });
+
+// kdbx3 has no header HMAC, so it cannot tell a wrong key from a damaged file:
+// a truncated or half-written vault raises InvalidKey exactly as a re-key
+// does. Reading that as a re-key blocked the save with no way out, on the one
+// file state a sync client produces routinely.
+describe('a kdbx3 file that will not open', () => {
+    async function openedV3(): Promise<kdbxweb.Kdbx> {
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db.setVersion(3);
+        db.createEntry(db.getDefaultGroup()).fields.set('Title', 'Mine');
+        const bytes = new Uint8Array(await db.save());
+        env.disk.bytes = Buffer.from(bytes);
+        const live = await kdbxweb.Kdbx.load(bytes.slice().buffer, cred());
+        Svc.setPath('/vault.kdbx', bytes);
+        await new Promise((r) => setTimeout(r, 0));
+        return live;
+    }
+
+    // The header alone says which format it is, so the check costs no key work
+    it('reads a truncated one as a conflict, not as a re-key', async () => {
+        const local = await openedV3();
+        const whole = Uint8Array.from(env.disk.bytes!);
+        env.disk.bytes = Buffer.from(whole.slice(0, whole.length - 64));
+        env.disk.mtime++;
+        env.confirm.answer = false;
+
+        // The conflict route, which at least offers the user a decision
+        await expect(
+            Svc.saveDatabase(Svc.convertKdbxToDatabase(local), local)
+        ).rejects.toThrow('SAVE_CANCELLED_CONFLICT');
+        expect(env.confirm.calls).toBe(1);
+    });
+
+    it('lets the user overwrite it with the version they still hold', async () => {
+        const local = await openedV3();
+        const whole = Uint8Array.from(env.disk.bytes!);
+        env.disk.bytes = Buffer.from(whole.slice(0, whole.length - 64));
+        env.disk.mtime++;
+        env.confirm.answer = true;
+
+        await Svc.saveDatabase(Svc.convertKdbxToDatabase(local), local);
+
+        const onDisk = await kdbxweb.Kdbx.load(Uint8Array.from(env.disk.bytes!).buffer, cred());
+        expect(titles(onDisk)).toContain('Mine');
+    });
+
+    // Corruption early in the body decrypts to the wrong start bytes, which is
+    // the same InvalidKey a wrong password gives
+    it('reads a corrupted one as a conflict too', async () => {
+        const local = await openedV3();
+        const damaged = Uint8Array.from(env.disk.bytes!);
+        damaged[200] ^= 0xff;
+        env.disk.bytes = Buffer.from(damaged);
+        env.disk.mtime++;
+        env.confirm.answer = false;
+
+        await expect(
+            Svc.saveDatabase(Svc.convertKdbxToDatabase(local), local)
+        ).rejects.toThrow('SAVE_CANCELLED_CONFLICT');
+        expect(env.confirm.calls).toBe(1);
+    });
+});

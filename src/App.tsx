@@ -32,9 +32,11 @@ import { AccessConsentDialog } from './components/AccessConsentDialog';
 import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
 import { SaveConflictDialog } from './components/SaveConflictDialog';
 import { ConflictCopyDialog, ConflictCopyRequest, hasChanges } from './components/ConflictCopyDialog';
-import { RekeyDialog } from './components/RekeyDialog';
+import { RekeyDialog, KeyMaterial } from './components/RekeyDialog';
 import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
 import { consentQueue } from './services/ConsentQueue';
+import { resealBiometrics } from './services/MasterPasswordChange';
+import { rememberKeyMaterial } from './services/VaultCredentials';
 import { FaviconService } from './services/FaviconService';
 
 // Vaults whose folder this session already asked the user to allow
@@ -611,7 +613,7 @@ function App() {
 	// into the open vault, so unsaved edits survive a password change made on
 	// another device. Nothing is written here: the merged vault is left dirty
 	// and the user's next save writes it under the key just adopted
-	const recoverFromRekey = async (credentials: kdbxweb.Credentials) => {
+	const recoverFromRekey = async (credentials: kdbxweb.Credentials, password: string, keyMaterial: KeyMaterial) => {
 		const path = KeepassDatabaseService.getPath();
 		if (!kdbxDb || !path || !window.electron) return;
 		const opened = kdbxDb;
@@ -640,11 +642,25 @@ function App() {
 
 		setRekeyPrompt(null);
 		setDatabase(KeepassDatabaseService.convertKdbxToDatabase(opened));
+		// The key material that opened it is what the next unlock has to offer
+		rememberKeyMaterial(path, keyMaterial.keyFile, keyMaterial.hardwareKey);
 		(window as any).showToast?.({
 			message: 'The new master password was accepted and the changes from disk were merged',
 			type: 'success',
 			duration: 6000
 		});
+
+		// Biometric unlock stores the password it was set up with, which this
+		// vault has just stopped taking. Re-sealed on the new one, or turned
+		// off, so it cannot go on releasing a password that was rotated
+		const bio = await resealBiometrics(password, window.electron, path);
+		if (bio.biometrics === 'off') {
+			(window as any).showToast?.({
+				message: `Biometric unlock was turned off: ${bio.reason}. Set it up again from the unlock screen.`,
+				type: 'error',
+				duration: 8000
+			});
+		}
 	};
 
 	// Favicon promotion: fetched favicons become custom icons stored in the
@@ -795,10 +811,11 @@ function App() {
 			)}
 			{rekeyPrompt && kdbxDb && (
 				<RekeyDialog
+					databasePath={KeepassDatabaseService.getPath() ?? null}
 					hasUnsavedChanges={entryDirty.current || saveFailed.current}
 					error={rekeyPrompt.error}
 					onCancel={() => setRekeyPrompt(null)}
-					onSubmit={(credentials) => { void recoverFromRekey(credentials); }}
+					onSubmit={(credentials, password, keyMaterial) => { void recoverFromRekey(credentials, password, keyMaterial); }}
 				/>
 			)}
 			{hardwareKeyTouchPending && <HardwareKeyTouchDialog />}

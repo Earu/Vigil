@@ -1608,11 +1608,11 @@ export class KeepassDatabaseService {
 
     // 'rekeyed' is the case where the file is intact but our key no longer
     // opens it, which on a synced vault means the master password was changed
-    // on another device. kdbx4 proves this rather than guessing: the header
-    // SHA-256 is verified before the header HMAC, so a FileCorrupt names a
-    // damaged file and an InvalidKey names an untouched file we cannot open.
-    // The distinction matters because the answer to a failed merge is "ask
-    // what to do" and the answer to a re-key must never be "overwrite it"
+    // on another device. Only a kdbx4 file can say so: its header SHA-256 is
+    // verified before the header HMAC, so a FileCorrupt names a damaged file
+    // and an InvalidKey names an untouched file we cannot open. The
+    // distinction matters because the answer to a failed merge is "ask what
+    // to do" and the answer to a re-key must never be "overwrite it"
     private static async mergeExternalChanges(
         kdbxDb: kdbxweb.Kdbx,
         data: Uint8Array | undefined,
@@ -1626,7 +1626,8 @@ export class KeepassDatabaseService {
             this.assertKdfOpenable(bytes);
             remoteDb = await kdbxweb.Kdbx.load(bytes, kdbxDb.credentials);
         } catch (err) {
-            if (err instanceof kdbxweb.KdbxError && err.code === kdbxweb.Consts.ErrorCodes.InvalidKey) {
+            if (err instanceof kdbxweb.KdbxError && err.code === kdbxweb.Consts.ErrorCodes.InvalidKey
+                && this.invalidKeyProvesRekey(data)) {
                 return 'rekeyed';
             }
             console.error('Failed to merge external changes:', err);
@@ -1656,7 +1657,11 @@ export class KeepassDatabaseService {
             this.assertKdfOpenable(bytes);
             remoteDb = await kdbxweb.Kdbx.load(bytes, credentials);
         } catch (err) {
-            if (err instanceof kdbxweb.KdbxError && err.code === kdbxweb.Consts.ErrorCodes.InvalidKey) {
+            // Same reading as in mergeExternalChanges: on kdbx3 an InvalidKey
+            // can equally be a damaged file, and blaming what was typed would
+            // send the user round the dialog again for nothing
+            if (err instanceof kdbxweb.KdbxError && err.code === kdbxweb.Consts.ErrorCodes.InvalidKey
+                && this.invalidKeyProvesRekey(data)) {
                 return 'wrong-credentials';
             }
             console.error('Failed to reopen the re-keyed database:', err);
@@ -2006,6 +2011,10 @@ export class KeepassDatabaseService {
         // Set once a pending password change has been applied to the live
         // credentials, so a failure after that point can put the old key back
         let rekeyApplied = false;
+        // Set the moment the write lands. Past that point the file is under
+        // the new key, so putting the old one back would leave the vault
+        // unable to open what it just wrote
+        let writeLanded = false;
         let previousPasswordHash: kdbxweb.ProtectedValue | undefined;
         let previousKeyFileHash: kdbxweb.ProtectedValue | undefined;
         try {
@@ -2201,35 +2210,44 @@ export class KeepassDatabaseService {
             if (!result?.success) {
                 throw new Error(result?.error || 'Failed to save database');
             }
+            writeLanded = true;
 
-            // The format gives no change date of its own to history retention,
-            // colour or the key change interval, so a merge settles those from
-            // an in-memory note alone: whoever holds one keeps their value.
-            // Unlike the entry notes there is no history riding on this, so
-            // holding it past the write only pins the field to this session
-            // and makes a change from another machine unreachable. Cleared
-            // here rather than before the save because a save that failed
-            // published nothing, and the local value still has to win
-            kdbxDb.meta.editState = undefined;
+            // Bookkeeping, all of it about the file that is already on disk.
+            // Guarded because a throw here would report a save that landed as
+            // one that failed: the worst of it is a stale baseline, which
+            // costs the next save a re-read of the file it already matches
+            try {
+                // The format gives no change date of its own to history retention,
+                // colour or the key change interval, so a merge settles those from
+                // an in-memory note alone: whoever holds one keeps their value.
+                // Unlike the entry notes there is no history riding on this, so
+                // holding it past the write only pins the field to this session
+                // and makes a change from another machine unreachable. Cleared
+                // here rather than before the save because a save that failed
+                // published nothing, and the local value still has to win
+                kdbxDb.meta.editState = undefined;
 
-            // Refresh the conflict-detection baseline to the file we just
-            // wrote. The hash comes from the bytes rather than from re-reading
-            // the file, so it is exactly what landed. Only while the session
-            // lasts: past a lock the baseline belongs to whatever vault is
-            // open now, if any
-            const hash = await this.hashBytes(new Uint8Array(arrayBuffer));
-            if (live()) {
-                this.lastKnownHash = hash;
-                // The external version the watcher merged is now backed up
-                // and overwritten; a save that failed before this point
-                // leaves the flag for the next attempt
-                this.externalVersionMerged = false;
-            }
-            if (ctx.path && window.electron) {
-                const stat = await window.electron.statFile(ctx.path);
-                if (stat.success && live()) {
-                    this.lastKnownMtimeMs = stat.mtimeMs;
+                // Refresh the conflict-detection baseline to the file we just
+                // wrote. The hash comes from the bytes rather than from re-reading
+                // the file, so it is exactly what landed. Only while the session
+                // lasts: past a lock the baseline belongs to whatever vault is
+                // open now, if any
+                const hash = await this.hashBytes(new Uint8Array(arrayBuffer));
+                if (live()) {
+                    this.lastKnownHash = hash;
+                    // The external version the watcher merged is now backed up
+                    // and overwritten; a save that failed before this point
+                    // leaves the flag for the next attempt
+                    this.externalVersionMerged = false;
                 }
+                if (ctx.path && window.electron) {
+                    const stat = await window.electron.statFile(ctx.path);
+                    if (stat.success && live()) {
+                        this.lastKnownMtimeMs = stat.mtimeMs;
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to refresh the save baseline:', err);
             }
 
             // Show success toast
@@ -2241,8 +2259,9 @@ export class KeepassDatabaseService {
             // Nothing reached the file, so the vault keeps the password it had.
             // Left applied, the new key would quietly re-encrypt the file on
             // the next save of anything, after the user was told the change
-            // did not take
-            if (rekeyApplied) {
+            // did not take. Only up to the write: once the file is under the
+            // new key, reverting is what would break it
+            if (rekeyApplied && !writeLanded) {
                 kdbxDb.credentials.passwordHash = previousPasswordHash;
                 kdbxDb.credentials.keyFileHash = previousKeyFileHash;
             }
@@ -2319,11 +2338,29 @@ export class KeepassDatabaseService {
     // derivation, no decryption, and no credentials. What assertKdfOpenable
     // below looks at before a load is allowed to start the KDF
     static peekKdfInfo(data: ArrayBuffer): KdfInfo {
+        return this.kdfInfoFromHeader(this.peekHeader(data));
+    }
+
+    static peekHeader(data: ArrayBuffer): kdbxweb.KdbxHeader {
         const stream = new kdbxweb.BinaryStream(data);
         // The outer header touches nothing on the context; binaries, which
         // do, live in the inner header a load reads after decrypting
         const ctx = new kdbxweb.KdbxContext({ kdbx: {} as kdbxweb.Kdbx });
-        return this.kdfInfoFromHeader(kdbxweb.KdbxHeader.read(stream, ctx));
+        return kdbxweb.KdbxHeader.read(stream, ctx);
+    }
+
+    // Whether an InvalidKey from this file proves the key is wrong rather than
+    // the file damaged. Only kdbx4 does: its header SHA-256 and HMAC are
+    // verified before any payload is touched, so a damaged file raises
+    // FileCorrupt there. kdbx3 has no such check and reports a truncated or
+    // half-written file as InvalidKey too, which is the ordinary state of a
+    // vault a sync client has not finished putting down
+    private static invalidKeyProvesRekey(data: Uint8Array): boolean {
+        try {
+            return this.peekHeader(data.slice().buffer).versionMajor >= 4;
+        } catch {
+            return false;
+        }
     }
 
     // The most key derivation work an unlock will do, as memory in MiB times
