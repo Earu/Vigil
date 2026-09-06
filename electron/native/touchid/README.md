@@ -42,10 +42,18 @@ rather than pass-through:
   Under AddressSanitizer a wipe that runs off the end is a report rather than
   a silent corruption of whatever follows.
 - `ToNSString`, which decides what can name a keychain item. It returns nil
-  for bytes `NSString` will not take, and every caller refuses the operation.
-  It used to substitute `@""`, which meant two names that both failed to
-  convert became the same name and one database's key could be read under
-  another's.
+  for bytes `NSString` will not take, and for a name with a NUL in it, and
+  every caller refuses the operation. It used to substitute `@""`, which
+  meant two names that both failed to convert became the same name and one
+  database's key could be read under another's. The NUL rule came out of the
+  first macOS fuzz run: `NSString` accepts an embedded NUL. In the Security
+  framework's source the legacy keychain then reads string attributes with
+  `strlen` (`CloneDataByType` in `libsecurity_keychain/lib/SecItem.cpp`), so
+  there the name would end at the NUL. The data protection keychain this
+  addon asks for does not go through that code: the query is DER-encoded
+  with an explicit length (`der_encode_string`) and securityd stores the
+  full string (`copyString`, `copyData` in `keychain/securityd/SecDbItem.c`).
+  The name is refused anyway, so the guarantee does not rest on the flag.
 
 `npm run test:fuzz:native -- --target touchid`, or without the flag for both
 addons. Only the wipe is covered off macOS: `ToNSString` needs Foundation, so
