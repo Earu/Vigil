@@ -109,6 +109,47 @@ jobs:
           echo "no MAC_PROVISION_PROFILE secret, macOS build will be unsigned"
         fi
 
+    # electron-builder builds its own keychain for the certificate and then
+    # calls set-key-partition-list with the certificate's password where the
+    # keychain's belongs (app-builder-lib codeSign/macCodeSign.js: the
+    # keychain is created with a random password, importCerts passes
+    # cscKeyPassword). The runners used to have the keychain unlocked at that
+    # point so security never consulted the argument; on the macos-26 images
+    # it does, and every signed build fails with "the user name or passphrase
+    # you entered is not correct". So the keychain is made here, correctly,
+    # and CSC_KEYCHAIN points electron-builder at it instead
+    - name: Import the signing certificate
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+        MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      run: |
+        if [ -z "$MAC_CSC_LINK" ]; then
+          echo "no MAC_CSC_LINK secret, macOS build will be unsigned"
+          exit 0
+        fi
+        keychain="$RUNNER_TEMP/vigil-signing.keychain-db"
+        # This one is the keychain's own, generated here and used nowhere
+        # else, so it lives and dies with the job
+        password="$(openssl rand -base64 24)"
+        security create-keychain -p "$password" "$keychain"
+        # Unlocked for the length of the build, and no relock on sleep
+        security set-keychain-settings -lut 21600 "$keychain"
+        security unlock-keychain -p "$password" "$keychain"
+        # Written under RUNNER_TEMP, removed as soon as it is imported
+        cert="$RUNNER_TEMP/certificate.p12"
+        printf '%s' "$MAC_CSC_LINK" | base64 --decode > "$cert"
+        security import "$cert" -k "$keychain" -P "$MAC_CSC_KEY_PASSWORD" \
+          -T /usr/bin/codesign -T /usr/bin/productbuild
+        rm -f "$cert"
+        # What electron-builder gets wrong: the keychain's own password
+        security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+        # codesign searches the user's keychain list, so the new one has to
+        # join it rather than replace it
+        security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+        echo "CSC_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
     # macOS is built through a filter because electron-builder logs the signing
     # identity, and a Developer ID certificate issued to an individual carries
     # a legal name. Referencing SIGNING_IDENTITY_NAME in env is what makes the
@@ -122,11 +163,6 @@ jobs:
       # only surface as a missing artifact later
       shell: bash
       run: |
-        # An empty CSC_LINK is not the same as an unset one: electron-builder
-        # reads it as a path to the certificate, resolves it to the project
-        # directory and dies with "not a file". Unsigned runs land here because
-        # a GitHub expression that evaluates to nothing still defines the var.
-        if [ -z "$CSC_LINK" ]; then unset CSC_LINK CSC_KEY_PASSWORD; fi
         if [ -n "$SIGNING_IDENTITY_NAME" ]; then
           npm run electron:build -- --publish never 2>&1 | sed "s/$SIGNING_IDENTITY_NAME/***/g"
         else
@@ -140,9 +176,10 @@ jobs:
         # of failing. Without a signature the app runs, but the biometry-gated
         # keychain rejects it and biometric unlock falls back to the
         # prompt-only path (see electron/native/touchid/README.md)
+        # The identity lives in the keychain the step above made; CSC_LINK
+        # is deliberately unset, since electron-builder builds a keychain of
+        # its own whenever it is given one and that path is broken
         CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && secrets.MAC_CSC_LINK != '' }}
-        CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-        CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
         # Notarization; electron-builder skips it when these are unset
         APPLE_ID: ${{ secrets.APPLE_ID }}
         APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
