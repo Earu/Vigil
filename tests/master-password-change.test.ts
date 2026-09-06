@@ -23,8 +23,8 @@ const makeDb = async () => {
 };
 
 // A save that lands, doing what performSave does with a pending change
-const applies = (db: kdbxweb.Kdbx) => async (rekeyTo: kdbxweb.ProtectedValue) => {
-    await db.credentials.setPassword(rekeyTo);
+const applies = (db: kdbxweb.Kdbx) => async (rekeyTo: { password?: kdbxweb.ProtectedValue }) => {
+    if (rekeyTo.password) await db.credentials.setPassword(rekeyTo.password);
     return true;
 };
 
@@ -43,7 +43,7 @@ describe('changing the master password', () => {
         const db = await makeDb();
         const b = bridge(true);
         const apply = applies(db);
-        const save = vi.fn(async (rekeyTo: kdbxweb.ProtectedValue) => { b.calls.push('save'); return apply(rekeyTo); });
+        const save = vi.fn(async (rekeyTo: { password?: kdbxweb.ProtectedValue }) => { b.calls.push('save'); return apply(rekeyTo); });
 
         const outcome = await changeMasterPassword('new-pass', save, b, DB);
 

@@ -59,10 +59,18 @@ interface SaveContext {
     unseen: Map<string, number | undefined>;
     unmodeledEdits: Map<string, number | undefined>;
     stagedIcons: Map<string, Uint8Array>;
-    // A master password change riding along with this save. It is applied
-    // inside performSave, after the on-disk version has been read and merged,
-    // so the credentials never disagree with the file they are used to open
-    rekeyTo?: kdbxweb.ProtectedValue;
+    // A credential change riding along with this save. It is applied inside
+    // performSave, after the on-disk version has been read and merged, so the
+    // credentials never disagree with the file they are used to open
+    rekeyTo?: PendingCredentialChange;
+}
+
+// What a save should make the vault's credentials become, applied only once
+// the file has been read. An absent field is left as it is; keyFile null
+// removes the key file, which is why its absence and null differ
+export interface PendingCredentialChange {
+    password?: kdbxweb.ProtectedValue;
+    keyFile?: ArrayBuffer | null;
 }
 
 // What an attempt to fold the on-disk version into the live one came to.
@@ -1904,7 +1912,7 @@ export class KeepassDatabaseService {
     // was opened next. The ledgers ride along for the same reason: closing
     // the vault replaces them, and this save still has to honour the ones
     // its model was built against
-    private static saveContext(rekeyTo?: kdbxweb.ProtectedValue): SaveContext {
+    private static saveContext(rekeyTo?: PendingCredentialChange): SaveContext {
         return {
             path: this.currentPath,
             generation: this.pathGeneration,
@@ -1915,7 +1923,7 @@ export class KeepassDatabaseService {
         };
     }
 
-    static saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx, rekeyTo?: kdbxweb.ProtectedValue): Promise<void> {
+    static saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx, rekeyTo?: PendingCredentialChange): Promise<void> {
         const context = this.saveContext(rekeyTo);
         if (!this.saveInFlight) {
             return this.runSave(database, kdbxDb, context);
@@ -1999,6 +2007,7 @@ export class KeepassDatabaseService {
         // credentials, so a failure after that point can put the old key back
         let rekeyApplied = false;
         let previousPasswordHash: kdbxweb.ProtectedValue | undefined;
+        let previousKeyFileHash: kdbxweb.ProtectedValue | undefined;
         try {
             if (!kdbxDb) {
                 throw new Error('Database not loaded');
@@ -2133,8 +2142,15 @@ export class KeepassDatabaseService {
             // overwrite the very changes it was supposed to fold in
             if (ctx.rekeyTo) {
                 previousPasswordHash = kdbxDb.credentials.passwordHash;
+                previousKeyFileHash = kdbxDb.credentials.keyFileHash;
                 rekeyApplied = true;
-                await kdbxDb.credentials.setPassword(ctx.rekeyTo);
+                if (ctx.rekeyTo.password) {
+                    await kdbxDb.credentials.setPassword(ctx.rekeyTo.password);
+                }
+                // Presence, not truthiness: null is the request to remove it
+                if ('keyFile' in ctx.rekeyTo) {
+                    await kdbxDb.credentials.setKeyFile(ctx.rekeyTo.keyFile);
+                }
             }
 
             // Enforce the file's history retention rules and drop binaries no
@@ -2228,6 +2244,7 @@ export class KeepassDatabaseService {
             // did not take
             if (rekeyApplied) {
                 kdbxDb.credentials.passwordHash = previousPasswordHash;
+                kdbxDb.credentials.keyFileHash = previousKeyFileHash;
             }
             if (err instanceof Error && err.message === 'SAVE_CANCELLED_CONFLICT') {
                 (window as any).showToast?.({
