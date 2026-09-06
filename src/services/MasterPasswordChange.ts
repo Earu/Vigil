@@ -19,21 +19,19 @@ type BiometricsBridge = Pick<NonNullable<typeof window.electron>, 'hasBiometrics
 // fingerprint, so the setup is torn down rather than left holding a
 // password the user just rotated.
 //
-// A save that fails leaves the file on the old password, so the old key
-// goes back in force here too. Left in place, the new key would apply to
-// the next save of anything, quietly re-encrypting the file under a
-// password the user was told did not take; the on-disk version would stop
-// merging, and a retry of the change would fail its own verification
+// The new password is handed to the save rather than applied here, and the
+// save puts it in place after it has read and merged whatever is on disk.
+// Applying it up front left the credentials disagreeing with the file for the
+// length of the save: the merge opened the old file with the new key, failed,
+// and offered to overwrite another machine's changes. The save also reverts
+// on failure, so a change the user was told did not take cannot re-encrypt
+// the file on the next save of anything
 export async function changeMasterPassword(
-    kdbxDb: kdbxweb.Kdbx,
     newPassword: string,
-    save: () => Promise<boolean>,
+    save: (rekeyTo: kdbxweb.ProtectedValue) => Promise<boolean>,
     bridge: BiometricsBridge | undefined = window.electron,
     dbPath: string | undefined = KeepassDatabaseService.getPath()
 ): Promise<PasswordChangeOutcome> {
-    const previousHash = kdbxDb.credentials.passwordHash;
-    await KeepassDatabaseService.changeMasterPassword(kdbxDb, newPassword);
-
     let enabled = false;
     if (bridge && dbPath) {
         try {
@@ -46,13 +44,13 @@ export async function changeMasterPassword(
 
     let saved: boolean;
     try {
-        saved = await save();
+        saved = await save(kdbxweb.ProtectedValue.fromString(newPassword));
     } catch {
         saved = false;
     }
 
     if (!saved) {
-        kdbxDb.credentials.passwordHash = previousHash;
+        // The save put the old key back; nothing to undo here
         return { saved, biometrics: enabled ? 'kept' : 'not-enabled' };
     }
 

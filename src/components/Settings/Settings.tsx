@@ -40,7 +40,9 @@ interface SettingsProps {
     setAutoLockDuration: (duration: number) => void;
     // Resolves once the save has finished, true if it succeeded. Most callers
     // fire and forget; the password change waits on it
-    onDatabaseChange?: () => void | Promise<boolean>;
+    // rekeyTo, when given, is a master password change for the save to apply
+    // once it has merged whatever is on disk; see MasterPasswordChange
+    onDatabaseChange?: (rekeyTo?: kdbxweb.ProtectedValue) => void | Promise<boolean>;
 }
 
 export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLockEnabled, autoLockDuration, setAutoLockDuration, onDatabaseChange }: SettingsProps) {
@@ -471,7 +473,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             return;
         }
 
-        const outcome = await changeMasterPassword(kdbxDb, newPw, async () => (await onDatabaseChange?.()) === true);
+        const outcome = await changeMasterPassword(newPw, async (rekeyTo) => (await onDatabaseChange?.(rekeyTo)) === true);
 
         setCurrentPw('');
         setNewPw('');
@@ -633,6 +635,11 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </div>
                             <div className="master-password-controls">
                                 <label>Master password</label>
+                                <p className="db-settings-note">
+                                    Close this vault on your other devices first and let the file
+                                    finish syncing. A device that still has it open cannot read the
+                                    re-encrypted file and will have to be given the new password.
+                                </p>
                                 <div className="db-field-row">
                                     <span>Current password</span>
                                     <input

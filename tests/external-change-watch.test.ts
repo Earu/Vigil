@@ -179,8 +179,8 @@ describe('an event that carries nothing new', () => {
     });
 });
 
-describe('a version that cannot be merged', () => {
-    it('is reported as failed and left for the save path to ask about', async () => {
+describe('a version whose key no longer opens', () => {
+    it('is reported as a re-key, and the save refuses instead of asking to overwrite', async () => {
         await writeVault();
         const db = await openVault();
 
@@ -191,14 +191,21 @@ describe('a version that cannot be merged', () => {
         env.disk.mtime += 50;
 
         const result = await Svc.reloadExternalChanges(db, diskHint());
-        expect(result).toBe('failed');
+        expect(result).toBe('rekeyed');
         expect(allTitles(db)).toEqual(['Kept']);
 
-        // The baseline still names the version Vigil last knew, so the save
-        // notices the difference and goes through the conflict resolver
-        env.confirm.answer = false;
-        await expect(localEditAndSave(db, 'local')).rejects.toThrow('SAVE_CANCELLED_CONFLICT');
-        expect(env.confirm.calls).toBe(1);
+        // Overwriting here would put the old password back and discard what
+        // the other machine wrote, so the conflict resolver is never reached
+        // and there is no answer the user could give that does it
+        await expect(localEditAndSave(db, 'local')).rejects.toThrow('SAVE_BLOCKED_REKEYED');
+        expect(env.confirm.calls).toBe(0);
+
+        // The file on disk is untouched and still wants the new password
+        const onDisk = Uint8Array.from(env.disk.bytes!).buffer;
+        await expect(kdbxweb.Kdbx.load(onDisk, cred())).rejects.toThrow();
+        await expect(
+            kdbxweb.Kdbx.load(onDisk, new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('rotated')))
+        ).resolves.toBeTruthy();
     });
 });
 

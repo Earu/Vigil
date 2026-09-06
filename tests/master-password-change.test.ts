@@ -8,7 +8,11 @@ const { changeMasterPassword } = await import('../src/services/MasterPasswordCha
 
 // Biometric unlock keeps the master password. After a change it must hold the
 // new one, and only once the file accepts it; when that cannot be arranged
-// it must hold nothing
+// it must hold nothing.
+//
+// The new password is applied by the save, not before it, so a save that
+// succeeds here stands in for that by setting it; one that fails leaves the
+// vault on the old password, which is what the real save's revert does
 
 const DB = '/vault.kdbx';
 
@@ -16,6 +20,12 @@ const makeDb = async () => {
     const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
     db0.setVersion(3);
     return await kdbxweb.Kdbx.load(await db0.save(), cred());
+};
+
+// A save that lands, doing what performSave does with a pending change
+const applies = (db: kdbxweb.Kdbx) => async (rekeyTo: kdbxweb.ProtectedValue) => {
+    await db.credentials.setPassword(rekeyTo);
+    return true;
 };
 
 function bridge(enabled: boolean, enableResult: { success: boolean; error?: string } = { success: true }) {
@@ -32,9 +42,10 @@ describe('changing the master password', () => {
     it('re-seals biometric unlock to the new password, after the save', async () => {
         const db = await makeDb();
         const b = bridge(true);
-        const save = vi.fn(async () => { b.calls.push('save'); return true; });
+        const apply = applies(db);
+        const save = vi.fn(async (rekeyTo: kdbxweb.ProtectedValue) => { b.calls.push('save'); return apply(rekeyTo); });
 
-        const outcome = await changeMasterPassword(db, 'new-pass', save, b, DB);
+        const outcome = await changeMasterPassword('new-pass', save, b, DB);
 
         expect(outcome).toEqual({ saved: true, biometrics: 'resealed' });
         expect(b.calls).toEqual(['has', 'save', 'enable']);
@@ -46,7 +57,7 @@ describe('changing the master password', () => {
         const db = await makeDb();
         const b = bridge(true, { success: false, error: 'Windows Hello verification failed' });
 
-        const outcome = await changeMasterPassword(db, 'new-pass', async () => true, b, DB);
+        const outcome = await changeMasterPassword('new-pass', applies(db), b, DB);
 
         expect(outcome).toEqual({ saved: true, biometrics: 'off', reason: 'Windows Hello verification failed' });
         expect(b.disableBiometrics).toHaveBeenCalledWith(DB);
@@ -57,7 +68,7 @@ describe('changing the master password', () => {
         const b = bridge(true);
         b.enableBiometrics.mockRejectedValueOnce(new Error('ipc gone'));
 
-        const outcome = await changeMasterPassword(db, 'new-pass', async () => true, b, DB);
+        const outcome = await changeMasterPassword('new-pass', applies(db), b, DB);
 
         expect(outcome.biometrics).toBe('off');
         expect(b.disableBiometrics).toHaveBeenCalledWith(DB);
@@ -71,7 +82,7 @@ describe('changing the master password', () => {
         const db = await makeDb();
         const b = bridge(true);
 
-        const outcome = await changeMasterPassword(db, 'new-pass', async () => false, b, DB);
+        const outcome = await changeMasterPassword('new-pass', async () => false, b, DB);
 
         expect(outcome).toEqual({ saved: false, biometrics: 'kept' });
         expect(b.enableBiometrics).not.toHaveBeenCalled();
@@ -79,13 +90,13 @@ describe('changing the master password', () => {
         expect(await Svc.verifyMasterPassword(db, 'test')).toBe(true);
         expect(await Svc.verifyMasterPassword(db, 'new-pass')).toBe(false);
         // A second attempt starts from the old password, as the user expects
-        expect((await changeMasterPassword(db, 'new-pass', async () => true, b, DB)).saved).toBe(true);
+        expect((await changeMasterPassword('new-pass', applies(db), b, DB)).saved).toBe(true);
         expect(await Svc.verifyMasterPassword(db, 'new-pass')).toBe(true);
     });
 
     it('a failed save re-encrypts nothing under the new password', async () => {
         const db = await makeDb();
-        await changeMasterPassword(db, 'new-pass', async () => false, undefined, undefined);
+        await changeMasterPassword('new-pass', async () => false, undefined, undefined);
         // What a later save would write opens with the old password only
         const bytes = await db.save();
         await expect(kdbxweb.Kdbx.load(bytes, cred())).resolves.toBeDefined();
@@ -96,7 +107,7 @@ describe('changing the master password', () => {
         const db = await makeDb();
         const b = bridge(true);
 
-        const outcome = await changeMasterPassword(db, 'new-pass', async () => { throw new Error('disk'); }, b, DB);
+        const outcome = await changeMasterPassword('new-pass', async () => { throw new Error('disk'); }, b, DB);
 
         expect(outcome).toEqual({ saved: false, biometrics: 'kept' });
         expect(b.disableBiometrics).not.toHaveBeenCalled();
@@ -107,14 +118,14 @@ describe('changing the master password', () => {
         const db = await makeDb();
         const b = bridge(false);
 
-        expect(await changeMasterPassword(db, 'new-pass', async () => true, b, DB)).toEqual({ saved: true, biometrics: 'not-enabled' });
+        expect(await changeMasterPassword('new-pass', applies(db), b, DB)).toEqual({ saved: true, biometrics: 'not-enabled' });
         expect(b.enableBiometrics).not.toHaveBeenCalled();
         expect(b.disableBiometrics).not.toHaveBeenCalled();
     });
 
     it('works without a bridge or a path, as for a vault opened from bytes', async () => {
         const db = await makeDb();
-        expect(await changeMasterPassword(db, 'new-pass', async () => true, undefined, undefined)).toEqual({ saved: true, biometrics: 'not-enabled' });
+        expect(await changeMasterPassword('new-pass', applies(db), undefined, undefined)).toEqual({ saved: true, biometrics: 'not-enabled' });
         expect(await Svc.verifyMasterPassword(db, 'new-pass')).toBe(true);
     });
 });

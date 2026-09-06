@@ -845,3 +845,12 @@ select.db-input {
     width: auto;
     flex: 0 0 auto;
 }
+
+/* Advisory text under a settings label, for consequences the user should
+   know before acting rather than an error after */
+.db-settings-note {
+    margin: 0 0 0.625rem;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--text-tertiary);
+}

@@ -59,7 +59,16 @@ interface SaveContext {
     unseen: Map<string, number | undefined>;
     unmodeledEdits: Map<string, number | undefined>;
     stagedIcons: Map<string, Uint8Array>;
+    // A master password change riding along with this save. It is applied
+    // inside performSave, after the on-disk version has been read and merged,
+    // so the credentials never disagree with the file they are used to open
+    rekeyTo?: kdbxweb.ProtectedValue;
 }
+
+// What an attempt to fold the on-disk version into the live one came to.
+// 'rekeyed' means the file is sound and our key is simply no longer the
+// right one; see mergeExternalChanges
+type MergeOutcome = 'merged' | 'failed' | 'rekeyed';
 
 export class KeepassDatabaseService {
     // Fields with dedicated UI; everything else on a kdbx entry is a custom field
@@ -113,6 +122,9 @@ export class KeepassDatabaseService {
     // Asks the user whether an unmergeable external change may be overwritten.
     // App registers a dialog-backed resolver; without one the answer is no
     static conflictResolver: ((message: string) => Promise<boolean>) | undefined;
+    // Asks the user for the credentials the file on disk now wants, after a
+    // re-key was detected. Returns null when they cancel
+    static rekeyResolver: (() => Promise<kdbxweb.Credentials | null>) | undefined;
 
     // Same ledger idea for VALUES of existing entries: the browser updating a
     // stored login rewrites fields on the kdbx object directly, and a save
@@ -1586,12 +1598,19 @@ export class KeepassDatabaseService {
         return summary;
     }
 
+    // 'rekeyed' is the case where the file is intact but our key no longer
+    // opens it, which on a synced vault means the master password was changed
+    // on another device. kdbx4 proves this rather than guessing: the header
+    // SHA-256 is verified before the header HMAC, so a FileCorrupt names a
+    // damaged file and an InvalidKey names an untouched file we cannot open.
+    // The distinction matters because the answer to a failed merge is "ask
+    // what to do" and the answer to a re-key must never be "overwrite it"
     private static async mergeExternalChanges(
         kdbxDb: kdbxweb.Kdbx,
         data: Uint8Array | undefined,
         unseen: Map<string, number | undefined>
-    ): Promise<boolean> {
-        if (!data) return false;
+    ): Promise<MergeOutcome> {
+        if (!data) return 'failed';
 
         let remoteDb: kdbxweb.Kdbx;
         try {
@@ -1599,16 +1618,57 @@ export class KeepassDatabaseService {
             this.assertKdfOpenable(bytes);
             remoteDb = await kdbxweb.Kdbx.load(bytes, kdbxDb.credentials);
         } catch (err) {
+            if (err instanceof kdbxweb.KdbxError && err.code === kdbxweb.Consts.ErrorCodes.InvalidKey) {
+                return 'rekeyed';
+            }
             console.error('Failed to merge external changes:', err);
-            return false;
+            return 'failed';
         }
-        if (!this.mergeLoaded(kdbxDb, remoteDb, unseen)) return false;
+        if (!this.mergeLoaded(kdbxDb, remoteDb, unseen)) return 'failed';
 
         (window as any).showToast?.({
             message: 'The database changed on disk; external changes were merged',
             type: 'info'
         });
-        return true;
+        return 'merged';
+    }
+
+    // Part of recovering from a re-key: the user supplied the credentials the
+    // file now wants, so adopt them and take the file's contents in. The live
+    // kdbx keeps its identity, so nothing above has to swap objects; it simply
+    // holds the new key from here on and the unsaved edits merge in as usual
+    static async recoverFromRekey(
+        kdbxDb: kdbxweb.Kdbx,
+        data: Uint8Array,
+        credentials: kdbxweb.Credentials
+    ): Promise<'recovered' | 'wrong-credentials' | 'different-vault' | 'failed'> {
+        let remoteDb: kdbxweb.Kdbx;
+        try {
+            const bytes = data.slice().buffer;
+            this.assertKdfOpenable(bytes);
+            remoteDb = await kdbxweb.Kdbx.load(bytes, credentials);
+        } catch (err) {
+            if (err instanceof kdbxweb.KdbxError && err.code === kdbxweb.Consts.ErrorCodes.InvalidKey) {
+                return 'wrong-credentials';
+            }
+            console.error('Failed to reopen the re-keyed database:', err);
+            return 'failed';
+        }
+        // Identity before anything is adopted or merged, the same check the
+        // conflict-copy path makes. A password change never touches group
+        // UUIDs, so a real re-key always matches here; a mismatch means the
+        // path now holds a different vault, and merging it in would fold a
+        // stranger's entries into this one and take on its key
+        if (remoteDb.getDefaultGroup().uuid.id !== kdbxDb.getDefaultGroup().uuid.id) {
+            return 'different-vault';
+        }
+        kdbxDb.credentials = credentials;
+        if (!this.mergeLoaded(kdbxDb, remoteDb, this.unseenUuids)) return 'failed';
+        // The live vault now holds this version, so the next save has nothing
+        // left to merge and writes under the key it just adopted
+        this.lastKnownHash = await this.hashBytes(data);
+        this.externalVersionMerged = true;
+        return 'recovered';
     }
 
     // Merges an already opened copy of this database into the live one. Shared
@@ -1679,7 +1739,7 @@ export class KeepassDatabaseService {
     static async reloadExternalChanges(
         kdbxDb: kdbxweb.Kdbx,
         hint: { hash: string; mtimeMs: number }
-    ): Promise<'unchanged' | 'merged' | 'failed'> {
+    ): Promise<'unchanged' | 'merged' | 'failed' | 'rekeyed'> {
         const generation = this.pathGeneration;
         const live = () => this.pathGeneration === generation;
         // A save's own write raises the event too, possibly before the save
@@ -1707,7 +1767,8 @@ export class KeepassDatabaseService {
         // Locked meanwhile: the merge landed in a kdbx nobody shows any more,
         // and the baseline belongs to whatever is open now
         if (!live()) return 'unchanged';
-        if (!merged) return 'failed';
+        if (merged === 'rekeyed') return 'rekeyed';
+        if (merged === 'failed') return 'failed';
 
         this.lastKnownHash = await this.hashBytes(external.data);
         this.lastKnownMtimeMs = hint.mtimeMs;
@@ -1843,18 +1904,19 @@ export class KeepassDatabaseService {
     // was opened next. The ledgers ride along for the same reason: closing
     // the vault replaces them, and this save still has to honour the ones
     // its model was built against
-    private static saveContext(): SaveContext {
+    private static saveContext(rekeyTo?: kdbxweb.ProtectedValue): SaveContext {
         return {
             path: this.currentPath,
             generation: this.pathGeneration,
             unseen: this.unseenUuids,
             unmodeledEdits: this.unmodeledEditUuids,
-            stagedIcons: this.stagedCustomIcons
+            stagedIcons: this.stagedCustomIcons,
+            rekeyTo
         };
     }
 
-    static saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx): Promise<void> {
-        const context = this.saveContext();
+    static saveDatabase(database: Database, kdbxDb: kdbxweb.Kdbx, rekeyTo?: kdbxweb.ProtectedValue): Promise<void> {
+        const context = this.saveContext(rekeyTo);
         if (!this.saveInFlight) {
             return this.runSave(database, kdbxDb, context);
         }
@@ -1863,7 +1925,11 @@ export class KeepassDatabaseService {
             // state serves its earlier callers too
             this.queuedSave.database = database;
             this.queuedSave.kdbxDb = kdbxDb;
-            this.queuedSave.context = context;
+            // A newer save replaces the waiting one, but a password change it
+            // was carrying is not the newer caller's to discard: dropping it
+            // would report the change as saved while leaving the file on the
+            // old password
+            this.queuedSave.context = { ...context, rekeyTo: context.rekeyTo ?? this.queuedSave.context.rekeyTo };
             return this.queuedSave.result;
         }
         let resolve!: () => void;
@@ -1929,6 +1995,10 @@ export class KeepassDatabaseService {
         const baseline = live()
             ? { mtimeMs: this.lastKnownMtimeMs, hash: this.lastKnownHash }
             : { mtimeMs: undefined, hash: undefined };
+        // Set once a pending password change has been applied to the live
+        // credentials, so a failure after that point can put the old key back
+        let rekeyApplied = false;
+        let previousPasswordHash: kdbxweb.ProtectedValue | undefined;
         try {
             if (!kdbxDb) {
                 throw new Error('Database not loaded');
@@ -2026,7 +2096,15 @@ export class KeepassDatabaseService {
                     // either way the version on disk is about to be gone
                     replacingExternalChanges = true;
                     const merged = await this.mergeExternalChanges(kdbxDb, external.data, ctx.unseen);
-                    if (!merged) {
+                    if (merged === 'rekeyed') {
+                        // Writing here would re-encrypt the vault under the old
+                        // password, undoing a change someone made deliberately
+                        // on another device and discarding whatever they saved
+                        // with it. There is no version of that worth offering,
+                        // so this save stops and the recovery is elsewhere
+                        throw new Error('SAVE_BLOCKED_REKEYED');
+                    }
+                    if (merged === 'failed') {
                         // Asked through the resolver App registers, never
                         // window.confirm: a synchronous prompt blocked the
                         // renderer with the save queue behind it, was
@@ -2045,6 +2123,18 @@ export class KeepassDatabaseService {
                         }
                     }
                 }
+            }
+
+            // The password change lands here and nowhere earlier. Everything
+            // above reads the file on disk, which is still under the old key;
+            // everything below writes, and must use the new one. Applying it
+            // in the caller instead meant the merge above tried to open the
+            // old file with the new key, failed every time, and offered to
+            // overwrite the very changes it was supposed to fold in
+            if (ctx.rekeyTo) {
+                previousPasswordHash = kdbxDb.credentials.passwordHash;
+                rekeyApplied = true;
+                await kdbxDb.credentials.setPassword(ctx.rekeyTo);
             }
 
             // Enforce the file's history retention rules and drop binaries no
@@ -2132,11 +2222,23 @@ export class KeepassDatabaseService {
                 type: 'success'
             });
         } catch (err) {
+            // Nothing reached the file, so the vault keeps the password it had.
+            // Left applied, the new key would quietly re-encrypt the file on
+            // the next save of anything, after the user was told the change
+            // did not take
+            if (rekeyApplied) {
+                kdbxDb.credentials.passwordHash = previousPasswordHash;
+            }
             if (err instanceof Error && err.message === 'SAVE_CANCELLED_CONFLICT') {
                 (window as any).showToast?.({
                     message: 'Save cancelled',
                     type: 'info'
                 });
+                throw err;
+            }
+            if (err instanceof Error && err.message === 'SAVE_BLOCKED_REKEYED') {
+                // App raises the recovery dialog off this; a toast here as
+                // well would say the same thing twice
                 throw err;
             }
             console.error('Failed to save database:', err);
