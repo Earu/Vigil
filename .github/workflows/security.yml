@@ -136,7 +136,10 @@ jobs:
         exit 1
 
   # Both runners: the Touch ID addon's string handling is Objective-C, so the
-  # macOS leg is the only one that fuzzes it rather than compiling it out
+  # macOS leg is the only one that fuzzes it rather than compiling it out.
+  # Apple's clang has no libFuzzer; the runner uses the Homebrew LLVM the
+  # image ships instead, and falls back to replaying the corpus under the
+  # sanitizers if none is there
   native-fuzz:
     name: Native addon fuzz (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -156,8 +159,14 @@ jobs:
       with:
         node-version: '22'
 
+    # The image ships a Homebrew LLVM (llvm@20 on macOS 26, llvm@18 on 15);
+    # this only installs one if an image change ever drops it
+    - name: Ensure a libFuzzer-capable clang
+      if: runner.os == 'macOS'
+      run: ls "$(brew --prefix)/opt" | grep -q '^llvm' || brew install llvm
+
     # The targets include nothing but the addons' own headers, so neither
-    # pcsclite nor node-gyp is needed here; clang ships libFuzzer
+    # pcsclite nor node-gyp is needed here
     - name: Fuzz the native addons
       id: native
       run: |
@@ -207,7 +216,7 @@ jobs:
           echo "Budget: \`${NATIVE_FUZZ_SECONDS}\`s per target under AddressSanitizer and UndefinedBehaviorSanitizer. Findings are filed under Security > Code scanning, category \`native-fuzz-$RUNNER_OS_LABEL\`, and the reproducing input is attached to the run."
           echo
           echo '```'
-          grep -hE "^==|ERROR|SUMMARY|runtime error|Assertion|no findings|stat::number_of_executed_units" native-fuzz-out/*.log 2>/dev/null | head -40 || echo "no log"
+          grep -hE "ERROR|SUMMARY|runtime error|Assertion|^Done |^replayed |stat::number_of_executed_units" native-fuzz-out/*.log 2>/dev/null | head -40 || echo "no log"
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
 

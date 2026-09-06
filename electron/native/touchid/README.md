@@ -53,6 +53,12 @@ the security workflow runs the target on a macOS runner as well as Linux.
 Nothing in it touches the keychain, so no entitlement, enrolled finger or
 prompt is involved.
 
+Apple's clang ships the sanitizers but not libFuzzer, so on macOS the runner
+picks a Homebrew LLVM if one is installed (`brew install llvm`; the GitHub
+runner images ship one) and fuzzes with that. With Apple's clang alone it
+replays the corpus through the target once under the sanitizers instead: a
+regression check, not a search.
+
 ## Storage
 
 `biometrics.ts` seals the password as a `v3:` blob in keytar (base64 of IV, GCM
