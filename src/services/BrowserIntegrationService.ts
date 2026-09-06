@@ -279,6 +279,21 @@ export class BrowserIntegrationService {
         return ctx.isCurrent ? !ctx.isCurrent() : false;
     }
 
+    // The stored association key against the one a client presented. The two
+    // other places this app compares a secret are constant time (the proxy
+    // handshake's timingSafeEqual, verifyMasterPassword's accumulated
+    // difference) and === here was the odd one out. Length is not hidden, as
+    // it is not by timingSafeEqual either, which refuses unequal lengths
+    // outright; what goes is the early exit at the first differing character
+    static keyMatches(stored: string, presented: string): boolean {
+        if (stored.length !== presented.length) return false;
+        let diff = 0;
+        for (let i = 0; i < stored.length; i++) {
+            diff |= stored.charCodeAt(i) ^ presented.charCodeAt(i);
+        }
+        return diff === 0;
+    }
+
     private static isAssociated(kdbxDb: kdbxweb.Kdbx, keys: unknown): boolean {
         if (!Array.isArray(keys)) return false;
         for (const item of keys) {
@@ -286,7 +301,7 @@ export class BrowserIntegrationService {
             const { id, key } = item as { id?: unknown; key?: unknown };
             if (typeof id !== 'string' || typeof key !== 'string') continue;
             const stored = kdbxDb.meta.customData.get(ASSOCIATION_PREFIX + id);
-            if (stored?.value && stored.value === key) return true;
+            if (stored?.value && this.keyMatches(stored.value, key)) return true;
         }
         return false;
     }
@@ -414,7 +429,7 @@ export class BrowserIntegrationService {
 
             case 'test-associate': {
                 const stored = kdbxDb.meta.customData.get(ASSOCIATION_PREFIX + payload.id);
-                if (!stored?.value || stored.value !== payload.key) {
+                if (!stored?.value || !this.keyMatches(stored.value, payload.key)) {
                     return { errorCode: ERROR_ASSOCIATION_FAILED };
                 }
                 return { hash: await this.databaseHash(kdbxDb), id: payload.id };

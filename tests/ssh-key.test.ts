@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { createPublicKey, createSign, createVerify, sign as signOneShot, verify as verifyOneShot, KeyObject } from 'crypto';
-import { parsePrivateKey, readPublicInfo, looksLikePrivateKey, SshKeyError, WireReader, wireMpint, wireString } from '../electron/src/ssh-key';
+import { parsePrivateKey, readPublicInfo, looksLikePrivateKey, SshKeyError, WireReader, wireMpint, wireString, wireU32 } from '../electron/src/ssh-key';
 
 // Every fixture was written by ssh-keygen (see the manifest for the
 // fingerprints it printed). The parser has to reach the same public blob
@@ -204,6 +204,62 @@ describe('private key parsing', () => {
         }
         // Rewritten with its real count, the file still opens
         expect(parsePrivateKey(withRounds(4), PASSPHRASE).type).toBe('ssh-ed25519');
+    });
+
+    // The blob in the header is outside the ciphertext, so on an encrypted key
+    // anyone can rewrite it without the passphrase. It names the key in the UI
+    // and is what removal sends to the agent, so a file whose halves disagree
+    // would load one key and account for another
+    it('refuses a file whose header names a different key than its private half', () => {
+        const text = Buffer.from(load('ed25519_enc')).toString('latin1');
+        const raw = Buffer.from(text.split('\n').filter(l => l && !l.startsWith('-----')).join(''), 'base64');
+        const reader = new WireReader(raw, 'openssh-key-v1\0'.length);
+        reader.text(); reader.text(); reader.string(); reader.u32(); // cipher, kdf, options, nkeys
+        // Last byte of the public blob: the ed25519 point the header claims
+        const blobEnd = raw.length - reader.remaining + 4 + raw.readUInt32BE(raw.length - reader.remaining) - 1;
+        const patched = Buffer.from(raw);
+        patched[blobEnd] ^= 0x01;
+        const body = patched.toString('base64').match(/.{1,70}/g)!.join('\n');
+        const file = Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`);
+
+        expect(() => parsePrivateKey(file, PASSPHRASE)).toThrow(expect.objectContaining({ code: 'format' }));
+        // The untouched file still opens, so the check is reading the tamper
+        // rather than refusing the fixture
+        expect(parsePrivateKey(load('ed25519_enc'), PASSPHRASE).fingerprint)
+            .toBe(manifest.ed25519_enc.fingerprint);
+    });
+
+    // ssh-keygen dropped DSA before this was written, so there is no fixture
+    // to generate. The layout is built here straight from RFC 4253 section
+    // 6.6 (public: p q g y; private section: p q g y x) rather than from the
+    // parser's own table, which is the thing under test
+    it('takes the public half of an ssh-dss key from p, q, g and y', () => {
+        const part = (byte: number, length: number) => Buffer.alloc(length, byte);
+        const [p, q, g, y, x] = [part(0x11, 32), part(0x22, 20), part(0x33, 32), part(0x44, 32), part(0x55, 20)];
+        const build = (blobParts: Buffer[]) => {
+            const publicBlob = Buffer.concat([wireString('ssh-dss'), ...blobParts.map(wireString)]);
+            const check = Buffer.alloc(4, 0x7a);
+            const privateSection = Buffer.concat([
+                check, check, wireString('ssh-dss'),
+                ...[p, q, g, y, x].map(wireString), wireString('vigil-test'),
+            ]);
+            const raw = Buffer.concat([
+                Buffer.from('openssh-key-v1\0', 'latin1'),
+                wireString('none'), wireString('none'), wireString(''), wireU32(1),
+                wireString(publicBlob), wireString(privateSection),
+            ]);
+            const body = raw.toString('base64').match(/.{1,70}/g)!.join('\n');
+            return Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`);
+        };
+
+        const key = parsePrivateKey(build([p, q, g, y]));
+        expect(key.type).toBe('ssh-dss');
+        expect(key.comment).toBe('vigil-test');
+        // x is the private half and never appears in the blob
+        expect(key.publicBlob.includes(x)).toBe(false);
+        // Any other ordering of the same four is a different key, and refused
+        expect(() => parsePrivateKey(build([q, p, g, y]))).toThrow(expect.objectContaining({ code: 'format' }));
+        expect(() => parsePrivateKey(build([p, q, g, x]))).toThrow(expect.objectContaining({ code: 'format' }));
     });
 
     it('reads the public half of an encrypted OpenSSH key without the passphrase', () => {

@@ -205,10 +205,14 @@ button:hover {
 	outline: none;
 }
 
-/* Rings inside scroll containers and the title bar would be clipped at the
-   edge, so they draw inward */
+/* Rings inside scroll containers, clipping parents and the title bar would be
+   clipped at the edge, so they draw inward. A history row fills its item,
+   which hides its overflow to keep the rounded corners, so the ring outside
+   it was cut away entirely and the row was the one thing in the panel with no
+   visible focus */
 .group-header:focus-visible,
 [role="tab"]:focus-visible,
+.history-row:focus-visible,
 .window-control:focus-visible {
 	outline-offset: -2px;
 }

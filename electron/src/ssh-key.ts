@@ -121,6 +121,20 @@ const PRIVATE_PARTS: Record<string, number> = {
     'ssh-ed25519': 2,   // pk sk
 };
 
+// Which of those parts make up the public blob, and in what order. The public
+// half appears twice in an OpenSSH file: once in the header, in the clear,
+// and once inside the private section, which on an encrypted key is under the
+// cipher. Only the second has been vouched for by the passphrase, so the two
+// are checked against each other rather than the header being taken on trust
+const PUBLIC_PART_ORDER: Record<string, number[]> = {
+    'ssh-rsa': [1, 0],             // e, n
+    'ssh-dss': [0, 1, 2, 3],       // p, q, g, y
+    'ecdsa-sha2-nistp256': [0, 1], // curve, Q
+    'ecdsa-sha2-nistp384': [0, 1],
+    'ecdsa-sha2-nistp521': [0, 1],
+    'ssh-ed25519': [0],            // pk
+};
+
 function typeOfPublicBlob(blob: Buffer): string {
     return new WireReader(blob).text();
 }
@@ -253,9 +267,24 @@ function parseOpenSsh(text: string, passphrase: string): ParsedSshKey {
     const privateType = reader.text();
     if (privateType !== type) throw new SshKeyError('Malformed OpenSSH key', 'format');
     const partsStart = plain.length - reader.remaining;
-    for (let i = 0; i < PRIVATE_PARTS[type]; i++) reader.string();
+    const parts: Buffer[] = [];
+    for (let i = 0; i < PRIVATE_PARTS[type]; i++) parts.push(reader.string());
     const partsEnd = plain.length - reader.remaining;
     const comment = reader.text();
+
+    // Nothing has vouched for the blob in the header: on an encrypted key it
+    // sits outside the ciphertext, so it can be rewritten without knowing the
+    // passphrase. It is what the UI shows as the key's fingerprint and what
+    // removal sends to the agent, so a file whose two halves name different
+    // keys would load one key and account for another. Rebuilt from the half
+    // the passphrase opened and compared
+    const derived = Buffer.concat([
+        wireString(type),
+        ...PUBLIC_PART_ORDER[type].map(index => wireString(parts[index])),
+    ]);
+    if (!derived.equals(header.publicBlob)) {
+        throw new SshKeyError('The public half of this key file does not match its private half', 'format');
+    }
 
     return {
         type,

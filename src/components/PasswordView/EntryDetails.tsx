@@ -486,19 +486,28 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		}
 	};
 
-	const sshKeyDescription = (): string => {
+	// What the key is, and what is wrong with it, are two different things and
+	// render in two places: the name in the field, the problem in red under it.
+	// As one string they went into the value slot together, where the row's
+	// ellipsis cut the sentence off mid-word and the name was gone as well
+	const sshKeyName = (): string => {
+		if (!sshKeyInfo?.success) return '';
+		return sshKeyInfo.type && sshKeyInfo.fingerprint ? `${sshKeyInfo.type} ${sshKeyInfo.fingerprint}` : '';
+	};
+
+	const sshKeyProblem = (): string => {
 		if (!sshKeyInfo) return '';
 		if (!sshKeyInfo.success) return sshKeyInfo.error;
-		const name = sshKeyInfo.type && sshKeyInfo.fingerprint ? `${sshKeyInfo.type} ${sshKeyInfo.fingerprint}` : '';
-		if (!sshKeyInfo.passphraseError) return name;
-		// While editing the passphrase is not tried, so this only says the key
-		// has one; in view mode the entry password was tried and did not fit
-		if (isEditing) return name ? `${name}, opened with the entry password` : 'Passphrase-protected key, opened with the entry password';
-		const why = /needs a passphrase/i.test(sshKeyInfo.passphraseError)
-			? 'the entry password is empty and this key needs one'
-			: 'the entry password does not open this key';
-		return name ? `${name}, ${why}` : `Passphrase-protected key, ${why}`;
+		if (!sshKeyInfo.passphraseError) return '';
+		// The passphrase is not tried while editing (the password field changes
+		// on every keystroke), so there is nothing to report until it is
+		if (isEditing) return '';
+		return /needs a passphrase/i.test(sshKeyInfo.passphraseError)
+			? 'The entry password is empty and this key needs one'
+			: 'The entry password does not open this key';
 	};
+
+	const sshProblem = sshKeyProblem();
 
 	const handleAddAttachments = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = e.target.files;
@@ -1568,7 +1577,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 						) : (
 							<div className="ssh-key-row">
 								<span className="ssh-key-text" title={sshFingerprint || undefined}>
-									{sshAttachment ? sshKeyDescription() || sshAttachment.name : `Attachment ${sshSettings.attachmentName} is missing`}
+									{sshAttachment ? sshKeyName() || sshAttachment.name : `Attachment ${sshSettings.attachmentName} is missing`}
 								</span>
 								{sshAttachment && sshLoaded !== null && (
 									<span className={`ssh-key-state ${sshLoaded ? 'loaded' : ''}`}>{sshLoaded ? 'in agent' : 'not in agent'}</span>
@@ -1578,6 +1587,13 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										className="totp-add-button"
 										onClick={handleSshToggleAgent}
 										disabled={sshBusy || !window.electron}
+										// Title only, no aria-label: the button already
+										// names itself with its text, and a label that
+										// did not contain that text would leave anyone
+										// speaking it unable to address the button
+										title={sshLoaded
+											? 'Take this key back out of the running ssh-agent'
+											: 'Load this key into the running ssh-agent'}
 										type="button"
 									>
 										{sshLoaded ? 'Remove from agent' : 'Add to agent'}
@@ -1585,6 +1601,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 								)}
 							</div>
 						)}
+						{sshProblem && <div className="totp-error">{sshProblem}</div>}
 						{sshError && <div className="totp-error">{sshError}</div>}
 					</div>
 				)}
@@ -1644,8 +1661,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										/>
 										seconds
 									</label>
+									{/* A hint while picking the attachment: what the file
+									    turned out to be, or why it could not be read.
+									    Nothing about the passphrase, which is not tried
+									    while the password field is still being typed */}
 									<div className="ssh-key-hint">
-										{sshKeyDescription() || 'The entry password is used as the key passphrase'}
+										{sshKeyName() || sshProblem || 'The entry password is used as the key passphrase'}
 									</div>
 								</>
 							)}
