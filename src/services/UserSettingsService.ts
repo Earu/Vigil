@@ -15,8 +15,10 @@ interface UserSettings {
     // default; the off switch exists because even prefix queries tell HIBP
     // an IP runs a password manager and roughly how many secrets it holds
     checkPasswordBreaches?: boolean;
-    autoLockEnabled: boolean;
-    autoLockDuration: number;
+    // Optional because what is in storage is whatever some version of Vigil
+    // wrote, not necessarily this shape; the getters supply the default
+    autoLockEnabled?: boolean;
+    autoLockDuration?: number;
     // Remembered key file path per database path. Only paths are stored,
     // never key material
     keyFilePaths?: Record<string, string>;
@@ -53,6 +55,12 @@ interface UserSettings {
 
 export const MIN_BACKUP_KEEP = 1;
 export const MAX_BACKUP_KEEP = 20;
+
+// A vault that never locks is the wrong default for a password manager, so
+// these stand in both for a fresh install and for a stored value that is
+// missing the field
+export const DEFAULT_AUTO_LOCK_ENABLED = true;
+export const DEFAULT_AUTO_LOCK_MINUTES = 20;
 
 export const DEFAULT_CLIPBOARD_CLEAR_SECONDS = 20;
 export const MIN_CLIPBOARD_CLEAR_SECONDS = 5;
@@ -94,9 +102,8 @@ class UserSettingsService {
         return {
             theme: 'dark',
             hibpApiKey: undefined,
-            // A vault that never locks is the wrong default for a password manager
-            autoLockEnabled: true,
-            autoLockDuration: 20
+            autoLockEnabled: DEFAULT_AUTO_LOCK_ENABLED,
+            autoLockDuration: DEFAULT_AUTO_LOCK_MINUTES
         };
     }
 
@@ -205,8 +212,12 @@ class UserSettingsService {
         this.saveSettings();
     }
 
+    // Defaulted like every other getter here. These two used to read the
+    // stored value bare, so a settings blob written without them (an older
+    // version, a partial write) turned auto-lock off and left it off, which
+    // is the one setting whose absence must not be read as "no"
     getAutoLockEnabled(): boolean {
-        return this.current.autoLockEnabled;
+        return this.current.autoLockEnabled ?? DEFAULT_AUTO_LOCK_ENABLED;
     }
 
     setAutoLockEnabled(enabled: boolean): void {
@@ -215,7 +226,7 @@ class UserSettingsService {
     }
 
     getAutoLockDuration(): number {
-        return this.current.autoLockDuration;
+        return this.current.autoLockDuration ?? DEFAULT_AUTO_LOCK_MINUTES;
     }
 
     setAutoLockDuration(duration: number): void {

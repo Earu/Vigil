@@ -65,7 +65,17 @@ export function setupIpcHandlers(): void {
     // slow enough to make even that unreasonable
     const ARGON2_TIMEOUT_MS = 10 * 60 * 1000;
     let argon2Chain: Promise<unknown> = Promise.resolve();
+    // The buffers are checked for being buffers, like every other channel's
+    // arguments: hashPassword wraps them in new Uint8Array, and that reads a
+    // number as a length, so a bad argument allocated whatever it named in
+    // the main process rather than failing the call. The numbers are left to
+    // checkArgon2Params in crypto.ts, which is where the header's bounds live
+    const isBytes = (value: unknown): boolean =>
+        value instanceof ArrayBuffer || ArrayBuffer.isView(value);
     handle('argon2', (event, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
+        if (!isBytes(password) || !isBytes(salt)) {
+            throw new Error('Invalid key derivation input');
+        }
         const abort = new AbortController();
         const onGone = () => abort.abort(new Error('The window that asked for this unlock was closed'));
         event.sender.once('destroyed', onGone);

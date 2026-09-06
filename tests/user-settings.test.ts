@@ -50,6 +50,19 @@ describe('auto-lock default', () => {
         const reloaded = await freshService();
         expect(reloaded.getAutoLockEnabled()).toBe(false);
     });
+
+    // These two getters used to read the stored value bare while every other
+    // one defaulted, so a blob written without them (an older version, a
+    // partial write) turned auto-lock off and left it off. Absence is not a
+    // choice, and for this setting it must not be read as one
+    it('falls back when the stored settings omit the fields', async () => {
+        store.set(SETTINGS_KEY, JSON.stringify({ theme: 'light' }));
+        const settings = await freshService();
+        expect(settings.getAutoLockEnabled()).toBe(true);
+        expect(settings.getAutoLockDuration()).toBe(20);
+        // The rest of the stored blob is still honoured
+        expect(settings.getTheme()).toBe('light');
+    });
 });
 
 describe('password breach checking', () => {

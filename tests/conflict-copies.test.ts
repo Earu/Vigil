@@ -47,6 +47,26 @@ describe('names sync clients give conflict copies', () => {
         expect(isConflictCopyName('work.kdbx', 'vault 2.kdbx')).toBe(false);
     });
 
+    // The OneDrive suffix used to be "anything without a slash", so every
+    // sibling named after the vault was nominated: read-granted, opened with
+    // the vault's credentials and merged in whenever it shared the root UUID,
+    // which a vault forked by copying this one does. Held to a machine name
+    // now. A short word is the same shape as one, so vault-work.kdbx is still
+    // claimed; what went is everything longer, punctuated or spaced
+    it('holds the OneDrive suffix to something that could be a machine name', () => {
+        expect(isConflictCopyName(vault, 'vault-personal-backup-2024.kdbx')).toBe(false);
+        expect(isConflictCopyName(vault, 'vault-archive 2024.kdbx')).toBe(false);
+        expect(isConflictCopyName(vault, 'vault-my.other.kdbx')).toBe(false);
+        expect(isConflictCopyName(vault, 'vault-.kdbx')).toBe(false);
+        expect(isConflictCopyName(vault, 'vault--x.kdbx')).toBe(false);
+        // A bare number is no client's conflict name; the ones that count
+        // from 2 write "vault 2.kdbx" or "vault (2).kdbx"
+        expect(isConflictCopyName(vault, 'vault-2.kdbx')).toBe(false);
+        // 15 characters is the Windows limit, and the boundary is inclusive
+        expect(isConflictCopyName(vault, 'vault-DESKTOP-4K2J9P1.kdbx')).toBe(true);
+        expect(isConflictCopyName(vault, 'vault-DESKTOP-4K2J9P12.kdbx')).toBe(false);
+    });
+
     it('never nominates the vault itself, its backups or other extensions', () => {
         expect(isConflictCopyName(vault, 'vault.kdbx')).toBe(false);
         expect(isConflictCopyName(vault, 'vault.kdbx.bak')).toBe(false);

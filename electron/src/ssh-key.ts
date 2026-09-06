@@ -156,10 +156,22 @@ const CIPHERS: Record<string, CipherSpec> = {
     'aes256-gcm@openssh.com': { node: 'aes-256-gcm', keyLength: 32, ivLength: 12, tagLength: 16 },
 };
 
+// Two indexOf scans rather than a regex. `-----BEGIN L-----([\s\S]*?)-----END L-----`
+// reads well and backtracks quadratically: on a file of repeated banners with
+// no END, the lazy group rescans to the end of the input from every banner,
+// which measured 19 seconds on the 1 MiB an attachment is allowed to be
+// (ipc.ts MAX_KEY_BYTES). This runs in the main process, so that is every
+// window frozen, and the entry only has to be selected for it (EntryDetails
+// inspects the key on selection). Same result as the regex: it could only ever
+// match at the first BEGIN, since an END that follows a later one follows that
+// one too
 function pemBody(text: string, label: string): Buffer {
-    const match = text.match(new RegExp(`-----BEGIN ${label}-----([\\s\\S]*?)-----END ${label}-----`));
-    if (!match) throw new SshKeyError('Malformed key file', 'format');
-    const base64 = match[1].replace(/[^A-Za-z0-9+/=]/g, '');
+    const begin = `-----BEGIN ${label}-----`;
+    const end = `-----END ${label}-----`;
+    const start = text.indexOf(begin);
+    const stop = start === -1 ? -1 : text.indexOf(end, start + begin.length);
+    if (start === -1 || stop === -1) throw new SshKeyError('Malformed key file', 'format');
+    const base64 = text.slice(start + begin.length, stop).replace(/[^A-Za-z0-9+/=]/g, '');
     if (!base64) throw new SshKeyError('Malformed key file', 'format');
     return Buffer.from(base64, 'base64');
 }

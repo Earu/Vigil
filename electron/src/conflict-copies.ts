@@ -34,8 +34,17 @@ export function conflictCopyPatterns(vaultBasename: string): RegExp[] {
         new RegExp(`^${stem} \\(\\d+\\)${suffix}$`, 'i'),
         // Dropbox, Nextcloud, Google Drive: "vault (Ryan's conflicted copy 2026-09-05).kdbx"
         new RegExp(`^${stem} \\(.*conflicted copy.*\\)${suffix}$`, 'i'),
-        // OneDrive: "vault-DESKTOP-ABC123.kdbx"
-        new RegExp(`^${stem}-[^./\\\\]+${suffix}$`, 'i'),
+        // OneDrive: "vault-DESKTOP-ABC123.kdbx", the suffix being the machine
+        // name. Held to what Windows lets one be (1 to 15 characters, letters,
+        // digits and inner hyphens, at least one letter) rather than the
+        // anything-without-a-slash this used to take, which claimed every
+        // sibling named after the vault: vault-archive-2024.kdbx and its like
+        // were read, opened with the vault's credentials and merged in
+        // whenever they shared its root UUID, which a vault forked by copying
+        // this one does. A machine name and a short word are the same shape,
+        // so vault-work.kdbx is still claimed; what this drops is everything
+        // longer, punctuated or spaced
+        new RegExp(`^${stem}-(?=[A-Za-z0-9-]*[A-Za-z])[A-Za-z0-9](?:[A-Za-z0-9-]{0,13}[A-Za-z0-9])?${suffix}$`, 'i'),
         // Syncthing: "vault.sync-conflict-20260905-123456-ABCDEFG.kdbx"
         new RegExp(`^${stem}\\.sync-conflict-\\d{8}-\\d{6}-[A-Z0-9]+${suffix}$`, 'i'),
     ];
