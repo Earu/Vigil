@@ -33,14 +33,70 @@ inline void Scrub(std::vector<uint8_t>& buffer) {
     buffer.clear();
 }
 
-#ifdef __OBJC__
+// Whether the bytes are well-formed UTF-8: the sequences of Unicode 16
+// Table 3-7, so no overlong form, no surrogate, nothing past U+10FFFF and
+// no continuation byte on its own. Plain C++ so the fuzz target reaches it
+// on every platform; under AddressSanitizer a step past the end of a
+// truncated sequence is a report
+inline bool IsWellFormedUtf8(const std::string& value) {
+    const auto* bytes = reinterpret_cast<const unsigned char*>(value.data());
+    const size_t size = value.size();
+    size_t i = 0;
+    while (i < size) {
+        const unsigned char lead = bytes[i];
+        if (lead < 0x80) {
+            ++i;
+            continue;
+        }
+        size_t length;
+        unsigned char low = 0x80;
+        unsigned char high = 0xBF;
+        if (lead >= 0xC2 && lead <= 0xDF) {
+            length = 2;
+        } else if (lead == 0xE0) {
+            length = 3;
+            low = 0xA0;
+        } else if (lead >= 0xE1 && lead <= 0xEC) {
+            length = 3;
+        } else if (lead == 0xED) {
+            length = 3;
+            high = 0x9F;
+        } else if (lead == 0xEE || lead == 0xEF) {
+            length = 3;
+        } else if (lead == 0xF0) {
+            length = 4;
+            low = 0x90;
+        } else if (lead >= 0xF1 && lead <= 0xF3) {
+            length = 4;
+        } else if (lead == 0xF4) {
+            length = 4;
+            high = 0x8F;
+        } else {
+            return false;
+        }
+        if (size - i < length) return false;
+        if (bytes[i + 1] < low || bytes[i + 1] > high) return false;
+        for (size_t k = 2; k < length; ++k) {
+            if (bytes[i + k] < 0x80 || bytes[i + k] > 0xBF) return false;
+        }
+        i += length;
+    }
+    return true;
+}
 
-// nil when the bytes cannot name a keychain item, rather than the empty
-// string. Two account names that both failed to convert would otherwise name
-// the same item, and the caller would read one database's key under
-// another's name. Every caller checks for nil and refuses the operation.
+// Whether the bytes can name a keychain item, which is decided here rather
+// than left to NSString. The rule is that a name is exactly its bytes: two
+// different byte strings must never become one NSString, or the caller reads
+// one database's key under another's name. NSString does not keep to that
+// on its own. The first macOS fuzz run found that it accepts an embedded NUL,
+// the next that it takes a stray continuation byte (0xA9 after a complete
+// character, though not 0x80 or 0xBF) and replaces it with U+FFFD, and that
+// it strips one leading byte order mark, so "\xEF\xBB\xBF" "vault" and
+// "vault" were one item. What it does with malformed input varies by byte
+// and by OS release, so nothing malformed reaches it, and neither does a
+// leading BOM.
 //
-// A NUL is refused as well, although NSString would take it. In the Security
+// The NUL is refused although NSString would keep it. In the Security
 // framework's source the legacy keychain converts string attributes with
 // CFStringGetCString and measures them with strlen (libsecurity_keychain
 // SecItem.cpp, CloneDataByType), so there a name ends at its first NUL and
@@ -51,8 +107,20 @@ inline void Scrub(std::vector<uint8_t>& buffer) {
 // CFData (SecDbItem.c copyString, copyData), so on that path a NUL is kept.
 // The refusal costs nothing, since no account name is a path with a NUL in
 // it, and it keeps the guarantee from resting on the keychain flag alone
+inline bool IsKeychainName(const std::string& value) {
+    if (value.find('\0') != std::string::npos) return false;
+    if (value.compare(0, 3, "\xEF\xBB\xBF") == 0) return false;
+    return IsWellFormedUtf8(value);
+}
+
+#ifdef __OBJC__
+
+// nil when the bytes cannot name a keychain item, rather than the empty
+// string. Two account names that both failed to convert would otherwise name
+// the same item, and the caller would read one database's key under
+// another's name. Every caller checks for nil and refuses the operation
 inline NSString* ToNSString(const std::string& value) {
-    if (value.find('\0') != std::string::npos) return nil;
+    if (!IsKeychainName(value)) return nil;
     return [[NSString alloc] initWithBytes:value.data()
                                     length:value.size()
                                   encoding:NSUTF8StringEncoding];

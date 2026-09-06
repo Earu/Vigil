@@ -6,15 +6,19 @@
 // NSData the OS returns. So the target is smaller than the PC/SC one, and it
 // covers the two things that are decisions rather than pass-through:
 //
-//   Scrub        every byte of key material is overwritten before the
-//                allocation goes back to the heap. Under ASan a wipe that
-//                walks off the end of the vector is a report rather than a
-//                silent corruption of whatever follows it.
-//   ToNSString   which byte strings can name a keychain item. Two names that
-//                both fail to convert must not become the same name, or one
-//                database's key is read under another's.
+//   Scrub           every byte of key material is overwritten before the
+//                   allocation goes back to the heap. Under ASan a wipe that
+//                   walks off the end of the vector is a report rather than a
+//                   silent corruption of whatever follows it.
+//   IsKeychainName  which byte strings can name a keychain item. It walks
+//   ToNSString      multi-byte sequences by hand, so under ASan a step past
+//                   the end of a truncated one is a report. On macOS the
+//                   NSString the addon builds from an accepted name is then
+//                   checked against the bytes it came from: two names that
+//                   differ must not become the same name, or one database's
+//                   key is read under another's.
 //
-// ToNSString needs Foundation, so that half compiles on macOS only and the
+// ToNSString needs Foundation, so that check compiles on macOS only and the
 // security workflow runs this target on a macOS runner as well as Linux. The
 // keychain itself is never touched: no SecItem call, no entitlement, no
 // prompt, nothing that needs a device.
@@ -51,28 +55,42 @@ void CheckScrub(const uint8_t* data, size_t size) {
     }
 }
 
+// What the validator promises about a name it accepts, stated without
+// Foundation so it holds on every platform the target is built on
+bool CheckKeychainName(const std::string& value) {
+    const bool accepted = vigil_touchid::IsKeychainName(value);
+    if (accepted) {
+        assert(value.find('\0') == std::string::npos && "a name with a NUL in it was accepted");
+        assert(value.compare(0, 3, "\xEF\xBB\xBF") != 0 && "a name with a leading byte order mark was accepted");
+    }
+    assert(vigil_touchid::IsKeychainName(value) == accepted && "the decision changed on a second look");
+    return accepted;
+}
+
 #ifdef __APPLE__
 
 // The name a keychain query is built with, for arbitrary bytes. Either the
-// bytes are a string, and it is exactly those bytes back, or there is no
-// string and the caller refuses the operation
-void CheckToNSString(const uint8_t* data, size_t size) {
+// validator refuses them and there is no string, or there is one and it is
+// exactly those bytes back. The second half is what keeps the validator
+// honest: NSString has its own ideas about malformed input (a stray 0xA9
+// becomes U+FFFD, a leading byte order mark is dropped), and any of them the
+// validator lets through shows up here as a name that is not its bytes
+void CheckToNSString(const std::string& value, bool accepted) {
     @autoreleasepool {
-        const std::string value(reinterpret_cast<const char*>(data), size);
         NSString* name = vigil_touchid::ToNSString(value);
-        if (name == nil) return;
-
-        // A name with a NUL in it is refused before NSString sees it: the
-        // legacy keychain reads attributes as C strings, and although the
-        // data protection keychain this addon uses keeps the whole string,
-        // the refusal is what makes that not matter (see the header)
-        assert(value.find('\0') == std::string::npos && "a name with a NUL in it was accepted");
+        if (!accepted) {
+            assert(name == nil && "a refused name still became a string");
+            return;
+        }
+        // Well-formed UTF-8 is something NSString always takes, so the
+        // validator's yes must be Foundation's yes as well
+        assert(name != nil && "an accepted name did not become a string");
 
         // A name that came back must be the bytes it was made from: anything
         // else and two different accounts could share one keychain item. The
         // length is asked of the string, not measured with strlen: the first
         // run of this target on macOS did that, and the assertion tripped on
-        // the NUL case above rather than on a real change of length
+        // an embedded NUL rather than on a real change of length
         NSData* bytes = [name dataUsingEncoding:NSUTF8StringEncoding];
         assert(bytes != nil && "a string that cannot be read back");
         assert([bytes length] == value.size() && "a name changed length on the way through");
@@ -89,8 +107,12 @@ void CheckToNSString(const uint8_t* data, size_t size) {
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     CheckScrub(data, size);
+    const std::string value(reinterpret_cast<const char*>(data), size);
+    const bool accepted = CheckKeychainName(value);
 #ifdef __APPLE__
-    CheckToNSString(data, size);
+    CheckToNSString(value, accepted);
+#else
+    (void) accepted;
 #endif
     return 0;
 }

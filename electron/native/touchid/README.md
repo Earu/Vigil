@@ -41,23 +41,36 @@ rather than pass-through:
 - `Scrub`, which has to reach every byte of key material and no byte past it.
   Under AddressSanitizer a wipe that runs off the end is a report rather than
   a silent corruption of whatever follows.
-- `ToNSString`, which decides what can name a keychain item. It returns nil
-  for bytes `NSString` will not take, and for a name with a NUL in it, and
-  every caller refuses the operation. It used to substitute `@""`, which
-  meant two names that both failed to convert became the same name and one
-  database's key could be read under another's. The NUL rule came out of the
-  first macOS fuzz run: `NSString` accepts an embedded NUL. In the Security
-  framework's source the legacy keychain then reads string attributes with
-  `strlen` (`CloneDataByType` in `libsecurity_keychain/lib/SecItem.cpp`), so
-  there the name would end at the NUL. The data protection keychain this
-  addon asks for does not go through that code: the query is DER-encoded
-  with an explicit length (`der_encode_string`) and securityd stores the
-  full string (`copyString`, `copyData` in `keychain/securityd/SecDbItem.c`).
-  The name is refused anyway, so the guarantee does not rest on the flag.
+- `IsKeychainName` and `ToNSString`, which decide what can name a keychain
+  item. The rule is that a name is exactly its bytes, so two names that
+  differ can never become one item and one database's key be read under
+  another's. `ToNSString` used to substitute `@""` for anything `NSString`
+  refused, which broke that outright; then it relied on `NSString` to do the
+  refusing, and the macOS fuzz runs showed `NSString` does not keep to the
+  rule either. It accepts an embedded NUL; it takes a stray continuation
+  byte such as 0xA9 after a complete character (though not 0x80 or 0xBF) and
+  replaces it with U+FFFD; and it strips one leading byte order mark, so a
+  name with a BOM in front and the same name without were one item. So the
+  decision is made in plain C++ before `NSString` is involved: a name must be
+  well-formed UTF-8 (Unicode Table 3-7, so no overlong form, surrogate or
+  lone continuation byte), have no NUL and not start with a BOM. Every caller
+  refuses the operation for anything else. On macOS the fuzz target then
+  checks that whatever passes comes back out of `NSString` as the same bytes,
+  which is what catches the next leniency Foundation grows.
+
+  The NUL matters for the legacy keychain, which in the Security framework's
+  source reads string attributes with `strlen` (`CloneDataByType` in
+  `libsecurity_keychain/lib/SecItem.cpp`), so there the name would end at
+  the NUL. The data protection keychain this addon asks for does not go
+  through that code: the query is DER-encoded with an explicit length
+  (`der_encode_string`) and securityd stores the full string (`copyString`,
+  `copyData` in `keychain/securityd/SecDbItem.c`). The name is refused
+  anyway, so the guarantee does not rest on the flag.
 
 `npm run test:fuzz:native -- --target touchid`, or without the flag for both
-addons. Only the wipe is covered off macOS: `ToNSString` needs Foundation, so
-the security workflow runs the target on a macOS runner as well as Linux.
+addons. Off macOS the wipe and the validator are covered but not the
+comparison with `NSString`, which needs Foundation, so the security workflow
+runs the target on a macOS runner as well as Linux.
 Nothing in it touches the keychain, so no entitlement, enrolled finger or
 prompt is involved.
 
