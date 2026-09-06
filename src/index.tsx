@@ -5,6 +5,7 @@ import './index.css';
 import * as kdbxweb from 'kdbxweb';
 import { IElectronAPI } from './types/electron';
 import { installErrorReporting } from './errorReporting';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { userSettingsService } from './services/UserSettingsService';
 
 // Before anything else can fail
@@ -40,6 +41,8 @@ if (window?.electron) {
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
 	<React.StrictMode>
-		<App />
+		<ErrorBoundary>
+			<App />
+		</ErrorBoundary>
 	</React.StrictMode>
 );
