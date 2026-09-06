@@ -57,7 +57,11 @@ Apple's clang ships the sanitizers but not libFuzzer, so on macOS the runner
 picks a Homebrew LLVM if one is installed (`brew install llvm`; the GitHub
 runner images ship one) and fuzzes with that. With Apple's clang alone it
 replays the corpus through the target once under the sanitizers instead: a
-regression check, not a search.
+regression check, not a search. Each instrumentation is probed by building
+and running a no-op target before it is used, and the run prints the one it
+settled on: a Homebrew LLVM older than the OS can build an AddressSanitizer
+binary that never gets past its own startup, in which case the run carries
+on without it and says so.
 
 ## Storage
 
