@@ -590,6 +590,26 @@ describe('argon2 serialization', () => {
         expect(hashPassword).toHaveBeenCalledTimes(1);
         expect(await p1).toBe('key-1');
     });
+
+    // hashPassword wraps both in new Uint8Array, which reads a number as a
+    // length: unchecked, a bad argument allocated whatever it named in the
+    // main process instead of failing the call
+    it('refuses a password or salt that is not a buffer', () => {
+        for (const bad of [4096, '4096', null, undefined, {}]) {
+            expect(() => argon2()(makeEvent(), bad, buf, 65536, 3, 32, 4, 2, 19))
+                .toThrow('Invalid key derivation input');
+            expect(() => argon2()(makeEvent(), buf, bad, 65536, 3, 32, 4, 2, 19))
+                .toThrow('Invalid key derivation input');
+        }
+        expect(hashPassword).not.toHaveBeenCalled();
+    });
+
+    it('takes an ArrayBuffer or a view over one', async () => {
+        hashPassword.mockResolvedValue('key' as never);
+        expect(await argon2()(makeEvent(), buf, buf, 65536, 3, 32, 4, 2, 19)).toBe('key');
+        const view = new Uint8Array(8);
+        expect(await argon2()(makeEvent(), view, view, 65536, 3, 32, 4, 2, 19)).toBe('key');
+    });
 });
 
 describe('backup defaulting', () => {

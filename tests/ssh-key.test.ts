@@ -162,6 +162,22 @@ describe('private key parsing', () => {
         expect(() => parsePrivateKey(load('ed25519_plain.pub'))).toThrow(expect.objectContaining({ code: 'format' }));
     });
 
+    // The PEM extractor used to be a regex whose lazy body backtracked
+    // quadratically: a file of repeated banners with no END rescanned to the
+    // end of the input from each one. At the 1 MiB an attachment may be
+    // (ipc.ts MAX_KEY_BYTES) that measured 19 seconds per call, in the main
+    // process, and selecting the entry is enough to fire it
+    it('refuses a file of repeated banners without stalling', () => {
+        const banner = '-----BEGIN OPENSSH PRIVATE KEY-----';
+        const bytes = Buffer.from(banner.repeat(Math.floor((1024 * 1024) / banner.length)));
+        const started = Date.now();
+        expect(() => parsePrivateKey(bytes)).toThrow(expect.objectContaining({ code: 'format' }));
+        expect(() => readPublicInfo(bytes)).toThrow(expect.objectContaining({ code: 'format' }));
+        // Generous next to the 19 seconds this used to take, and far enough
+        // under it that a return of the backtracking cannot pass
+        expect(Date.now() - started).toBeLessThan(1000);
+    });
+
     it('refuses a KDF round count it cannot afford, at once', () => {
         // The bcrypt round count sits in the file's kdf options. One flipped
         // byte there (which the fuzz suite eventually produced) asks for
