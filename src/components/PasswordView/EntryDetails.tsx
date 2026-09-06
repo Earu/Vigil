@@ -252,6 +252,14 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		setRevealedCustomFields(new Set());
 		setTotpInput('');
 		setTotpError('');
+		// The account picker from a Google Authenticator export is a modal
+		// rendered outside the edit-mode blocks, so it survived a selection
+		// change: picking an account then wrote the one-time-code secret
+		// scanned for the previous entry onto this one
+		setMigrationAccounts(null);
+		setMigrationSelected(0);
+		// An agent failure belongs to the entry whose button was clicked
+		setSshError('');
 		if (!isNew && entry) {
 			setEditedEntry(entry);
 			setIsEditing(false);
