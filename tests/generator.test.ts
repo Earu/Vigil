@@ -101,10 +101,12 @@ describe('generate: distribution', () => {
         const options = {
             ...DEFAULT_CHARACTER_OPTIONS,
             upperCase: false, lowerCase: false, digits: false,
-            special: true, brackets: true, length: 4000,
+            special: true, brackets: true, length: Gen.MAX_LENGTH,
         };
         const poolSize = Gen.characterPool(options).length;
-        const sample = Gen.generate(options);
+        // Many passwords at the maximum length: one sample of 4000
+        // characters is past what generate() accepts
+        const sample = Array.from({ length: 32 }, () => Gen.generate(options)).join('');
         const counts = new Map<string, number>();
         for (const ch of sample) counts.set(ch, (counts.get(ch) ?? 0) + 1);
 
@@ -169,6 +171,42 @@ describe('generateFromSettings', () => {
             words: DEFAULT_WORD_OPTIONS,
         });
         expect(Gen.generateFromSettings().length).toBe(DEFAULT_CHARACTER_OPTIONS.length);
+    });
+});
+
+// The length reaches the generator from the modal's number box and from
+// storage; neither may produce an empty or absurd password
+describe('length bounds', () => {
+    it('refuses a length outside the modal\'s range instead of looping zero or huge times', () => {
+        for (const length of [0, -1, 129, 10_000, Number.NaN, null as unknown as number, 2.5]) {
+            expect(() => Gen.generate({ ...digitsOnly, length }), String(length)).toThrow('Invalid password length');
+        }
+        expect(Gen.generate({ ...digitsOnly, length: 1 })).toMatch(/^[0-9]$/);
+        expect(Gen.generate({ ...digitsOnly, length: 128 })).toMatch(/^[0-9]{128}$/);
+    });
+
+    it('clamps whatever was typed or stored into range', () => {
+        expect(Gen.clampLength(0)).toBe(1);
+        expect(Gen.clampLength(500)).toBe(128);
+        expect(Gen.clampLength(33.9)).toBe(33);
+        for (const junk of [Number.NaN, null, undefined, 'abc', Infinity]) {
+            expect(Gen.clampLength(junk), String(junk)).toBe(DEFAULT_CHARACTER_OPTIONS.length);
+        }
+    });
+
+    it('loads a stored null or out-of-range length as a usable one', () => {
+        // What a cleared number box used to persist: NaN serialises as null
+        store.set('vigil-generator-settings', JSON.stringify({ mode: 'characters', characters: { ...digitsOnly, length: null } }));
+        expect(Gen.loadSettings().characters.length).toBe(DEFAULT_CHARACTER_OPTIONS.length);
+        store.set('vigil-generator-settings', JSON.stringify({ mode: 'characters', characters: { ...digitsOnly, length: 9999 } }));
+        expect(Gen.loadSettings().characters.length).toBe(128);
+    });
+
+    it('never answers the browser extension with an empty password', async () => {
+        store.set('vigil-generator-settings', JSON.stringify({ mode: 'characters', characters: { ...digitsOnly, length: null } }));
+        const result = await BrowserIntegrationService.handleRequest('generate-password', {}, {} as any);
+        expect(result.password).toMatch(/^[0-9]+$/);
+        expect(result.password.length).toBe(DEFAULT_CHARACTER_OPTIONS.length);
     });
 });
 

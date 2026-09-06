@@ -631,6 +631,20 @@ describe('conflict copies', () => {
         expect(await handlers.get('list-conflict-copies')!(makeEvent(), '/nowhere/vault.kdbx')).toEqual([]);
     });
 
+    // Listing read-grants every copy it finds, and the folder channels take
+    // the same argument, so a key file's read grant must not open any of
+    // them: only the write grant a vault path holds does
+    it.each([
+        { channel: 'list-conflict-copies', denied: [] },
+        { channel: 'vault-folder-access', denied: { listable: false, reason: 'other', code: 'UNGRANTED' } },
+        { channel: 'request-vault-folder-access', denied: { granted: false, reason: 'cancelled' } },
+    ])('$channel refuses a path granted read-only', async ({ channel, denied }) => {
+        isPathGranted.mockImplementation((_path, options) => options?.write !== true);
+        fromWebContents.mockReturnValue({ id: 1 });
+        expect(await handlers.get(channel)!(makeEvent(), '/keys/master.keyx')).toEqual(denied);
+        expect(isPathGranted).toHaveBeenCalledWith('/keys/master.keyx', { write: true });
+    });
+
     it('refuses to trash a path the main process never nominated, granted or not', async () => {
         isPathGranted.mockReturnValue(true);
         const result = await handlers.get('trash-conflict-copy')!(makeEvent(), '/keys/vault.keyx');

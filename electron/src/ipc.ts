@@ -181,10 +181,12 @@ export function setupIpcHandlers(): void {
     // Conflict copies a sync client left beside the vault (conflict-copies.ts).
     // The renderer asks once when it starts listening for the watcher's
     // events, since copies from before the vault opened raise no event.
-    // Gated on the vault path: only an open vault has copies to ask about,
-    // and each copy found is read-granted for the renderer to examine
+    // Gated on the write grant only vault paths hold: this hands out read
+    // grants on the copies it finds, and a key file's read grant must not
+    // reach the files named like copies of it beside it. Same for the two
+    // folder channels below, which take the same argument
     handle('list-conflict-copies', async (_, vaultPath: string) => {
-        if (!isPathGranted(vaultPath)) return [];
+        if (!isPathGranted(vaultPath, { write: true })) return [];
         const copies = await scanConflictCopies(vaultPath);
         for (const copy of copies) {
             nominateConflictCopy(copy.copyPath);
@@ -197,13 +199,13 @@ export function setupIpcHandlers(): void {
     // macOS a "no" is usually the folder lacking the Files and Folders grant
     // the vault itself already has; the request below asks for it
     handle('vault-folder-access', async (_, vaultPath: string) => {
-        if (!isPathGranted(vaultPath)) return { listable: false, reason: 'other', code: 'UNGRANTED' };
+        if (!isPathGranted(vaultPath, { write: true })) return { listable: false, reason: 'other', code: 'UNGRANTED' };
         return await probeVaultFolder(vaultPath);
     });
 
     handle('request-vault-folder-access', async (event, vaultPath: string) => {
         const win = BrowserWindow.fromWebContents(event.sender);
-        if (!win || !isPathGranted(vaultPath)) return { granted: false, reason: 'cancelled' };
+        if (!win || !isPathGranted(vaultPath, { write: true })) return { granted: false, reason: 'cancelled' };
         return await requestVaultFolderAccess(win, vaultPath);
     });
 

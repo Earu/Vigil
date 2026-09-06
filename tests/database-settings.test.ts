@@ -110,6 +110,57 @@ describe('KDF settings', () => {
     });
 });
 
+// AES-KDF has no main-process gate: kdbxweb runs it in the renderer, where
+// nothing can stop it once started. So the settings refuse to write rounds
+// past the ceiling, and the header is read on its own before a load so a
+// file past it fails the unlock instead of pinning a core for hours
+describe('AES-KDF ceiling', () => {
+    const cap = Svc.MAX_AES_KDF_ROUNDS;
+
+    it('refuses to write rounds past the ceiling, for kdbx3 and kdbx4 alike', async () => {
+        const db3 = await makeDb(3);
+        expect(() => Svc.setKdf(db3, { type: 'aes-kdbx3', iterations: cap + 1 })).toThrow('KDF_WORK_EXCEEDED');
+        expect(() => Svc.setKdf(db3, { type: 'aes-kdbx3', iterations: Number.NaN })).toThrow('KDF_WORK_EXCEEDED');
+        Svc.setKdf(db3, { type: 'aes-kdbx3', iterations: cap });
+        expect(Svc.getKdfInfo(db3).iterations).toBe(cap);
+        expect(Svc.aesRoundsExceeded({ type: 'aes', iterations: cap + 1 })).toBe(true);
+        expect(Svc.aesRoundsExceeded({ type: 'argon2id', iterations: cap + 1, memoryMiB: 1 })).toBe(false);
+        expect(Svc.kdfWorkExceeded({ type: 'aes', iterations: cap + 1 })).toBe(true);
+    });
+
+    it('reads the KDF from a file header without deriving anything', async () => {
+        const db = await makeDb(4);
+        Svc.setKdf(db, { type: 'argon2id', iterations: 3, memoryMiB: 16, parallelism: 2 });
+        const bytes = await db.save();
+        expect(Svc.peekKdfInfo(bytes)).toEqual({ type: 'argon2id', iterations: 3, memoryMiB: 16, parallelism: 2 });
+        expect(() => Svc.assertKdfOpenable(bytes)).not.toThrow();
+
+        const db3 = await makeDb(3);
+        Svc.setKdf(db3, { type: 'aes-kdbx3', iterations: 1000 });
+        expect(Svc.peekKdfInfo(await db3.save())).toEqual({ type: 'aes-kdbx3', iterations: 1000 });
+    });
+
+    it('refuses a file whose header asks for more rounds than the ceiling', async () => {
+        // Saving with the real count would run the KDF that many times, so
+        // the file is saved at 1000 rounds and the header patched: kdbx3
+        // field 6 (TransformRounds) is id, uint16 size 8, uint64 LE value
+        const db3 = await makeDb(3);
+        Svc.setKdf(db3, { type: 'aes-kdbx3', iterations: 1000 });
+        const bytes = new Uint8Array(await db3.save());
+        const marker = [0x06, 0x08, 0x00, 0xe8, 0x03, 0, 0, 0, 0, 0, 0];
+        const at = bytes.findIndex((_, i) => marker.every((b, j) => bytes[i + j] === b));
+        expect(at).toBeGreaterThan(0);
+        new DataView(bytes.buffer).setBigUint64(at + 3, BigInt(cap + 1), true);
+
+        expect(Svc.peekKdfInfo(bytes.buffer)).toEqual({ type: 'aes-kdbx3', iterations: cap + 1 });
+        expect(() => Svc.assertKdfOpenable(bytes.buffer)).toThrow('KDF_WORK_EXCEEDED');
+    });
+
+    it('leaves a header it cannot parse for the load to report', () => {
+        expect(() => Svc.assertKdfOpenable(new Uint8Array([1, 2, 3]).buffer)).not.toThrow();
+    });
+});
+
 describe('history retention', () => {
     it('trims history to the configured maximum on save', async () => {
         let db = await makeDb(3);

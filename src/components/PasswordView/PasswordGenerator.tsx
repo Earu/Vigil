@@ -130,6 +130,13 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
     };
 
     const updateOptions = (patch: Partial<PasswordOptions>) => {
+        // The number box can be cleared or typed past its bounds; nothing
+        // out of range is kept, so the saved settings the browser extension
+        // generates from always hold a usable length
+        if ('length' in patch) {
+            if (!Number.isFinite(patch.length)) return;
+            patch = { ...patch, length: PasswordGeneratorService.clampLength(patch.length) };
+        }
         // A change to seeded options stays with them, and with this session
         if (seededOptions) {
             setSeededOptions({ ...seededOptions, ...patch });
