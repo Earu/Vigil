@@ -91,3 +91,58 @@ describe('a key file change', () => {
         ).resolves.toBeTruthy();
     });
 });
+
+// The credential revert exists for a save that never reached the file. Past
+// the write the file is under the new key, so putting the old one back would
+// leave the vault holding a key that opens nothing.
+describe('a failure after the write has landed', () => {
+    it('keeps the credentials the file was written with', async () => {
+        const db = await openVault();
+        const electron = (globalThis as any).window.electron;
+        const realStat = electron.statFile;
+        // The save stats twice: once for conflict detection before the write,
+        // once to refresh the baseline after it. Only the second one is past
+        // the point of no return
+        let stats = 0;
+        electron.statFile = async (...args: unknown[]) => {
+            if (++stats > 1) throw new Error('stat failed');
+            return realStat(...args);
+        };
+        try {
+            await Svc.saveDatabase(Svc.convertKdbxToDatabase(db), db, {
+                password: kdbxweb.ProtectedValue.fromString('rotated'),
+            });
+        } finally {
+            electron.statFile = realStat;
+        }
+
+        const rotated = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('rotated'));
+        await expect(
+            kdbxweb.Kdbx.load(Uint8Array.from(env.disk.bytes!).buffer, rotated)
+        ).resolves.toBeTruthy();
+        // And the open vault still writes something that file's key opens
+        await expect(kdbxweb.Kdbx.load(await db.save(), rotated)).resolves.toBeTruthy();
+    });
+
+    // Anything that throws past the write reaches the same catch as a write
+    // that never happened; only the flag tells them apart
+    it('keeps them even when the save still ends in the catch', async () => {
+        const db = await openVault();
+        const w = (globalThis as any).window;
+        const realToast = w.showToast;
+        w.showToast = () => { throw new Error('toast failed'); };
+        try {
+            await expect(Svc.saveDatabase(Svc.convertKdbxToDatabase(db), db, {
+                password: kdbxweb.ProtectedValue.fromString('rotated'),
+            })).rejects.toThrow();
+        } finally {
+            w.showToast = realToast;
+        }
+
+        const rotated = new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('rotated'));
+        await expect(
+            kdbxweb.Kdbx.load(Uint8Array.from(env.disk.bytes!).buffer, rotated)
+        ).resolves.toBeTruthy();
+        await expect(kdbxweb.Kdbx.load(await db.save(), rotated)).resolves.toBeTruthy();
+    });
+});

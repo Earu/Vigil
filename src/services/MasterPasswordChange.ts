@@ -56,16 +56,47 @@ export async function changeMasterPassword(
 
     if (!enabled || !bridge || !dbPath) return { saved, biometrics: 'not-enabled' };
 
+    return { saved, ...await reseal(bridge, dbPath, newPassword) };
+}
+
+// Seals a password that is already in force on the file. A re-seal that fails
+// leaves the old one sealed, still releasable by a fingerprint, so the setup
+// is torn down rather than left holding a password the user just rotated
+async function reseal(
+    bridge: BiometricsBridge,
+    dbPath: string,
+    newPassword: string
+): Promise<{ biometrics: 'resealed' | 'off'; reason?: string }> {
     try {
         const sealed = await bridge.enableBiometrics(dbPath, newPassword);
-        if (sealed.success) return { saved, biometrics: 'resealed' };
+        if (sealed.success) return { biometrics: 'resealed' };
         await turnOff(bridge, dbPath);
-        return { saved, biometrics: 'off', reason: sealed.error || 'the new password could not be stored for biometric unlock' };
+        return { biometrics: 'off', reason: sealed.error || 'the new password could not be stored for biometric unlock' };
     } catch (err) {
         console.error('Failed to refresh biometric credentials:', err);
         await turnOff(bridge, dbPath);
-        return { saved, biometrics: 'off', reason: 'the new password could not be stored for biometric unlock' };
+        return { biometrics: 'off', reason: 'the new password could not be stored for biometric unlock' };
     }
+}
+
+// The same, for a password change made on another device and adopted here.
+// Nothing was set up in this window, so whether biometric unlock holds
+// anything has to be asked first; left alone it would keep releasing the
+// password this vault has stopped taking, and go on holding a rotated one
+export async function resealBiometrics(
+    newPassword: string,
+    bridge: BiometricsBridge | undefined = window.electron,
+    dbPath: string | undefined = KeepassDatabaseService.getPath()
+): Promise<{ biometrics: PasswordChangeOutcome['biometrics']; reason?: string }> {
+    if (!bridge || !dbPath) return { biometrics: 'not-enabled' };
+    try {
+        const bio = await bridge.hasBiometricsEnabled(dbPath);
+        if (!bio.success || !bio.enabled) return { biometrics: 'not-enabled' };
+    } catch (err) {
+        console.error('Failed to check biometrics status:', err);
+        return { biometrics: 'not-enabled' };
+    }
+    return reseal(bridge, dbPath, newPassword);
 }
 
 async function turnOff(bridge: BiometricsBridge, dbPath: string): Promise<void> {

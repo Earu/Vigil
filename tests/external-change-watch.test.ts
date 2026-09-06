@@ -27,6 +27,18 @@ async function writeVault(): Promise<void> {
     env.disk.mtime = 500;
 }
 
+// kdbx4, whose header SHA-256 is verified before the key-derived HMAC, so a
+// sound file we cannot open reports InvalidKey and a damaged one FileCorrupt.
+// AES-KDF rather than the argon2 default only because the test environment
+// has no argon2
+async function writeVaultV4(): Promise<void> {
+    const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+    db0.header.setKdf(kdbxweb.Consts.KdfId.Aes);
+    db0.createEntry(db0.getDefaultGroup()).fields.set('Title', 'Kept');
+    env.disk.bytes = Buffer.from(await db0.save());
+    env.disk.mtime = 500;
+}
+
 // Opens the vault the way PasswordForm does: load, then setPath with the
 // bytes, and let the baseline settle
 async function openVault(): Promise<kdbxweb.Kdbx> {
@@ -181,7 +193,7 @@ describe('an event that carries nothing new', () => {
 
 describe('a version whose key no longer opens', () => {
     it('is reported as a re-key, and the save refuses instead of asking to overwrite', async () => {
-        await writeVault();
+        await writeVaultV4();
         const db = await openVault();
 
         // Another machine changed the master password
@@ -206,6 +218,26 @@ describe('a version whose key no longer opens', () => {
         await expect(
             kdbxweb.Kdbx.load(onDisk, new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('rotated')))
         ).resolves.toBeTruthy();
+    });
+
+    // kdbx3 gives the same InvalidKey for a truncated file as for a wrong key,
+    // and a half-written vault is what a sync client leaves behind routinely.
+    // Calling that a re-key blocked the save with nothing the user could do,
+    // so the format that cannot prove it keeps the conflict route
+    it('is not called a re-key on kdbx3, which cannot tell it from damage', async () => {
+        await writeVault();
+        const db = await openVault();
+
+        const remote = await loadSaved(env);
+        await remote.credentials.setPassword(kdbxweb.ProtectedValue.fromString('rotated'));
+        env.disk.bytes = Buffer.from(await remote.save());
+        env.disk.mtime += 50;
+
+        expect(await Svc.reloadExternalChanges(db, diskHint())).toBe('failed');
+
+        env.confirm.answer = false;
+        await expect(localEditAndSave(db, 'local')).rejects.toThrow('SAVE_CANCELLED_CONFLICT');
+        expect(env.confirm.calls).toBe(1);
     });
 });
 

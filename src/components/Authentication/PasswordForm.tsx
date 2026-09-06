@@ -8,47 +8,16 @@ import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, Un
 import { KeyActionIcon, UsbKeyIcon } from '../../icons/actions/ActionIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
+import {
+    HardwareKeySelection,
+    buildCredentials as buildVaultCredentials,
+    hardwareKeyErrorMessage,
+    hardwareKeyLabel,
+    keyFileName,
+    rememberKeyMaterial,
+    rememberedKeyMaterial
+} from '../../services/VaultCredentials';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
-
-interface HardwareKeySelection {
-    serial: number | null;
-    slot: 1 | 2;
-    label: string;
-}
-
-// Challenge-response against the YubiKey's HMAC-SHA1 slot, KeePassXC scheme.
-// kdbxweb calls this on load and on every save (the challenge is derived from
-// seeds that regenerate when saving), so touch-required slots prompt each time
-const hardwareKeyChallengeCallback = (serial: number | null, slot: 1 | 2) =>
-    async (challenge: ArrayBuffer): Promise<ArrayBuffer> => {
-        const result = await window.electron?.hardwareKeyChallenge(serial, slot, challenge);
-        if (!result?.success || !result.response) {
-            throw new Error(result?.error ?? 'HARDWARE_KEY_FAILED');
-        }
-        const bytes = new Uint8Array(result.response);
-        const out = new ArrayBuffer(bytes.length);
-        new Uint8Array(out).set(bytes);
-        return out;
-    };
-
-const hardwareKeyLabel = (serial: number | null) => serial != null ? `YubiKey ${serial}` : 'YubiKey';
-
-const hardwareKeyErrorMessage = (code: string): string => {
-    switch (code) {
-        case 'HARDWARE_KEY_NOT_FOUND':
-            return 'Hardware key not found. Plug in your YubiKey and try again.';
-        case 'HARDWARE_KEY_TOUCH_TIMEOUT':
-            return 'Hardware key timed out waiting for touch';
-        case 'HARDWARE_KEY_TIMEOUT':
-            return 'The hardware key did not respond. Is the selected slot configured for challenge-response?';
-        case 'HARDWARE_KEY_ACCESS_DENIED':
-            return navigator.platform.startsWith('Mac')
-                ? 'Hardware key could not be opened. Grant Vigil the Input Monitoring permission in System Settings > Privacy & Security, then relaunch.'
-                : 'Hardware key could not be opened. On Linux, install the Yubico udev rules and replug the key.';
-        default:
-            return 'Hardware key communication failed';
-    }
-};
 
 interface PasswordFormProps {
     selectedFile: File | null;
@@ -118,43 +87,16 @@ export const PasswordForm = ({
         };
     }, []);
 
-    const keyFileName = (path: string) => path.split(/[/\\]/).pop() || path;
-
     useEffect(() => {
-        if (databasePath) {
-            const remembered = userSettingsService.getKeyFilePath(databasePath);
-            setKeyFile(remembered ? { path: remembered, name: keyFileName(remembered) } : null);
-            const rememberedHw = userSettingsService.getHardwareKey(databasePath);
-            setHardwareKey(rememberedHw ? { ...rememberedHw, label: hardwareKeyLabel(rememberedHw.serial) } : null);
-        } else {
-            setKeyFile(null);
-            setHardwareKey(null);
-        }
+        const remembered = rememberedKeyMaterial(databasePath);
+        setKeyFile(remembered.keyFile);
+        setHardwareKey(remembered.hardwareKey);
     }, [databasePath]);
 
-    const buildCredentials = async (passwordStr: string): Promise<kdbxweb.Credentials> => {
-        let keyFileData: ArrayBuffer | undefined;
-        if (keyFile) {
-            const result = await window.electron?.readFile(keyFile.path);
-            if (!result?.success || !result.data) {
-                throw new Error('KEYFILE_READ_FAILED');
-            }
-            // Copy into a fresh, exactly-sized buffer before handing it to kdbxweb
-            keyFileData = new Uint8Array(result.data).buffer;
-        }
-        return new kdbxweb.Credentials(
-            kdbxweb.ProtectedValue.fromString(passwordStr),
-            keyFileData,
-            hardwareKey ? hardwareKeyChallengeCallback(hardwareKey.serial, hardwareKey.slot) : undefined
-        );
-    };
+    const buildCredentials = (passwordStr: string): Promise<kdbxweb.Credentials> =>
+        buildVaultCredentials(passwordStr, keyFile, hardwareKey);
 
-    const rememberKeyFile = (dbPath: string | null | undefined) => {
-        if (dbPath) {
-            userSettingsService.setKeyFilePath(dbPath, keyFile?.path);
-            userSettingsService.setHardwareKey(dbPath, hardwareKey ? { serial: hardwareKey.serial, slot: hardwareKey.slot } : undefined);
-        }
-    };
+    const rememberKeyFile = (dbPath: string | null | undefined) => rememberKeyMaterial(dbPath, keyFile, hardwareKey);
 
     const handleSelectKeyFile = async () => {
         const result = await window.electron?.selectKeyFile();
