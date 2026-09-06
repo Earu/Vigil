@@ -114,7 +114,6 @@ export function fingerprintOf(publicBlob: Buffer): string {
 // the agent side, so they are refused rather than mis-parsed
 const PRIVATE_PARTS: Record<string, number> = {
     'ssh-rsa': 6,       // n e d iqmp p q
-    'ssh-dss': 5,       // p q g y x
     'ecdsa-sha2-nistp256': 3, // curve Q d
     'ecdsa-sha2-nistp384': 3,
     'ecdsa-sha2-nistp521': 3,
@@ -128,7 +127,6 @@ const PRIVATE_PARTS: Record<string, number> = {
 // are checked against each other rather than the header being taken on trust
 const PUBLIC_PART_ORDER: Record<string, number[]> = {
     'ssh-rsa': [1, 0],             // e, n
-    'ssh-dss': [0, 1, 2, 3],       // p, q, g, y
     'ecdsa-sha2-nistp256': [0, 1], // curve, Q
     'ecdsa-sha2-nistp384': [0, 1],
     'ecdsa-sha2-nistp521': [0, 1],
@@ -143,6 +141,14 @@ function requireSupportedType(type: string): void {
     if (PRIVATE_PARTS[type]) return;
     if (type.startsWith('sk-')) {
         throw new SshKeyError('Security key backed (sk-) keys are not supported', 'unsupported');
+    }
+    // Refused here as well as in fromKeyObject, which said the same thing for
+    // a DSA key in PEM form while this path quietly took one. ssh-dss is
+    // capped at 1024 bits with SHA-1 by the protocol, was off by default from
+    // OpenSSH 7.0 and is gone from the supported types entirely in current
+    // releases, so the agent would reject whatever this handed it
+    if (type === 'ssh-dss') {
+        throw new SshKeyError('DSA keys are not supported; OpenSSH itself no longer accepts them', 'unsupported');
     }
     throw new SshKeyError(`Unsupported key type ${type}`, 'unsupported');
 }

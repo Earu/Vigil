@@ -229,37 +229,37 @@ describe('private key parsing', () => {
             .toBe(manifest.ed25519_enc.fingerprint);
     });
 
-    // ssh-keygen dropped DSA before this was written, so there is no fixture
-    // to generate. The layout is built here straight from RFC 4253 section
-    // 6.6 (public: p q g y; private section: p q g y x) rather than from the
-    // parser's own table, which is the thing under test
-    it('takes the public half of an ssh-dss key from p, q, g and y', () => {
+    // DSA was accepted in OpenSSH form while fromKeyObject refused it in PEM
+    // form, so the same key was supported or not depending on how it was
+    // written. ssh-dss is capped at 1024 bits with SHA-1 by the protocol and
+    // is gone from current OpenSSH entirely (`ssh -Q key` does not list it),
+    // so the agent would reject whatever was handed to it. Refused in both
+    // paths now, with the same words. No fixture: ssh-keygen will not make one
+    it('refuses a DSA key in either format, and says the same thing for both', () => {
         const part = (byte: number, length: number) => Buffer.alloc(length, byte);
         const [p, q, g, y, x] = [part(0x11, 32), part(0x22, 20), part(0x33, 32), part(0x44, 32), part(0x55, 20)];
-        const build = (blobParts: Buffer[]) => {
-            const publicBlob = Buffer.concat([wireString('ssh-dss'), ...blobParts.map(wireString)]);
-            const check = Buffer.alloc(4, 0x7a);
-            const privateSection = Buffer.concat([
-                check, check, wireString('ssh-dss'),
-                ...[p, q, g, y, x].map(wireString), wireString('vigil-test'),
-            ]);
-            const raw = Buffer.concat([
-                Buffer.from('openssh-key-v1\0', 'latin1'),
-                wireString('none'), wireString('none'), wireString(''), wireU32(1),
-                wireString(publicBlob), wireString(privateSection),
-            ]);
-            const body = raw.toString('base64').match(/.{1,70}/g)!.join('\n');
-            return Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`);
-        };
+        const publicBlob = Buffer.concat([wireString('ssh-dss'), ...[p, q, g, y].map(wireString)]);
+        const check = Buffer.alloc(4, 0x7a);
+        const privateSection = Buffer.concat([
+            check, check, wireString('ssh-dss'),
+            ...[p, q, g, y, x].map(wireString), wireString('vigil-test'),
+        ]);
+        const raw = Buffer.concat([
+            Buffer.from('openssh-key-v1\0', 'latin1'),
+            wireString('none'), wireString('none'), wireString(''), wireU32(1),
+            wireString(publicBlob), wireString(privateSection),
+        ]);
+        const body = raw.toString('base64').match(/.{1,70}/g)!.join('\n');
+        const file = Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`);
 
-        const key = parsePrivateKey(build([p, q, g, y]));
-        expect(key.type).toBe('ssh-dss');
-        expect(key.comment).toBe('vigil-test');
-        // x is the private half and never appears in the blob
-        expect(key.publicBlob.includes(x)).toBe(false);
-        // Any other ordering of the same four is a different key, and refused
-        expect(() => parsePrivateKey(build([q, p, g, y]))).toThrow(expect.objectContaining({ code: 'format' }));
-        expect(() => parsePrivateKey(build([p, q, g, x]))).toThrow(expect.objectContaining({ code: 'format' }));
+        const refusesDsa = (run: () => unknown) => {
+            expect(run).toThrow(expect.objectContaining({ code: 'unsupported' }));
+            expect(run).toThrow('DSA keys are not supported');
+        };
+        refusesDsa(() => parsePrivateKey(file));
+        // The public half alone is refused too, so the panel does not name a
+        // key that cannot be loaded
+        refusesDsa(() => readPublicInfo(file));
     });
 
     it('reads the public half of an encrypted OpenSSH key without the passphrase', () => {
