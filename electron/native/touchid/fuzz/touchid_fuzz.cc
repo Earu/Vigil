@@ -62,12 +62,21 @@ void CheckToNSString(const uint8_t* data, size_t size) {
         NSString* name = vigil_touchid::ToNSString(value);
         if (name == nil) return;
 
+        // A name with a NUL in it is refused before NSString sees it: the
+        // legacy keychain reads attributes as C strings, and although the
+        // data protection keychain this addon uses keeps the whole string,
+        // the refusal is what makes that not matter (see the header)
+        assert(value.find('\0') == std::string::npos && "a name with a NUL in it was accepted");
+
         // A name that came back must be the bytes it was made from: anything
-        // else and two different accounts could share one keychain item
-        const char* utf8 = [name UTF8String];
-        assert(utf8 != nullptr && "a string that cannot be read back");
-        assert(std::strlen(utf8) == value.size() && "a name changed length on the way through");
-        assert(std::memcmp(utf8, value.data(), value.size()) == 0 && "a name is not the bytes it was made from");
+        // else and two different accounts could share one keychain item. The
+        // length is asked of the string, not measured with strlen: the first
+        // run of this target on macOS did that, and the assertion tripped on
+        // the NUL case above rather than on a real change of length
+        NSData* bytes = [name dataUsingEncoding:NSUTF8StringEncoding];
+        assert(bytes != nil && "a string that cannot be read back");
+        assert([bytes length] == value.size() && "a name changed length on the way through");
+        assert(std::memcmp([bytes bytes], value.data(), value.size()) == 0 && "a name is not the bytes it was made from");
         // The empty name is what the old fallback produced for anything that
         // would not convert; it may only come from an empty input now
         assert((value.empty() || [name length] > 0) && "a non-empty name converted to nothing");
