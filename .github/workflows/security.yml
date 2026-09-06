@@ -138,8 +138,9 @@ jobs:
   # Both runners: the Touch ID addon's string handling is Objective-C, so the
   # macOS leg is the only one that fuzzes it rather than compiling it out.
   # Apple's clang has no libFuzzer; the runner uses the Homebrew LLVM the
-  # image ships instead, and falls back to replaying the corpus under the
-  # sanitizers if none is there
+  # image ships instead. Every instrumentation it tries is probed by running
+  # it, since on macOS 26 that LLVM's AddressSanitizer builds a binary that
+  # hangs at startup; the run reports which sanitizers it ended up with
   native-fuzz:
     name: Native addon fuzz (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -216,7 +217,7 @@ jobs:
           echo "Budget: \`${NATIVE_FUZZ_SECONDS}\`s per target under AddressSanitizer and UndefinedBehaviorSanitizer. Findings are filed under Security > Code scanning, category \`native-fuzz-$RUNNER_OS_LABEL\`, and the reproducing input is attached to the run."
           echo
           echo '```'
-          grep -hE "ERROR|SUMMARY|runtime error|Assertion|^Done |^replayed |stat::number_of_executed_units" native-fuzz-out/*.log 2>/dev/null | head -40 || echo "no log"
+          grep -hE "^compiler:|^mode:|^instrumentation:|^passed over:|ERROR|SUMMARY|runtime error|Assertion|^Done |^replayed |stat::number_of_executed_units" native-fuzz-out/*.log 2>/dev/null | head -40 || echo "no log"
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
 

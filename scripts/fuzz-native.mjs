@@ -71,13 +71,24 @@ if (targets.length === 0) {
 
 fs.mkdirSync(outDir, { recursive: true });
 
+// A stuck child must fail the run, never hold it: a compiler waiting on
+// something, or a target that stopped answering, is a finding about the
+// setup and gets a deadline it cannot outlive
+const PROBE_MS = 60_000;
+const BUILD_MS = 300_000;
+
 const quietly = (file, args) => {
     try {
-        return execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+        return execFileSync(file, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: PROBE_MS }).trim();
     } catch {
         return null;
     }
 };
+
+// ASan on macOS 14 and later can stall or abort at startup with the nano
+// malloc zone enabled; disabling it is the documented workaround, and it is
+// meaningless anywhere else
+const childEnv = { ...process.env, MallocNanoZone: '0' };
 
 // A Homebrew clang builds against the SDK Xcode's would, once told where it
 // is; Apple's own clang takes the flag without complaint, so it is passed to
@@ -85,20 +96,57 @@ const quietly = (file, args) => {
 const sysroot = process.platform === 'darwin' ? quietly('xcrun', ['--show-sdk-path']) : null;
 const platformFlags = sysroot ? ['-isysroot', sysroot] : [];
 
-const FUZZER = ['-fsanitize=fuzzer,address,undefined', '-fno-sanitize-recover=all'];
-const SANITIZERS = ['-fsanitize=address,undefined', '-fno-sanitize-recover=all'];
+// What a build is instrumented with, best first. A rung is only used when a
+// probe built with it also runs to completion: on macOS 26 a Homebrew LLVM
+// whose sanitizer runtime predates the OS builds a binary that never gets
+// past its own startup, and a compile-only check called that a success and
+// left the job hanging for twenty minutes. The rungs below the first give
+// up a sanitizer each, and the run says which one it settled on
+const RECOVER = '-fno-sanitize-recover=all';
+const LADDER = {
+    fuzz: [
+        ['-fsanitize=fuzzer,address,undefined', RECOVER],
+        ['-fsanitize=fuzzer,undefined', RECOVER],
+        ['-fsanitize=fuzzer'],
+    ],
+    replay: [
+        ['-fsanitize=address,undefined', RECOVER],
+        ['-fsanitize=undefined', RECOVER],
+    ],
+};
 
-// Whether a compiler accepts a set of -fsanitize= arguments and links. The
-// probe must not define main under -fsanitize=fuzzer: libFuzzer brings its
-// own, and a second one is a duplicate symbol rather than a missing feature
-function supports(candidate, flags, ownMain) {
-    const probe = path.join(outDir, 'probe.cc');
-    fs.writeFileSync(probe, [
+// Whether a compiler builds a probe with these flags and the result runs and
+// exits 0 inside the deadline. The probe must not define main under
+// -fsanitize=fuzzer: libFuzzer brings its own, and a second one is a
+// duplicate symbol rather than a missing feature; that probe is then run as
+// the fuzzer it is, for one input
+function works(candidate, flags, ownMain) {
+    const source = path.join(outDir, 'probe.cc');
+    const binary = path.join(outDir, 'probe');
+    fs.rmSync(binary, { force: true });
+    fs.writeFileSync(source, [
         'extern "C" int LLVMFuzzerTestOneInput(const unsigned char*, unsigned long) { return 0; }',
         ...(ownMain ? ['int main() { return 0; }'] : []),
         '',
     ].join('\n'));
-    return spawnSync(candidate, [...platformFlags, ...flags, '-o', path.join(outDir, 'probe'), probe], { stdio: 'ignore' }).status === 0;
+    const built = spawnSync(candidate, [...platformFlags, ...flags, '-o', binary, source], { stdio: 'ignore', timeout: PROBE_MS, env: childEnv });
+    if (built.status !== 0) return 'does not build';
+    const ran = spawnSync(binary, ownMain ? [] : ['-runs=1'], { stdio: 'ignore', timeout: PROBE_MS, env: childEnv });
+    if (ran.error?.code === 'ETIMEDOUT') return `builds, but the binary hung for ${PROBE_MS / 1000}s`;
+    if (ran.status !== 0) return `builds, but the binary exited ${ran.status ?? ran.signal}`;
+    return null;
+}
+
+// The first rung of a ladder that works for a compiler, with what was wrong
+// with each one above it
+function climb(candidate, rungs, ownMain) {
+    const refused = [];
+    for (const flags of rungs) {
+        const problem = works(candidate, flags, ownMain);
+        if (problem === null) return { flags, refused };
+        refused.push(`${flags[0]}: ${problem}`);
+    }
+    return { flags: null, refused };
 }
 
 // Every Homebrew LLVM on the machine, newest first: the unversioned formula,
@@ -120,25 +168,30 @@ function homebrewClangs() {
         .filter(file => fs.existsSync(file));
 }
 
-// The compiler and what it can do. CXX wins outright; otherwise on macOS a
-// Homebrew LLVM that links libFuzzer is preferred over Apple's clang, which
-// only ever gets as far as replay
+// The compiler, the mode and the instrumentation. CXX names the compiler
+// outright; otherwise on macOS every Homebrew LLVM is tried for a fuzz rung
+// before Apple's clang, which has no libFuzzer and only ever gets as far as
+// replay. Every rung that was passed over is reported, so the log explains
+// a run that ends up with less instrumentation than the first rung
 function choose() {
-    if (process.env.CXX) return { compiler: process.env.CXX };
-    if (process.platform === 'darwin') {
-        for (const candidate of homebrewClangs()) {
-            if (supports(candidate, FUZZER, false)) return { compiler: candidate, mode: 'fuzz' };
-        }
+    const candidates = process.env.CXX ? [process.env.CXX]
+        : [...(process.platform === 'darwin' ? homebrewClangs() : []), 'clang++'];
+    const notes = [];
+    for (const candidate of candidates) {
+        const fuzz = climb(candidate, LADDER.fuzz, false);
+        notes.push(...fuzz.refused.map(r => `${candidate}: ${r}`));
+        if (fuzz.flags) return { compiler: candidate, mode: 'fuzz', flags: fuzz.flags, notes };
     }
-    return { compiler: 'clang++' };
+    for (const candidate of candidates) {
+        const replay = climb(candidate, LADDER.replay, true);
+        notes.push(...replay.refused.map(r => `${candidate}: ${r}`));
+        if (replay.flags) return { compiler: candidate, mode: 'replay', flags: replay.flags, notes };
+    }
+    return { compiler: candidates[0], mode: null, flags: null, notes };
 }
 
-const chosen = choose();
-const compiler = chosen.compiler;
-const mode = chosen.mode
-    ?? (supports(compiler, FUZZER, false) ? 'fuzz'
-        : supports(compiler, SANITIZERS, true) ? 'replay'
-        : null);
+const { compiler, mode, flags: sanitizers, notes } = choose();
+for (const note of notes) console.log(`passed over: ${note}`);
 
 if (mode === null) {
     const message = `${compiler} builds neither a libFuzzer target nor a sanitized one; install clang to run the native fuzzer`;
@@ -203,14 +256,14 @@ function run(target) {
         '-UNDEBUG',
         // A sanitizer report is a finding, so the process must stop at the
         // first one rather than carry on and exit 0
-        ...(mode === 'fuzz' ? FUZZER : SANITIZERS),
+        ...sanitizers,
         '-fno-omit-frame-pointer',
         ...platformFlags,
         ...(process.platform === 'darwin' ? target.darwin ?? [] : []),
         '-o', binary,
         source,
         ...(mode === 'replay' ? [replayDriver()] : []),
-    ], { stdio: 'inherit' });
+    ], { stdio: 'inherit', timeout: BUILD_MS, env: childEnv });
 
     // The corpus is read-only input: findings go under outDir, and nothing a
     // run discovers is written back into the repository
@@ -221,18 +274,26 @@ function run(target) {
     console.log(mode === 'fuzz'
         ? `== ${target.name}: fuzzing for ${seconds}s`
         : `== ${target.name}: replaying ${inputs.length} corpus input(s)`);
+    // libFuzzer's own per-input deadline defaults to twenty minutes; an input
+    // that hangs the target is a finding and should say so in seconds. The
+    // runner stops waiting a little after the budget either way
+    const deadline = { encoding: 'utf8', env: childEnv, timeout: (seconds + 120) * 1000, maxBuffer: 64 * 1024 * 1024 };
     const result = mode === 'fuzz'
         ? spawnSync(binary, [
             workingCorpus,
             `-max_total_time=${seconds}`,
+            '-timeout=30',
             `-artifact_prefix=${findings}${path.sep}`,
             '-rss_limit_mb=2048',
             '-max_len=4096',
             '-print_final_stats=1',
-        ], { encoding: 'utf8' })
-        : spawnSync(binary, inputs, { encoding: 'utf8' });
+        ], deadline)
+        : spawnSync(binary, inputs, deadline);
 
-    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    let output = `compiler: ${compiler}\nmode: ${mode}\ninstrumentation: ${sanitizers[0]}\n${notes.map(n => `passed over: ${n}\n`).join('')}${result.stdout ?? ''}${result.stderr ?? ''}`;
+    if (result.error) {
+        output += `\n==runner== ERROR: runner: ${result.error.code === 'ETIMEDOUT' ? `the target did not finish within ${seconds + 120}s and was killed` : result.error.message}\n`;
+    }
     process.stdout.write(output);
     fs.writeFileSync(log, output);
 
@@ -256,6 +317,7 @@ function run(target) {
 
 console.log(`compiler: ${compiler}`);
 console.log(`mode: ${mode}${mode === 'replay' ? ` (${compiler} has no libFuzzer; the corpus is run once under the sanitizers. On macOS, brew install llvm)` : ''}`);
+console.log(`instrumentation: ${sanitizers[0]}${sanitizers[0].includes('address') ? '' : ' (no AddressSanitizer: a read past a buffer is caught only if it crashes)'}`);
 const clean = targets.map(run).every(Boolean);
 console.log(`\n${targets.length} target(s), ${mode}: ${clean ? 'no findings' : 'findings above'}`);
 process.exit(clean ? 0 : 1);
