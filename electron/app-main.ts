@@ -9,6 +9,7 @@ import { setupBrowserIntegration } from './src/browser-integration';
 import { applyApplicationMenu } from './src/menu';
 import { handleFileOpen } from './src/file-operations';
 import { clearOnQuit, getPendingSecret } from './src/clipboard';
+import { hasKeysToRelease, releaseAllWindows } from './src/ssh-agent';
 import { setupLogging } from './src/logger';
 import path from 'path';
 
@@ -134,21 +135,40 @@ app.whenReady().then(() => {
     });
 });
 
-// A secret copied out of the vault is cleared when its countdown ends, but the
-// countdown lives in a renderer that quitting destroys, so the last clear has
-// to happen here. before-quit is synchronous, so the quit is held back for the
-// one async clear and then re-issued.
+// Two things a quit must finish before the process goes: a secret copied
+// out of the vault is cleared when its countdown ends, but the countdown
+// lives in a renderer that quitting destroys; and SSH keys a vault pushed
+// into the agent are taken out when the vault closes, but each window's
+// close handler does that with a socket round trip nobody waits for, so the
+// process exits with the keys still loaded. before-quit is synchronous, so
+// the quit is held back for the async work and then re-issued.
 //
-// Keyed on clipboard ownership rather than a one-shot latch: clearOnQuit
-// releases ownership, so the re-issued quit passes straight through, and a
-// quit cancelled later (an unsaved-changes prompt) leaves the next quit able
-// to clear whatever the vault copied since
+// Keyed on what is outstanding rather than a one-shot latch: clearOnQuit
+// releases clipboard ownership and releaseAllWindows empties the key
+// registry, so the re-issued quit passes straight through, and a quit
+// cancelled later (an unsaved-changes prompt) leaves the next quit able to
+// clear whatever the vault copied since. The registry is emptied before the
+// agent answers, so an agent that has stopped answering cannot hold the
+// quit past the timeout below
+const SSH_RELEASE_TIMEOUT_MS = 5000;
+
 app.on('before-quit', (event) => {
-    if (getPendingSecret() === null) return;
+    const clipboard = getPendingSecret() !== null;
+    const sshKeys = hasKeysToRelease();
+    if (!clipboard && !sshKeys) return;
     event.preventDefault();
-    clearOnQuit()
-        .catch(error => console.error('Failed to clear the clipboard on quit:', error))
-        .finally(() => app.quit());
+    const work: Promise<unknown>[] = [];
+    if (clipboard) {
+        work.push(clearOnQuit()
+            .catch(error => console.error('Failed to clear the clipboard on quit:', error)));
+    }
+    if (sshKeys) {
+        work.push(Promise.race([
+            releaseAllWindows(),
+            new Promise<void>(resolve => setTimeout(resolve, SSH_RELEASE_TIMEOUT_MS).unref?.()),
+        ]).catch(error => console.error('Failed to remove SSH keys from the agent on quit:', error)));
+    }
+    Promise.allSettled(work).finally(() => app.quit());
 });
 
 app.on('window-all-closed', () => {

@@ -11,6 +11,9 @@
 // and falls through to the host, so building Windows from Linux would ship
 // a Windows build with runAsNode off and no working browser integration,
 // silently
+const path = require('path');
+const { pathToFileURL } = require('url');
+
 const WINDOWS_FLAG = /^--?(w|win|windows)(=.*)?$/;
 const PLATFORM_FLAG = /^--?(w|win|windows|m|mac|macos|l|linux)(=.*)?$/;
 
@@ -33,19 +36,39 @@ module.exports = {
         "dist/**/*",
         "dist-electron/**/*",
         "package.json",
-        // The packaged app loads node-hid through the prebuilt binary that
-        // copy-native-modules.mjs puts in dist-electron. electron-builder's
-        // dependency rebuild also compiles the module from source, and a
-        // compiled binary carries its build path, which made the archive
-        // differ between checkouts. Neither the compiled output nor the
-        // per-platform prebuilds are loaded from here, so they stay out
-        "!node_modules/node-hid/build/**",
-        "!node_modules/node-hid/prebuilds/**"
+        // Every native module the app uses is loaded from dist-electron,
+        // where copy-native-modules.mjs put the copy it checked against
+        // electron/native-pins.mjs. The npm packages behind them stay out
+        // of the archive entirely: their binaries would otherwise ship
+        // unpacked beside the pinned ones with no check on them, and their
+        // JavaScript wrappers exist only to locate those binaries. With the
+        // packages absent, the loaders' fallback to the package name cannot
+        // resolve in a packaged build, so the pinned copy is the only one
+        // that can run
+        "!node_modules/keytar/**",
+        "!node_modules/node-hid/**",
+        "!node_modules/@node-rs/**",
+        "!node_modules/passport-desktop/**",
+        "!node_modules/passport-desktop-*/**"
     ],
+    // Off: the prebuilt binaries are chosen, checked and copied by
+    // copy-native-modules.mjs, and nothing in the archive is compiled. The
+    // rebuild would run every dependency's install script again after that
+    // check, with write access to node_modules, and its compiled output
+    // carried the build path, which made the archive differ between
+    // checkouts
+    "npmRebuild": false,
     "asar": true,
     "asarUnpack": [
         "**/*.node"
     ],
+    // The pin check again, on what was actually packed: every .node under
+    // app.asar.unpacked must be a pinned copy or an addon from this
+    // repository (electron/verify-unpacked-natives.mjs)
+    "afterPack": async (context) => {
+        const { afterPack } = await import(pathToFileURL(path.join(__dirname, 'electron', 'verify-unpacked-natives.mjs')).href);
+        await afterPack(context);
+    },
     "extraMetadata": {
         "main": "dist-electron/main.js"
     },

@@ -9,6 +9,7 @@ import { trackGestures } from './gesture';
 import { watchVault, unwatchWindow, WatchDeps } from './vault-watcher';
 import { nominateConflictCopy, probeVaultFolder, resolveVaultFile } from './conflict-copies';
 import { grantPath } from './path-authority';
+import { releaseWindow } from './ssh-agent';
 
 let pendingFileOpen: { data: Buffer, path: string } | null = null;
 
@@ -274,6 +275,14 @@ export function createWindow(startupFile?: string) {
 
     win.on('closed', () => {
         unregisterWindow(win);
+    });
+
+    // A renderer that crashes never reports vault-closed, and the window
+    // stays open showing nothing, so its vault's keys would sit in the agent
+    // until the window is closed. They leave with the vault, as on a lock
+    win.webContents.on('render-process-gone', () => {
+        unregisterWindow(win);
+        releaseWindow(win.id).catch(() => {});
     });
 
     win.on('maximize', () => {

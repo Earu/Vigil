@@ -12,7 +12,7 @@ vi.mock('electron', () => ({ BrowserWindow: class {} }));
 
 const {
     setSocketPathOverride, isAgentRunning, listIdentities, addIdentity, removeIdentity,
-    addKeyForWindow, releaseWindow, loadedFingerprints, resetLoadedForTests,
+    addKeyForWindow, releaseWindow, releaseAllWindows, hasKeysToRelease, loadedFingerprints, resetLoadedForTests,
 } = await import('../electron/src/ssh-agent');
 const { parsePrivateKey } = await import('../electron/src/ssh-key');
 
@@ -128,6 +128,33 @@ describe.skipIf(!hasAgent)('the ssh-agent client', () => {
         expect(await releaseWindow(1)).toEqual([]);
         expect(sshAddList()).toHaveLength(1);
         expect(loadedFingerprints()).toEqual([]);
+    });
+
+    // The quit path: every window's remove-at-close keys go at once, keys
+    // meant to stay stay, and nothing is left registered for a re-issued
+    // quit to wait on
+    it('takes every window\'s keys out for a quit and leaves the ones meant to stay', async () => {
+        const goes = parsePrivateKey(load('rsa_pem'));
+        const alsoGoes = parsePrivateKey(load('ecdsa384_pem'));
+        const stays = parsePrivateKey(load('ed25519_plain'));
+        expect(hasKeysToRelease()).toBe(false);
+        await addKeyForWindow(fakeWindow(1), goes, { comment: 'goes' }, true);
+        await addKeyForWindow(fakeWindow(2), alsoGoes, { comment: 'also goes' }, true);
+        await addKeyForWindow(fakeWindow(2), stays, { comment: 'stays' }, false);
+        expect(hasKeysToRelease()).toBe(true);
+
+        expect((await releaseAllWindows()).sort()).toEqual([goes.fingerprint, alsoGoes.fingerprint].sort());
+        expect(sshAddList()).toHaveLength(1);
+        expect(sshAddList()[0]).toContain(stays.fingerprint);
+        expect(loadedFingerprints()).toEqual([]);
+        expect(hasKeysToRelease()).toBe(false);
+        expect(await releaseAllWindows()).toEqual([]);
+    });
+
+    it('has nothing to release for a quit when every key was added to stay', async () => {
+        const key = parsePrivateKey(load('ed25519_plain'));
+        await addKeyForWindow(fakeWindow(1), key, { comment: 'stays' }, false);
+        expect(hasKeysToRelease()).toBe(false);
     });
 
     it('reports a dead socket instead of hanging', async () => {

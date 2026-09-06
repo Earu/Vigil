@@ -214,9 +214,33 @@ describe('packaged build configuration', () => {
     it('ships a native binary only when it matches its pin, and no workflow opts out', () => {
         const copy = read('electron/copy-native-modules.mjs');
         // Every module in the copy loop goes through the check, unconditionally
-        expect(copy).toMatch(/for \(const moduleName of modulesToCopy\) \{\s*try \{\s*const located = locateModule\(moduleName\);\s*verifyPinned\(moduleName, located\);/);
+        expect(copy).toMatch(/for \(const moduleName of modulesToCopy\) \{\s*try \{\s*const located = locateModule\(moduleName\);\s*const \{[^}]*\} = verifyPinned\(moduleName, located\);/);
         for (const file of listFiles('.github/workflows', /\.ya?ml$/)) {
             expect(read(file), file).not.toContain('VIGIL_ALLOW_UNPINNED_NATIVE');
+        }
+    });
+
+    // The pinned copies in dist-electron are the ones the app loads, and the
+    // only native binaries in the package: the npm packages behind them are
+    // excluded from the archive, nothing is rebuilt after the pin check, and
+    // the check runs again on the packaged output
+    it('packages only the pinned native binaries and checks them again after packing', () => {
+        expect(config.npmRebuild).toBe(false);
+        expect(typeof config.afterPack).toBe('function');
+        for (const pattern of ['!node_modules/keytar/**', '!node_modules/node-hid/**', '!node_modules/@node-rs/**', '!node_modules/passport-desktop/**', '!node_modules/passport-desktop-*/**']) {
+            expect(config.files, pattern).toContain(pattern);
+        }
+        // Each loader takes the pinned file beside it and falls back to the
+        // package by name only when that file is absent (tests, plain Node)
+        expect(read('electron/src/crypto.ts')).toMatch(/join\(__dirname, 'argon2\.node'\)/);
+        expect(read('electron/src/crypto.ts')).not.toMatch(/^import \* as argon2 from '@node-rs\/argon2'/m);
+        expect(read('electron/src/get-passport.ts')).toMatch(/join\(__dirname, 'passport-desktop\.node'\)/);
+        expect(read('electron/src/get-keytar.ts')).toMatch(/join\(__dirname, 'keytar\.node'\)/);
+        expect(read('electron/src/hardware-key.ts')).toMatch(/join\(__dirname, 'node-hid\.node'\)/);
+        // The main bundle must not inline any of them either
+        const build = read('electron/build.mjs');
+        for (const name of ['keytar', 'node-hid', '@node-rs/argon2', 'passport-desktop']) {
+            expect(build, name).toContain(`'${name}'`);
         }
     });
 
