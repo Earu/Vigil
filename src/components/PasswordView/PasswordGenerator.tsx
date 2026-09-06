@@ -31,7 +31,10 @@ interface PasswordGeneratorProps {
 // rules the old one met
 function optionsMatching(password: string): PasswordOptions {
     return {
-        length: password.length,
+        // Clamped: an entry can hold a password longer than the generator's own
+        // maximum (an imported API token, an SSH key passphrase), and a length
+        // out of range makes generate() throw
+        length: PasswordGeneratorService.clampLength(password.length),
         upperCase: /[A-Z]/.test(password),
         lowerCase: /[a-z]/.test(password),
         digits: /[0-9]/.test(password),
@@ -97,7 +100,18 @@ export const PasswordGenerator = ({ onClose, onSave, currentPassword }: Password
             return;
         }
 
-        const password = PasswordGeneratorService.generate(options);
+        let password: string;
+        try {
+            password = PasswordGeneratorService.generate(options);
+        } catch {
+            // This runs in a mount effect with no error boundary above it, so a
+            // throw here would take the window down along with the open entry
+            (window as any).showToast?.({
+                message: 'Could not generate a password with those settings',
+                type: 'error'
+            });
+            return;
+        }
         setGeneratedPassword(password);
         setPassphraseBits(null);
 
