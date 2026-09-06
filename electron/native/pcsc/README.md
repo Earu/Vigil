@@ -15,9 +15,13 @@ which the Touch ID addon already relies on.
 
 - `src/pcsc_addon.cc`: six functions, each one PC/SC call on a worker thread,
   resolving `{ rv, ... }` with the raw return code. No interpretation.
+- `src/pcsc_parse.h`: what the addon decides about the lengths and bytes the
+  driver reports. Header-only and free of `napi.h`, so the fuzz target can
+  compile it alone.
 - `index.js`: loader, return-code names, the `Card` wrapper that refuses
   overlapping calls on one handle. Pure parts covered by
   `tests/pcsc-loader.test.ts`.
+- `fuzz/`: the libFuzzer target and its seed corpus.
 
 ## Build
 
@@ -28,6 +32,26 @@ Electron at the same NAPI level; the architecture must match.
 Linux needs `pkgconf` and the pcsclite development package (`pcsclite` on
 Arch, `libpcsclite-dev` on Debian, `pcsc-lite-devel` on Fedora). macOS and
 Windows link system frameworks.
+
+## Fuzzing
+
+Everything this addon reads comes from outside the process: reader names are
+whatever the driver wrote into the multi-string, and the response length is
+whatever `SCardTransmit` reported. It is C++, so a length that disagrees with
+the bytes behind it is a read past the buffer rather than an exception.
+`npm run test:fuzz:native` builds `fuzz/pcsc_fuzz.cc` with clang under
+AddressSanitizer and UndefinedBehaviorSanitizer and runs it over `fuzz/corpus`
+(`--seconds N` for the budget, 60 by default; `--target pcsc` for this addon
+alone, since the runner covers the Touch ID addon too). A sanitizer report or
+a broken invariant fails the run and leaves the reproducing input in
+`native-fuzz-out/pcsc/`; replay it with `native-fuzz-out/pcsc_fuzz <file>`.
+
+The security workflow runs it on every push and for a quarter of an hour on
+the weekly schedule, files findings in the Security tab, and attaches the
+reproducer to the run.
+
+Everything the target reaches lives in `src/pcsc_parse.h`. Parsing added to
+the addon belongs there, or it ships without coverage.
 
 ## Runtime
 

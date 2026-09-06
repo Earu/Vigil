@@ -18,13 +18,40 @@ and fails the same way.
 
 - `src/touchid_mac.mm`: `isAvailable` (sync), async `setSecret`, `getSecret`
   (prompts), `deleteSecret`, `hasSecret`. Raw `OSStatus` out, no logic.
+- `src/touchid_parse.h`: the wipe key material goes through, and the decision
+  about what can name a keychain item. Reachable without macOS, entitlements
+  or a prompt, so `fuzz/` can drive it.
 - `src/touchid_stub.cc`: same surface elsewhere, always `errSecUnimplemented`.
 - `index.js`: loader and the pure status mappings (`tests/touchid-loader.test.ts`).
+- `fuzz/`: the libFuzzer target and its seed corpus.
 
 Built by `electron/copy-native-modules.mjs` on darwin. Node-API, so one binary
 serves any Electron at the same NAPI level, but the architecture must match.
 By hand: `npx node-gyp rebuild` from this directory. Not from the repo root,
 `rebuild` starts with `rm -rf build`.
+
+## Fuzzing
+
+This addon parses no lengths: it is handed an account name, a prompt and a
+buffer, passes them to the Security framework, and copies back whatever
+`NSData` the OS returns. So there is less to fuzz here than in the PC/SC
+addon, and `fuzz/touchid_fuzz.cc` covers the two things that are decisions
+rather than pass-through:
+
+- `Scrub`, which has to reach every byte of key material and no byte past it.
+  Under AddressSanitizer a wipe that runs off the end is a report rather than
+  a silent corruption of whatever follows.
+- `ToNSString`, which decides what can name a keychain item. It returns nil
+  for bytes `NSString` will not take, and every caller refuses the operation.
+  It used to substitute `@""`, which meant two names that both failed to
+  convert became the same name and one database's key could be read under
+  another's.
+
+`npm run test:fuzz:native -- --target touchid`, or without the flag for both
+addons. Only the wipe is covered off macOS: `ToNSString` needs Foundation, so
+the security workflow runs the target on a macOS runner as well as Linux.
+Nothing in it touches the keychain, so no entitlement, enrolled finger or
+prompt is involved.
 
 ## Storage
 

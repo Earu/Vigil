@@ -25,33 +25,24 @@
 #include <string>
 #include <vector>
 
+#include "touchid_parse.h"
+
 namespace {
+
+using vigil_touchid::Scrub;
+using vigil_touchid::ToNSString;
 
 const char* kServiceName = "Vigil Biometric Key";
 
-// Overwrite key material before the vector's storage goes back to the heap.
-// Written through a volatile pointer so the compiler cannot drop the stores
-// as dead writes, which is exactly what it may do to a plain memset here
-void Scrub(std::vector<uint8_t>& buffer) {
-    volatile uint8_t* p = buffer.data();
-    for (size_t i = 0; i < buffer.size(); ++i) {
-        p[i] = 0;
-    }
-    buffer.clear();
-}
-
-NSString* ToNSString(const std::string& value) {
-    NSString* result = [[NSString alloc] initWithBytes:value.data()
-                                                length:value.size()
-                                              encoding:NSUTF8StringEncoding];
-    return result != nil ? result : @"";
-}
-
+// nil for an account name that cannot be one, which every caller turns into
+// errSecParam rather than carrying on against some other item
 NSMutableDictionary* MakeBaseQuery(const std::string& account) {
+    NSString* name = ToNSString(account);
+    if (name == nil) return nil;
     return [@{
         (__bridge id) kSecClass: (__bridge id) kSecClassGenericPassword,
         (__bridge id) kSecAttrService: @(kServiceName),
-        (__bridge id) kSecAttrAccount: ToNSString(account),
+        (__bridge id) kSecAttrAccount: name,
         (__bridge id) kSecUseDataProtectionKeychain: @YES,
     } mutableCopy];
 }
@@ -72,6 +63,7 @@ LAContext* SilentContext() {
 // biometry-gated key behind for a database the user just turned unlock off for
 OSStatus DeleteItem(const std::string& account) {
     NSMutableDictionary* query = MakeBaseQuery(account);
+    if (query == nil) return errSecParam;
     query[(__bridge id) kSecUseAuthenticationContext] = SilentContext();
     OSStatus status = SecItemDelete((__bridge CFDictionaryRef) query);
     if (status == errSecInteractionNotAllowed) {
@@ -148,6 +140,10 @@ private:
         }
 
         NSMutableDictionary* attributes = MakeBaseQuery(account_);
+        if (attributes == nil) {
+            CFRelease(acl);
+            return errSecParam;
+        }
         attributes[(__bridge id) kSecValueData] = [NSData dataWithBytes:data_.data() length:data_.size()];
         attributes[(__bridge id) kSecAttrSynchronizable] = @NO;
         attributes[(__bridge id) kSecAttrAccessControl] = (__bridge id) acl;
@@ -164,6 +160,7 @@ private:
 
     OSStatus DoGet() {
         NSMutableDictionary* query = MakeBaseQuery(account_);
+        if (query == nil) return errSecParam;
         query[(__bridge id) kSecReturnData] = @YES;
 
         // kSecUseOperationPrompt is deprecated since macOS 11; the supported
@@ -173,7 +170,10 @@ private:
         // is the only way through when biometry is enrolled but unavailable
         // (closed lid, unrecognised finger)
         LAContext* context = [[LAContext alloc] init];
-        context.localizedReason = ToNSString(prompt_);
+        // A prompt that will not convert is only a wording problem, so the
+        // system's own default is used rather than failing the unlock
+        NSString* reason = ToNSString(prompt_);
+        if (reason != nil) context.localizedReason = reason;
         query[(__bridge id) kSecUseAuthenticationContext] = context;
 
         CFTypeRef dataRef = NULL;
@@ -206,6 +206,7 @@ private:
     // here. index.js turns that pair into a boolean
     OSStatus DoHas() {
         NSMutableDictionary* query = MakeBaseQuery(account_);
+        if (query == nil) return errSecParam;
         query[(__bridge id) kSecReturnAttributes] = @YES;
         query[(__bridge id) kSecUseAuthenticationContext] = SilentContext();
 

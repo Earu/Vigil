@@ -9,6 +9,10 @@ export class PassphraseService {
     // EFF large wordlist size, fixed by the list itself
     static readonly WORDLIST_SIZE = 7776;
 
+    // What the generator modal's controls allow
+    static readonly MIN_WORDS = 3;
+    static readonly MAX_WORDS = 12;
+
     // The wordlist is ~60 KB of the bundle and only matters in passphrase
     // mode, so it loads on demand (same pattern as zxcvbn in
     // HaveIBeenPwnedService). Generation stays sync once loaded; callers
@@ -42,6 +46,12 @@ export class PassphraseService {
     static generate(options: PassphraseOptions): string {
         const wordlist = this.wordlist;
         if (!wordlist) throw new Error('Wordlist not loaded, call preload() first');
+        // A count out of range is refused rather than looped over: zero or a
+        // negative one returned the empty string, and the caller took it for
+        // a passphrase
+        if (!Number.isInteger(options.wordCount) || options.wordCount < this.MIN_WORDS || options.wordCount > this.MAX_WORDS) {
+            throw new Error('Invalid word count');
+        }
         const words: string[] = [];
         for (let i = 0; i < options.wordCount; i++) {
             let word = wordlist[this.randomIndex(wordlist.length)];

@@ -9,6 +9,10 @@ name: Security
 #   fuzz         property-based fuzzing of every parser at a trust boundary
 #                (tests/fuzz) plus the hardening invariants pinned in
 #                tests/hardening-invariants.test.ts
+#   native-fuzz  libFuzzer over the C++ addons' own parsing (electron/native),
+#                under AddressSanitizer and UndefinedBehaviorSanitizer: no
+#                bounds checks there, and what they read comes from a driver,
+#                a removable device and the keychain
 #   codeql       GitHub's static analysis, results land in the Security tab
 #   audit        the lockfile against the OSV advisory database
 #   dependency-review  on pull requests: new dependencies with known
@@ -19,7 +23,8 @@ name: Security
 #                different checkout paths, and fails unless both produce
 #                the same app.asar byte for byte
 #
-# Findings from fuzz, invariants, fuses and boot are uploaded as SARIF, so
+# Findings from fuzz, invariants, the native fuzzer, fuses and boot are
+# uploaded as SARIF, so
 # they appear as code scanning alerts in the Security tab beside CodeQL's
 # and resolve on their own once a later run no longer reports them.
 # Dependency alerts come from Dependabot, a repository setting rather than
@@ -41,6 +46,10 @@ on:
         description: 'Iterations per fuzz property'
         required: false
         default: '20000'
+      native_fuzz_seconds:
+        description: 'Seconds of native (libFuzzer) fuzzing'
+        required: false
+        default: '900'
 
 permissions:
   contents: read
@@ -49,6 +58,9 @@ env:
   # Deep on the schedule and on demand; a push gets a budget that keeps the
   # job under a few minutes but still runs every property
   FUZZ_RUNS: ${{ github.event_name == 'schedule' && '20000' || github.event.inputs.fuzz_runs || '2000' }}
+  # The native target runs millions of inputs a second, so a push still gets
+  # a real pass; the schedule gets a quarter of an hour
+  NATIVE_FUZZ_SECONDS: ${{ github.event_name == 'schedule' && '900' || github.event.inputs.native_fuzz_seconds || '60' }}
 
 jobs:
   fuzz:
@@ -122,6 +134,86 @@ jobs:
       run: |
         echo "hardening invariants: $INVARIANTS, fuzz: $FUZZ"
         exit 1
+
+  # Both runners: the Touch ID addon's string handling is Objective-C, so the
+  # macOS leg is the only one that fuzzes it rather than compiling it out
+  native-fuzz:
+    name: Native addon fuzz (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Setup Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '22'
+
+    # The targets include nothing but the addons' own headers, so neither
+    # pcsclite nor node-gyp is needed here; clang ships libFuzzer
+    - name: Fuzz the native addons
+      id: native
+      run: |
+        echo "native fuzz budget: ${NATIVE_FUZZ_SECONDS}s per target"
+        node scripts/fuzz-native.mjs --seconds "$NATIVE_FUZZ_SECONDS"
+      continue-on-error: true
+
+    - name: Convert findings to SARIF
+      if: always()
+      run: node scripts/sarif-report.mjs native native-fuzz-out/pcsc.log native-fuzz-out/touchid.log --out native-fuzz.sarif
+
+    # A category per runner: an upload replaces the previous one under the
+    # same name, so one shared category would resolve the other leg's alerts
+    - name: Upload to the Security tab
+      if: always()
+      uses: github/codeql-action/upload-sarif@486fec2a3ea2626afcd8c7e9208b4f515078dd7e # codeql-bundle-v2.26.4
+      with:
+        sarif_file: native-fuzz.sarif
+        category: native-fuzz-${{ matrix.os }}
+      continue-on-error: true
+
+    # The input that reproduced it is the whole reproduction, and it is a few
+    # bytes; without it the stack in the log is all anyone has to go on
+    - name: Keep the reproducer
+      if: steps.native.outcome == 'failure'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: native-fuzz-reproducer-${{ matrix.os }}
+        path: |
+          native-fuzz-out/*/crash-*
+          native-fuzz-out/*/leak-*
+          native-fuzz-out/*/timeout-*
+          native-fuzz-out/*/oom-*
+          native-fuzz-out/*.log
+        if-no-files-found: ignore
+
+    # The runner name reaches the script through env, where the shell quotes
+    # it; substituted into the script it would be code
+    - name: Report
+      if: always()
+      env:
+        RUNNER_OS_LABEL: ${{ matrix.os }}
+      run: |
+        {
+          echo "## Native addon fuzz ($RUNNER_OS_LABEL)"
+          echo
+          echo "Budget: \`${NATIVE_FUZZ_SECONDS}\`s per target under AddressSanitizer and UndefinedBehaviorSanitizer. Findings are filed under Security > Code scanning, category \`native-fuzz-$RUNNER_OS_LABEL\`, and the reproducing input is attached to the run."
+          echo
+          echo '```'
+          grep -hE "^==|ERROR|SUMMARY|runtime error|Assertion|no findings|stat::number_of_executed_units" native-fuzz-out/*.log 2>/dev/null | head -40 || echo "no log"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Fail on findings
+      if: steps.native.outcome == 'failure'
+      run: exit 1
 
   codeql:
     name: CodeQL

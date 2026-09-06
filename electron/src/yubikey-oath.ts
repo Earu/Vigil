@@ -60,6 +60,15 @@ const SW = {
 } as const;
 
 const DEFAULT_PERIOD = 30;
+// A credential id carries its own period, and any OATH tool sharing the key
+// can write one that is zero or larger than a time step could ever use. The
+// default stands in for those, the way it does for an id with no prefix
+const MAX_PERIOD = 24 * 60 * 60;
+// Digit counts the applet's own tools write. The count arrives from the card
+// and nothing here can vouch for it; past ten it is zero padding anyway,
+// since the value it formats is 31 bits
+const MIN_DIGITS = 6;
+const MAX_DIGITS = 8;
 // HMAC keys shorter than this are padded, as the applet requires
 const MIN_KEY_BYTES = 14;
 // The applet's own limit on a credential id
@@ -196,9 +205,11 @@ export function base32Decode(text: string): Uint8Array {
 }
 
 // The code as the service expects it: the 31-bit value the key returns,
-// reduced to the credential's digit count and zero-padded
-export function formatCode(truncated: Uint8Array): string {
+// reduced to the credential's digit count and zero-padded. null when the
+// card names a digit count no code has, rather than a string of that length
+export function formatCode(truncated: Uint8Array): string | null {
     const digits = truncated[0];
+    if (digits < MIN_DIGITS || digits > MAX_DIGITS) return null;
     const value = ((truncated[1] << 24) | (truncated[2] << 16) | (truncated[3] << 8) | truncated[4]) >>> 0;
     return String(value % 10 ** digits).padStart(digits, '0');
 }
@@ -208,7 +219,8 @@ export function formatCode(truncated: Uint8Array): string {
 // the same way the reference implementation does
 export function splitId(id: string): { issuer: string | null; name: string; period: number } {
     const slash = id.match(/^(\d+)\/([\s\S]*)$/);
-    const period = slash ? Number(slash[1]) : DEFAULT_PERIOD;
+    const named = slash ? Number(slash[1]) : DEFAULT_PERIOD;
+    const period = named > 0 && named <= MAX_PERIOD ? named : DEFAULT_PERIOD;
     const rest = slash ? slash[2] : id;
     const colon = rest.indexOf(':');
     if (colon === -1) return { issuer: null, name: rest, period };
@@ -222,7 +234,12 @@ export function formatId(issuer: string | null, name: string, type: OathType, pe
     return id + name;
 }
 
-const timeStep = (period: number, nowMs = Date.now()): Uint8Array => be64(Math.floor(nowMs / 1000 / period));
+const timeStep = (period: number, nowMs = Date.now()): Uint8Array => {
+    // splitId already caps what a card can name; this is what keeps a period
+    // reaching be64 as Infinity if another caller is ever added
+    if (!Number.isInteger(period) || period <= 0) throw new Error('invalid period');
+    return be64(Math.floor(nowMs / 1000 / period));
+};
 
 // ---- the applet ----
 
@@ -330,8 +347,9 @@ class OathSession {
         const challenge = type === 'TOTP' ? timeStep(period) : new Uint8Array(0);
         const tlvs = parseTlvs(await this.send(INS.CALCULATE, 0x00, 0x01, concat(tlv(TAG.NAME, utf8(id)), tlv(TAG.CHALLENGE, challenge))));
         const truncated = tlvs.find(t => t.tag === TAG.TRUNCATED)?.value;
-        if (!truncated || truncated.length !== 5) throw new Error('no code in response');
-        return formatCode(truncated);
+        const code = truncated?.length === 5 ? formatCode(truncated) : null;
+        if (code === null) throw new Error('no code in response');
+        return code;
     }
 
     async put(id: string, type: OathType, algorithm: HashName, digits: number, secret: Uint8Array, requireTouch: boolean, counter: number): Promise<void> {
@@ -525,7 +543,7 @@ export async function pushAccount(
 
     const algorithm = request.algorithm.replace('-', '').toLowerCase() as HashName;
     if (!(algorithm in ALGORITHM_BYTE)) return { ok: false, error: 'failed', detail: `unsupported algorithm ${request.algorithm}` };
-    if (request.digits < 6 || request.digits > 8) return { ok: false, error: 'failed', detail: `unsupported digit count ${request.digits}` };
+    if (request.digits < MIN_DIGITS || request.digits > MAX_DIGITS) return { ok: false, error: 'failed', detail: `unsupported digit count ${request.digits}` };
 
     const id = formatId(request.issuer, request.name, request.type, request.period);
     if (utf8(id).length > MAX_ID_BYTES) return { ok: false, error: 'failed', detail: 'name too long for the key' };

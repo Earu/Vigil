@@ -6,6 +6,7 @@
 //     node scripts/sarif-report.mjs vitest <vitest.json>... --out <file>
 //     node scripts/sarif-report.mjs fuses  <check-fuses log>  --out <file>
 //     node scripts/sarif-report.mjs smoke  <smoke-boot log>   --out <file>
+//     node scripts/sarif-report.mjs native <fuzz-native log>  --out <file>
 //
 // A run with nothing to report still writes a valid, empty SARIF file: the
 // upload of an empty result set is what resolves the previous run's alerts.
@@ -17,6 +18,7 @@ const TOOL = {
     vitest: { name: 'Vigil fuzz and hardening invariants', uri: 'https://github.com/Earu/Vigil/tree/main/tests/fuzz' },
     fuses: { name: 'Vigil fuse check', uri: 'https://github.com/Earu/Vigil/blob/main/scripts/check-fuses.mjs' },
     smoke: { name: 'Vigil boot smoke test', uri: 'https://github.com/Earu/Vigil/blob/main/scripts/smoke-boot.mjs' },
+    native: { name: 'Vigil native addon fuzz', uri: 'https://github.com/Earu/Vigil/tree/main/electron/native/pcsc/fuzz' },
 };
 
 const args = process.argv.slice(2);
@@ -116,7 +118,49 @@ function fromSmoke(file) {
     }
 }
 
-const handlers = { vitest: fromVitest, fuses: fromFuses, smoke: fromSmoke };
+// A sanitizer report, from a run of scripts/fuzz-native.mjs. One finding per
+// run: libFuzzer stops at the first one, and the input that produced it is
+// the whole reproduction
+function fromNative(file) {
+    const text = stripAnsi(fs.readFileSync(file, 'utf8'));
+    const failure = text.match(/^.*ERROR: (\w+): ([^\n]+)$/m);
+    if (!failure) return;
+    // Without the addresses, which differ every run: the title is what the
+    // alert is named by, and one that changes each time reads as a new finding
+    const [, tool] = failure;
+    const kind = failure[2].replace(/ (on address|at pc) .*/, '').trim();
+
+    // Where the sanitizer put it, else the first frame inside this repository:
+    // a stack through the standard library says nothing a reader can act on
+    const summary = text.match(/^SUMMARY: \w+: \S+ ([^\s:]+):(\d+)/m);
+    // The path cannot hold a colon, or a greedy match takes file:line as the
+    // path and the column as the line
+    const frame = [...text.matchAll(/^\s*#\d+ 0x[0-9a-f]+ in .*? (\/[^\s:]+):(\d+)(?::\d+)?$/gm)]
+        .map(match => [match[1], Number(match[2])])
+        .find(([source]) => !path.relative(root, source).startsWith('..'));
+    const [source, line] = summary && !path.relative(root, summary[1]).startsWith('..')
+        ? [summary[1], Number(summary[2])]
+        : frame ?? [path.join(root, 'electron/native/pcsc/fuzz/pcsc_fuzz.cc'), 1];
+
+    const reproducer = text.match(/Test unit written to (\S+)/);
+    const detail = text.split('\n')
+        .filter(l => /^(SUMMARY|.*runtime error:|.*Assertion.*failed)/.test(l))
+        .slice(0, 4).join('\n');
+
+    report({
+        ruleId: `native-${slug(kind.split(' ')[0])}`,
+        title: `${tool}: ${kind}`,
+        message: [
+            `The PC/SC addon's fuzz target hit a ${tool} report: ${kind}.`,
+            detail,
+            reproducer ? `Reproducer: ${path.basename(reproducer[1])}, uploaded with the run. Replay with native-fuzz-out/pcsc_fuzz <file>.` : '',
+        ].filter(Boolean).join('\n\n'),
+        file: source,
+        line,
+    });
+}
+
+const handlers = { vitest: fromVitest, fuses: fromFuses, smoke: fromSmoke, native: fromNative };
 for (const input of inputs) {
     if (!fs.existsSync(input)) {
         console.error(`missing input ${input}; reporting nothing for it`);

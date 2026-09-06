@@ -57,3 +57,7 @@ build/vigil.provisionprofile
 *.p12
 *.cer
 *.p8
+
+# scripts/fuzz-native.mjs: the built target, its corpus copy and any
+# reproducing input it finds
+native-fuzz-out/
