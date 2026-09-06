@@ -523,6 +523,13 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             });
             return;
         }
+        if (KeepassDatabaseService.aesRoundsExceeded(kdfInfo)) {
+            (window as any).showToast?.({
+                message: `Encryption rounds may not exceed ${KeepassDatabaseService.MAX_AES_KDF_ROUNDS.toLocaleString()}; a vault past that would take too long to unlock`,
+                type: 'error'
+            });
+            return;
+        }
         KeepassDatabaseService.setKdf(kdbxDb, kdfInfo);
         onDatabaseChange?.();
         setKdfInfo(KeepassDatabaseService.getKdfInfo(kdbxDb));
@@ -741,8 +748,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                                 type="number"
                                                 className="db-input"
                                                 min="1"
+                                                max={KeepassDatabaseService.MAX_AES_KDF_ROUNDS}
                                                 value={kdfInfo.iterations}
-                                                onChange={(e) => setKdfInfo({ ...kdfInfo, iterations: Math.max(1, parseInt(e.target.value) || 1) })}
+                                                onChange={(e) => setKdfInfo({ ...kdfInfo, iterations: Math.max(1, Math.min(KeepassDatabaseService.MAX_AES_KDF_ROUNDS, parseInt(e.target.value) || 1)) })}
                                             />
                                         </div>
                                     )}

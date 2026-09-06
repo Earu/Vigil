@@ -55,6 +55,12 @@ export async function checkEmailBreaches(email: string): Promise<any[]> {
                 'hibp-api-key': apiKey,
                 'User-Agent': 'Vigil Password Manager'
             },
+            // The key rides in a custom header, which fetch keeps across a
+            // cross-origin redirect (only Authorization is dropped), so a
+            // redirect from HIBP's edge would hand it to whatever host the
+            // redirect named. The v3 API never redirects; a redirect is a
+            // failed lookup
+            redirect: 'error',
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
         }
     );

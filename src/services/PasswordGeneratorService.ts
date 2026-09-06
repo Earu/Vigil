@@ -50,6 +50,21 @@ export const DEFAULT_WORD_OPTIONS: PassphraseOptions = {
 };
 
 export class PasswordGeneratorService {
+    // What the generator modal's controls allow. Enforced here too because
+    // the length also arrives from storage, where a cleared input once
+    // persisted as null and came back as a zero-length loop, and the
+    // browser extension's generate-password got an empty string for it
+    static readonly MIN_LENGTH = 1;
+    static readonly MAX_LENGTH = 128;
+
+    // A usable length from whatever was typed or stored: clamped into range,
+    // and the default for anything that is not a number at all
+    static clampLength(length: unknown): number {
+        const n = typeof length === 'number' ? Math.floor(length) : Number.NaN;
+        if (!Number.isFinite(n)) return DEFAULT_CHARACTER_OPTIONS.length;
+        return Math.max(this.MIN_LENGTH, Math.min(this.MAX_LENGTH, n));
+    }
+
     static characterPool(options: PasswordOptions): string {
         let chars = '';
         if (options.upperCase) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -80,6 +95,9 @@ export class PasswordGeneratorService {
     static generate(options: PasswordOptions): string {
         const pool = [...this.characterPool(options)];
         if (pool.length === 0) throw new Error('No character sets selected');
+        if (!Number.isInteger(options.length) || options.length < this.MIN_LENGTH || options.length > this.MAX_LENGTH) {
+            throw new Error('Invalid password length');
+        }
         const limit = Math.floor(0x100000000 / pool.length) * pool.length;
         const out: string[] = [];
         while (out.length < options.length) {
@@ -101,9 +119,10 @@ export class PasswordGeneratorService {
         };
         try {
             const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
+            const characters = { ...defaults.characters, ...stored.characters };
             return {
                 mode: stored.mode === 'words' ? 'words' : 'characters',
-                characters: { ...defaults.characters, ...stored.characters },
+                characters: { ...characters, length: this.clampLength(characters.length) },
                 words: { ...defaults.words, ...stored.words },
             };
         } catch {

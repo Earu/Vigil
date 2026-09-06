@@ -198,7 +198,7 @@ export const PasswordForm = ({
         // Refused by the main process before any key derivation ran: the
         // header asks for more than the app will do. Not a wrong password,
         // and retyping it will not help, so say what actually happened
-        if (err instanceof Error && /Unreasonable Argon2 parameters/.test(err.message)) {
+        if (err instanceof Error && (/Unreasonable Argon2 parameters/.test(err.message) || err.message === 'KDF_WORK_EXCEEDED')) {
             return 'This database asks for more key derivation work than Vigil will do; it may be corrupted or crafted to hang the app';
         }
         if (err instanceof Error && /window that asked for this unlock|took too long and was stopped/.test(err.message)) {
@@ -339,10 +339,9 @@ export const PasswordForm = ({
 
             const credentials = await buildCredentials(biometricResult.password);
 
-            const db = await kdbxweb.Kdbx.load(
-                new Uint8Array(result.data.buffer).buffer,
-                credentials
-            );
+            const bytes = new Uint8Array(result.data.buffer).buffer;
+            KeepassDatabaseService.assertKdfOpenable(bytes);
+            const db = await kdbxweb.Kdbx.load(bytes, credentials);
 
             const database = KeepassDatabaseService.convertKdbxToDatabase(db);
             KeepassDatabaseService.setPath(databasePath, new Uint8Array(result.data));
@@ -399,10 +398,9 @@ export const PasswordForm = ({
                     fileBuffer = await selectedFile!.arrayBuffer();
                 }
 
-                await kdbxweb.Kdbx.load(
-                    new Uint8Array(fileBuffer).buffer,
-                    credentials
-                );
+                const bytes = new Uint8Array(fileBuffer).buffer;
+                KeepassDatabaseService.assertKdfOpenable(bytes);
+                await kdbxweb.Kdbx.load(bytes, credentials);
 
                 const result = await window.electron.enableBiometrics(databasePath, password);
                 if (result.success) {
@@ -455,10 +453,12 @@ export const PasswordForm = ({
                 credentials = await buildCredentials(password);
             }
 
-            const db = await kdbxweb.Kdbx.load(
-                new Uint8Array(fileBuffer).buffer,
-                credentials
-            );
+            // Refused here for AES-KDF headers, and by the main process for
+            // Argon2 ones: a file asking for more work than the app will do
+            // must fail this unlock, not hang the renderer
+            const bytes = new Uint8Array(fileBuffer).buffer;
+            KeepassDatabaseService.assertKdfOpenable(bytes);
+            const db = await kdbxweb.Kdbx.load(bytes, credentials);
 
             const database = KeepassDatabaseService.convertKdbxToDatabase(db);
             rememberKeyFile(databasePath);

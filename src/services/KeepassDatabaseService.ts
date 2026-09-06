@@ -1595,7 +1595,9 @@ export class KeepassDatabaseService {
 
         let remoteDb: kdbxweb.Kdbx;
         try {
-            remoteDb = await kdbxweb.Kdbx.load(data.slice().buffer, kdbxDb.credentials);
+            const bytes = data.slice().buffer;
+            this.assertKdfOpenable(bytes);
+            remoteDb = await kdbxweb.Kdbx.load(bytes, kdbxDb.credentials);
         } catch (err) {
             console.error('Failed to merge external changes:', err);
             return false;
@@ -1747,7 +1749,9 @@ export class KeepassDatabaseService {
 
         let remoteDb: kdbxweb.Kdbx;
         try {
-            remoteDb = await kdbxweb.Kdbx.load(new Uint8Array(result.data).slice().buffer, kdbxDb.credentials);
+            const bytes = new Uint8Array(result.data).slice().buffer;
+            this.assertKdfOpenable(bytes);
+            remoteDb = await kdbxweb.Kdbx.load(bytes, kdbxDb.credentials);
         } catch (err) {
             const wrongKey = err instanceof kdbxweb.KdbxError && err.code === kdbxweb.Consts.ErrorCodes.InvalidKey;
             if (!wrongKey) console.error('Conflict copy could not be opened:', err);
@@ -2170,11 +2174,15 @@ export class KeepassDatabaseService {
     }
 
     static getKdfInfo(kdbxDb: kdbxweb.Kdbx): KdfInfo {
-        if (kdbxDb.header.versionMajor < 4) {
-            return { type: 'aes-kdbx3', iterations: Number(kdbxDb.header.keyEncryptionRounds ?? 0) };
+        return this.kdfInfoFromHeader(kdbxDb.header);
+    }
+
+    static kdfInfoFromHeader(header: kdbxweb.KdbxHeader): KdfInfo {
+        if (header.versionMajor < 4) {
+            return { type: 'aes-kdbx3', iterations: Number(header.keyEncryptionRounds ?? 0) };
         }
 
-        const params = kdbxDb.header.kdfParameters!;
+        const params = header.kdfParameters!;
         const uuid = kdbxweb.ByteUtils.bytesToBase64(new Uint8Array(params.get('$UUID') as ArrayBuffer));
         if (uuid === kdbxweb.Consts.KdfId.Aes) {
             return { type: 'aes', iterations: Number((params.get('R') as kdbxweb.Int64).value) };
@@ -2188,6 +2196,17 @@ export class KeepassDatabaseService {
         };
     }
 
+    // The KDF parameters of a file, read from its header alone: no key
+    // derivation, no decryption, and no credentials. What assertKdfOpenable
+    // below looks at before a load is allowed to start the KDF
+    static peekKdfInfo(data: ArrayBuffer): KdfInfo {
+        const stream = new kdbxweb.BinaryStream(data);
+        // The outer header touches nothing on the context; binaries, which
+        // do, live in the inner header a load reads after decrypting
+        const ctx = new kdbxweb.KdbxContext({ kdbx: {} as kdbxweb.Kdbx });
+        return this.kdfInfoFromHeader(kdbxweb.KdbxHeader.read(stream, ctx));
+    }
+
     // The most key derivation work an unlock will do, as memory in MiB times
     // iterations: the main process refuses a header past this (MAX_WORK_KIB_PASSES
     // in electron/src/crypto.ts, same value in KiB) so a hostile file cannot
@@ -2195,13 +2214,44 @@ export class KeepassDatabaseService {
     // vault Vigil made always opens in Vigil. Keep the two in step
     static readonly ARGON2_MAX_WORK_MIB_PASSES = 64 * 1024;
 
+    // The same idea for AES-KDF, which has no main-process gate: kdbxweb runs
+    // it in the renderer through WebCrypto, where nothing can stop it once
+    // started, so the header is checked before the load. A hundred million
+    // rounds is a few minutes on ordinary hardware and well past what any
+    // client writes for a one-second unlock; KeePassXC has no ceiling
+    static readonly MAX_AES_KDF_ROUNDS = 100_000_000;
+
     static argon2WorkExceeded(info: KdfInfo): boolean {
         if (info.type !== 'argon2d' && info.type !== 'argon2id') return false;
         return (info.memoryMiB ?? 64) * info.iterations > this.ARGON2_MAX_WORK_MIB_PASSES;
     }
 
+    static aesRoundsExceeded(info: KdfInfo): boolean {
+        if (info.type !== 'aes' && info.type !== 'aes-kdbx3') return false;
+        return !(info.iterations <= this.MAX_AES_KDF_ROUNDS);
+    }
+
+    static kdfWorkExceeded(info: KdfInfo): boolean {
+        return this.argon2WorkExceeded(info) || this.aesRoundsExceeded(info);
+    }
+
+    // Before every Kdbx.load of bytes that came from outside: the unlock
+    // screen's file, a merge of the file on disk, a conflict copy. Argon2
+    // headers are refused again by the main process when the KDF is asked
+    // for; this is the only gate the AES ones have. A header the parser
+    // rejects is left for the load to report in its own words
+    static assertKdfOpenable(data: ArrayBuffer): void {
+        let info: KdfInfo;
+        try {
+            info = this.peekKdfInfo(data);
+        } catch {
+            return;
+        }
+        if (this.kdfWorkExceeded(info)) throw new Error('KDF_WORK_EXCEEDED');
+    }
+
     static setKdf(kdbxDb: kdbxweb.Kdbx, info: KdfInfo): void {
-        if (this.argon2WorkExceeded(info)) {
+        if (this.kdfWorkExceeded(info)) {
             throw new Error('KDF_WORK_EXCEEDED');
         }
         if (kdbxDb.header.versionMajor < 4) {

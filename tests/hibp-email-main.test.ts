@@ -75,6 +75,18 @@ describe('checkEmailBreaches', () => {
         expect((seenInit!.headers as Record<string, string>)['hibp-api-key']).toBe('key123');
     });
 
+    // A custom header survives a cross-origin redirect, so the key must
+    // never follow one: the request fails instead
+    it('refuses to follow a redirect with the key attached', async () => {
+        let seenInit: RequestInit | undefined;
+        fetchImpl = async (_url, init) => {
+            seenInit = init;
+            return new Response('[]');
+        };
+        await checkEmailBreaches('a@b.com');
+        expect(seenInit!.redirect).toBe('error');
+    });
+
     it('carries a timeout signal so a hung connection cannot stall the sweep', async () => {
         let signal: AbortSignal | undefined;
         fetchImpl = async (_url, init) => {
