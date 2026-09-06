@@ -1,6 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { execFileSync } from 'child_process';
 
 // Where the browser-integration server listens, and the one thing the native
 // messaging proxy needs to know about it. It lives here rather than in
@@ -42,18 +43,44 @@ export function isPrivateDir(dir: string): boolean {
     }
 }
 
+// The per-user directory launchd keeps for caches: 0700, and unlike $TMPDIR
+// not swept. dirhelper deletes anything in $TMPDIR not accessed for three
+// days, running app or not (Apple DTS, developer.apple.com/forums/thread/71382),
+// and the token is written once at server start and read only when a browser
+// launches the proxy, so after a long enough session it was simply gone. This
+// is the location Apple names for files that must not be cleaned that way
+function darwinUserCacheDir(): string | null {
+    try {
+        const dir = execFileSync('getconf', ['DARWIN_USER_CACHE_DIR'], {
+            encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+        return dir || null;
+    } catch {
+        return null;
+    }
+}
+
+// Tests reach the macOS branch from Linux through these
+export interface RuntimeDirDeps {
+    platform?: NodeJS.Platform;
+    env?: NodeJS.ProcessEnv;
+    darwinCacheDir?: () => string | null;
+}
+
 // null means there is nowhere private to put the socket, and refusing is
 // better than listening somewhere shared. Linux without XDG_RUNTIME_DIR used
-// to fall back to /tmp; macOS used os.tmpdir(), which is a per-user 0700
-// directory under launchd but plain /tmp when TMPDIR is unset. Whatever the
-// directory came from, it has to actually be private, checked rather than
-// assumed
-export function getSocketPath(): string | null {
+// to fall back to /tmp, and macOS to os.tmpdir(): the former is shared and
+// the latter is swept (see darwinUserCacheDir), so neither is used at all
+// now. Whatever the directory came from, it has to actually be private,
+// checked rather than assumed
+export function getSocketPath(deps: RuntimeDirDeps = {}): string | null {
+    const platform = deps.platform ?? process.platform;
+    const env = deps.env ?? process.env;
     // Windows named pipes live in their own namespace, not the filesystem
-    if (process.platform === 'win32') return pipeNameFor(currentUsername());
-    if (process.platform === 'linux' && !process.env.XDG_RUNTIME_DIR) return null;
-    const runtimeDir = process.env.XDG_RUNTIME_DIR || os.tmpdir();
-    if (!isPrivateDir(runtimeDir)) return null;
+    if (platform === 'win32') return pipeNameFor(currentUsername());
+    let runtimeDir = env.XDG_RUNTIME_DIR || null;
+    if (!runtimeDir && platform === 'darwin') runtimeDir = (deps.darwinCacheDir ?? darwinUserCacheDir)();
+    if (!runtimeDir || !isPrivateDir(runtimeDir)) return null;
     return path.join(runtimeDir, 'vigil.BrowserServer');
 }
 
@@ -90,13 +117,13 @@ export const PROXY_AUTH_ACTION = 'vigil-proxy-auth';
 export const SERVER_PROOF_LABEL = 'vigil-server:';
 export const CLIENT_PROOF_LABEL = 'vigil-client:';
 
-export function getProxyTokenPath(): string | null {
-    if (process.platform === 'win32') {
+export function getProxyTokenPath(deps: RuntimeDirDeps = {}): string | null {
+    if ((deps.platform ?? process.platform) === 'win32') {
         const localAppData = process.env.LOCALAPPDATA
             || path.join(os.homedir(), 'AppData', 'Local');
         return path.join(localAppData, 'Vigil', 'browser-proxy-token');
     }
-    const socketPath = getSocketPath();
+    const socketPath = getSocketPath(deps);
     if (!socketPath) return null;
     return path.join(path.dirname(socketPath), 'vigil.BrowserToken');
 }

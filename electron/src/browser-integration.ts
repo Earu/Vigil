@@ -495,7 +495,9 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
     if (!socketPath) {
         return Promise.resolve({
             success: false,
-            error: 'XDG_RUNTIME_DIR is not set; refusing to place the browser socket in a world-writable directory',
+            error: process.platform === 'darwin'
+                ? 'No private per-user directory for the browser socket (getconf DARWIN_USER_CACHE_DIR); refusing to use a shared one'
+                : 'XDG_RUNTIME_DIR is not set; refusing to place the browser socket in a world-writable directory',
         });
     }
     if (!writeProxyToken()) {
@@ -608,10 +610,10 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
             socket.on('error', () => { /* client vanished; nothing to do */ });
         });
         server.listen(socketPath, () => {
-            // Lock the socket to the current user. XDG_RUNTIME_DIR is already
-            // 0700, but the os.tmpdir() fallback (e.g. /tmp) is world-traversable,
-            // so without this another local user on the machine could reach the
-            // vault.
+            // Lock the socket to the current user. The directory is already
+            // verified 0700 (browser-socket.ts isPrivateDir); this is the
+            // second line, so a directory that is later opened up does not
+            // open the vault with it.
             //
             // Windows named pipes are not filesystem objects and keep libuv's
             // default DACL, which measures as:
