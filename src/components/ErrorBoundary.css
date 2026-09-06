@@ -1,0 +1,51 @@
+.crash-screen {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+	-webkit-app-region: drag;
+}
+
+.crash-panel {
+	-webkit-app-region: no-drag;
+	max-width: 420px;
+	padding: 24px;
+	background: var(--bg-primary);
+	border: 1px solid var(--border-secondary);
+	border-radius: var(--radius-md);
+}
+
+.crash-panel h1 {
+	margin: 0 0 10px;
+	font-size: 15px;
+	font-weight: 600;
+}
+
+.crash-panel p {
+	margin: 0 0 18px;
+	color: var(--text-secondary);
+	line-height: 1.6;
+}
+
+.crash-reload {
+	font: inherit;
+	padding: 6px 14px;
+	background: var(--accent);
+	color: var(--accent-contrast);
+	border: 1px solid var(--accent-border);
+	border-radius: var(--radius-sm);
+	cursor: pointer;
+}
+
+.crash-reload:hover {
+	background: var(--accent-hover);
+}
+
+.crash-reload:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 2px;
+}
