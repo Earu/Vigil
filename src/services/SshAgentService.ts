@@ -58,6 +58,9 @@ export interface SshKeyResult {
     success: boolean;
     fingerprint?: string;
     error?: string;
+    // Why it failed, carried through from the main process so the caller can
+    // tell a failure it is already reporting from one that is news
+    code?: 'format' | 'passphrase' | 'unsupported' | 'agent';
 }
 
 export interface UnlockReport {
@@ -193,8 +196,8 @@ export class SshAgentService {
         return `${entry.username ?? ''}@${attachmentName}`;
     }
 
-    private static failure(error: string): SshKeyResult {
-        return { success: false, error };
+    private static failure(error: string, code?: SshKeyResult['code']): SshKeyResult {
+        return { success: false, error, code };
     }
 
     static async addEntryKey(entry: Entry, settings = this.readSettings(entry)): Promise<SshKeyResult> {
@@ -213,7 +216,7 @@ export class SshAgentService {
                 removeAtClose: settings.removeAtDatabaseClose,
             }
         );
-        return result.success ? { success: true, fingerprint: result.fingerprint } : this.failure(result.error);
+        return result.success ? { success: true, fingerprint: result.fingerprint } : this.failure(result.error, result.code);
     }
 
     static async removeEntryKey(entry: Entry, settings = this.readSettings(entry)): Promise<SshKeyResult> {
@@ -221,7 +224,7 @@ export class SshAgentService {
         const attachment = this.keyAttachment(entry, settings);
         if (!attachment) return this.failure('No SSH key is configured on this entry');
         const result = await window.electron.sshAgentRemoveKey(KeepassDatabaseService.getAttachmentBytes(attachment), this.passphraseOf(entry));
-        return result.success ? { success: true } : this.failure(result.error);
+        return result.success ? { success: true } : this.failure(result.error, result.code);
     }
 
     // Every entry that asked to be added at open, in one pass. Failures are

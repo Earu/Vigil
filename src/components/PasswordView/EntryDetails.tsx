@@ -412,10 +412,16 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	const sshAttachment = useMemo(() => SshAgentService.keyAttachment(editedEntry, sshSettings), [editedEntry.attachments, sshSettings]);
 	const sshFingerprint = sshKeyInfo?.success ? sshKeyInfo.fingerprint : '';
 
-	// Type and fingerprint of the chosen key. While editing, the password
-	// field changes with every keystroke, so the passphrase is only tried
-	// against a saved entry; the clear part of an OpenSSH file still names
-	// the key without it
+	// The passphrase that is actually tried. While editing the password field
+	// changes with every keystroke, so it is not tried then and must not be a
+	// dependency either: as `editedEntry.password` it sent the whole
+	// attachment across IPC on every character for a result the edit-mode
+	// branch throws away. Empty here reads the same as absent on the other
+	// side, and the clear part of an OpenSSH file still names the key without
+	// a passphrase
+	const sshPassphrase = isEditing ? '' : SshAgentService.passphraseOf(editedEntry);
+
+	// Type and fingerprint of the chosen key
 	useEffect(() => {
 		if (!sshAttachment || !window.electron?.sshAgentInspectKey) {
 			setSshKeyInfo(null);
@@ -424,11 +430,11 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		let cancelled = false;
 		window.electron.sshAgentInspectKey(
 			KeepassDatabaseService.getAttachmentBytes(sshAttachment),
-			isEditing ? undefined : SshAgentService.passphraseOf(editedEntry)
+			sshPassphrase
 		).then(info => { if (!cancelled) setSshKeyInfo(info); })
 			.catch(() => { if (!cancelled) setSshKeyInfo(null); });
 		return () => { cancelled = true; };
-	}, [sshAttachment, isEditing, editedEntry.password]);
+	}, [sshAttachment, isEditing, sshPassphrase]);
 
 	const refreshSshLoaded = async (fingerprint: string) => {
 		if (!window.electron?.sshAgentStatus) return;
@@ -479,7 +485,12 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 			const result = sshLoaded
 				? await SshAgentService.removeEntryKey(editedEntry, sshSettings)
 				: await SshAgentService.addEntryKey(editedEntry, sshSettings);
-			if (!result.success) setSshError(result.error ?? 'Failed');
+			// A passphrase failure is what the line under the row already
+			// says, standing, whether or not anything was clicked. Adding
+			// "Wrong passphrase" beneath it says one thing twice; anything
+			// else the agent reports is news and shows
+			const alreadyShown = result.code === 'passphrase' && !!sshProblem;
+			if (!result.success && !alreadyShown) setSshError(result.error ?? 'Failed');
 			if (sshFingerprint) await refreshSshLoaded(sshFingerprint);
 		} finally {
 			setSshBusy(false);
