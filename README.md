@@ -71,7 +71,7 @@ node scripts/asar-hash.mjs
 
 The installer wrappers themselves are not reproducible: they embed timestamps and, on macOS, a signature.
 
-The native modules (keytar, argon2, node-hid, and on Windows passport-desktop) sit outside the archive, under `resources/app.asar.unpacked/dist-electron`. Their SHA-256 per platform is pinned in `electron/native-pins.mjs` and the build refuses any other bytes, so those files can be checked against the pins directly.
+The native modules (keytar, argon2, node-hid, and on Windows passport-desktop) sit outside the archive, under `resources/app.asar.unpacked/dist-electron`, and are the only copies the app loads. Their SHA-256 per platform is pinned in `electron/native-pins.mjs`: the build refuses any other bytes when it copies them, and refuses again after packaging if what landed in the unpacked directory is not exactly those files plus the two addons built from this repository. The archive carries `dist-electron/native-manifest.json`, which names each file, its module, version, target and digest, so the unpacked files can be checked against the pins directly.
 
 ## Development
 

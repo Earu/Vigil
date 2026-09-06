@@ -271,10 +271,17 @@ export function setupIpcHandlers(): void {
 
     // One window per vault: renderers report what they have open. If the
     // vault is already open elsewhere the reply says so and that window is
-    // focused; the caller is expected to back off
+    // focused; the caller is expected to back off.
+    //
+    // Gated on the write grant every vault-open route holds, like save-file:
+    // registering starts a watch on the path's directory (window.ts), which
+    // hashes the file for the renderer on every change and read-grants any
+    // sibling named like a sync client's conflict copy of it. Ungated, that
+    // is a content-hash oracle for any file the user can read, and a read
+    // grant on whatever sits beside it with a matching name
     handle('vault-opened', (event, filePath: string) => {
         const senderWindow = BrowserWindow.fromWebContents(event.sender);
-        if (!senderWindow || !filePath) return { duplicate: false };
+        if (!senderWindow || !isPathGranted(filePath, { write: true })) return { duplicate: false };
 
         const existing = findVaultWindow(filePath);
         if (existing && existing !== senderWindow) {

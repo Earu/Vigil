@@ -1,5 +1,22 @@
-import * as argon2 from '@node-rs/argon2';
+import type * as Argon2 from '@node-rs/argon2';
+import fs from 'fs';
 import os from 'os';
+import { join } from 'path';
+
+// The binary that hashes every master password is the pinned one
+// copy-native-modules.mjs put beside this file (electron/native-pins.mjs):
+// a packaged build and electron:dev both have it. The npm wrapper only
+// re-exports its platform package's binding, and a packaged build carries
+// neither (electron-builder.config.js), so this is the only copy that can
+// load there and the pin is on the bytes that actually run. Tests and plain
+// Node have no dist-electron and get the wrapper
+function loadArgon2(): typeof Argon2 {
+    const pinned = join(__dirname, 'argon2.node');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return fs.existsSync(pinned) ? require(pinned) : require('@node-rs/argon2');
+}
+
+const argon2 = loadArgon2();
 
 // The KDF parameters come from the kdbx header, i.e. from a file the user
 // may have been sent. Unchecked, a header claiming a huge memory cost OOM

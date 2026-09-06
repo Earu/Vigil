@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { checkNativeModule, UNPINNED_OVERRIDE } from './native-pins.mjs';
+import { OUTPUT_NAMES, MANIFEST_NAME } from './native-names.mjs';
 
 const modulesToCopy = ['keytar', '@node-rs/argon2', 'node-hid'];
 if (process.platform === 'win32') {
@@ -41,8 +42,9 @@ function buildAddon(name, { fallback }) {
     console.log(`Copied ${target} to dist-electron`);
 }
 
-// Modules whose prebuild file name says nothing about the module
-const outputNames = { 'node-hid': 'node-hid.node' };
+// The copied binaries land under fixed names (OUTPUT_NAMES) and are listed
+// in a manifest (MANIFEST_NAME) for the check that runs again on the
+// packaged app, electron/verify-unpacked-natives.mjs
 
 // Where a module's binary for this host is, which package.json states its
 // version, and the target name its pin is filed under (native-pins.mjs)
@@ -102,6 +104,15 @@ if (!fs.existsSync(destDir)) {
     fs.mkdirSync(destDir, { recursive: true });
 }
 
+// Every .node file in dist-electron is put there by this script, and
+// dist-electron/** ships whole: a binary left over from an earlier run (an
+// older name, a module since dropped) would be packaged unpinned. Start
+// from none
+for (const name of fs.readdirSync(destDir)) {
+    if (name.endsWith('.node')) fs.unlinkSync(path.join(destDir, name));
+}
+fs.rmSync(path.join(destDir, MANIFEST_NAME), { force: true });
+
 // Every binary that ships unpacked is checked against its pin right before
 // it is copied: the last moment anything could still have swapped it. See
 // electron/native-pins.mjs for why the lockfile is not enough
@@ -111,11 +122,11 @@ function verifyPinned(moduleName, { file, packageDir, target }) {
     const result = checkNativeModule({ module: moduleName, version, target, sha256 });
     if (result.ok) {
         console.log(`${moduleName} ${version} matches its pin for ${target}`);
-        return;
+        return { version, sha256 };
     }
     if (process.env[UNPINNED_OVERRIDE] === '1') {
         console.warn(`WARNING: shipping an unpinned ${moduleName} binary (${UNPINNED_OVERRIDE}=1): ${result.reason}`);
-        return;
+        return { version, sha256 };
     }
     console.error(`Refusing to ship ${moduleName}: ${result.reason}`);
     console.error(`For a local build from source, set ${UNPINNED_OVERRIDE}=1; a release must match the pin`);
@@ -123,20 +134,22 @@ function verifyPinned(moduleName, { file, packageDir, target }) {
 }
 
 // Copy node native modules
+const manifest = {};
 for (const moduleName of modulesToCopy) {
     try {
         const located = locateModule(moduleName);
-        verifyPinned(moduleName, located);
-        const modulePath = located.file;
-        const fileName = outputNames[moduleName] ?? path.basename(modulePath);
-        const targetPath = path.join(process.cwd(), 'dist-electron', fileName);
-        fs.copyFileSync(modulePath, targetPath);
+        const { version, sha256 } = verifyPinned(moduleName, located);
+        const fileName = OUTPUT_NAMES[moduleName];
+        if (!fileName) throw new Error(`no output name for ${moduleName}`);
+        fs.copyFileSync(located.file, path.join(destDir, fileName));
+        manifest[fileName] = { module: moduleName, version, target: located.target, sha256 };
         console.log(`Copied ${fileName} to dist-electron`);
     } catch (error) {
         console.error(`Failed to copy ${moduleName}:`, error);
         process.exit(1);
     }
 }
+fs.writeFileSync(path.join(destDir, MANIFEST_NAME), JSON.stringify(manifest, null, 2) + '\n');
 
 // Touch ID is macOS only: on other platforms biometrics never reaches it, and
 // building a stub that always reports "unimplemented" buys nothing

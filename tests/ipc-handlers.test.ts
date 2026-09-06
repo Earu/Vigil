@@ -324,13 +324,39 @@ describe('vault-opened', () => {
     const registerVault = vi.mocked(windowMod.registerVault);
     const focusWindow = vi.mocked(windowMod.focusWindow);
 
+    // Every vault-open route grants write; the cases below start from that
+    beforeEach(() => {
+        isPathGranted.mockImplementation((_path, options) => options?.write === true);
+    });
+
     it('registers nothing without a sender window', async () => {
         fromWebContents.mockReturnValue(null);
         expect(await invoke('vault-opened', '/vault.kdbx')).toEqual({ duplicate: false });
         expect(registerVault).not.toHaveBeenCalled();
     });
 
+    // Registering starts a directory watch that hashes the file and
+    // read-grants siblings named like conflict copies of it, so a path the
+    // renderer made up must never reach it: neither an unknown one nor a
+    // key file, which holds a read grant only
+    it('registers nothing for a path that was never granted', async () => {
+        isPathGranted.mockReturnValue(false);
+        fromWebContents.mockReturnValue({ id: 1 });
+        expect(await invoke('vault-opened', '/home/u/.config/chromium/Default/Login Data')).toEqual({ duplicate: false });
+        expect(registerVault).not.toHaveBeenCalled();
+        expect(findVaultWindow).not.toHaveBeenCalled();
+    });
+
+    it('registers nothing for a path granted read-only', async () => {
+        isPathGranted.mockImplementation((_path, options) => options?.write !== true);
+        fromWebContents.mockReturnValue({ id: 1 });
+        expect(await invoke('vault-opened', '/keys/master.keyx')).toEqual({ duplicate: false });
+        expect(registerVault).not.toHaveBeenCalled();
+        expect(isPathGranted).toHaveBeenCalledWith('/keys/master.keyx', { write: true });
+    });
+
     it('registers nothing for an empty path', async () => {
+        isPathGranted.mockReturnValue(false);
         fromWebContents.mockReturnValue({ id: 1 });
         expect(await invoke('vault-opened', '')).toEqual({ duplicate: false });
         expect(registerVault).not.toHaveBeenCalled();

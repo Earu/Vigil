@@ -248,6 +248,37 @@ export async function releaseWindow(winId: number): Promise<string[]> {
     return removed;
 }
 
+// Whether a quit has anything to take out of the agent: a key some window
+// added with remove-at-close. Keys added to stay are not the quit's to touch
+export function hasKeysToRelease(): boolean {
+    for (const entry of loaded.values()) {
+        for (const wanted of entry.owners.values()) {
+            if (wanted) return true;
+        }
+    }
+    return false;
+}
+
+// Every window's keys at once, for a quit. Each window's close also
+// releases its own keys, but a quit does not wait for those (the remove is
+// a socket round trip and the process exits first), so app-main.ts holds
+// the quit for this instead. The registry is emptied up front: a re-issued
+// quit must pass straight through even if the agent has stopped answering,
+// and a key whose removal never reached the agent is no worse off than the
+// pre-hold behaviour left every key
+export async function releaseAllWindows(): Promise<string[]> {
+    const snapshot = [...loaded];
+    loaded.clear();
+    const removed: string[] = [];
+    for (const [fingerprint, entry] of snapshot) {
+        if (![...entry.owners.values()].some(Boolean)) continue;
+        try {
+            if (await removeIdentity(entry.publicBlob)) removed.push(fingerprint);
+        } catch { /* nothing to take the key out of */ }
+    }
+    return removed;
+}
+
 export function loadedFingerprints(): string[] {
     return [...loaded.keys()];
 }

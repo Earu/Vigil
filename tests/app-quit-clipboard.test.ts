@@ -66,6 +66,15 @@ vi.mock('../electron/src/menu', () => ({ applyApplicationMenu: vi.fn() }));
 vi.mock('../electron/src/file-operations', () => ({ handleFileOpen: vi.fn() }));
 vi.mock('../electron/src/logger', () => ({ setupLogging: vi.fn() }));
 
+// The agent client has tests of its own against a real ssh-agent; here only
+// the quit hold around it is under test
+const hasKeysToRelease = vi.fn(() => false);
+const releaseAllWindows = vi.fn(async (): Promise<string[]> => []);
+vi.mock('../electron/src/ssh-agent', () => ({
+    hasKeysToRelease: () => hasKeysToRelease(),
+    releaseAllWindows: () => releaseAllWindows(),
+}));
+
 // The clipboard module stays real: app-main's before-quit handler driving the
 // real clear is the unit under test
 async function boot() {
@@ -76,10 +85,67 @@ async function boot() {
 
 beforeEach(() => {
     vi.resetModules();
+    vi.useRealTimers();
     board = '';
     clears = 0;
     appHandlers = {};
     quit.mockClear();
+    hasKeysToRelease.mockReset().mockReturnValue(false);
+    releaseAllWindows.mockReset().mockResolvedValue([]);
+});
+
+describe('ssh keys on quit', () => {
+    // A vault's keys leave the agent when the vault closes, but a quit closes
+    // every window without waiting for their socket round trips. The quit is
+    // held for one release of everything, then re-issued
+    it('holds the quit until the keys are out of the agent', async () => {
+        const { beforeQuit } = await boot();
+        let finish!: () => void;
+        hasKeysToRelease.mockReturnValue(true);
+        releaseAllWindows.mockImplementation(() => new Promise(resolve => { finish = () => resolve(['SHA256:abc']); }));
+
+        const event = { preventDefault: vi.fn() };
+        beforeQuit(event);
+        expect(event.preventDefault).toHaveBeenCalledTimes(1);
+        await vi.waitFor(() => expect(releaseAllWindows).toHaveBeenCalledTimes(1));
+        await new Promise(resolve => setImmediate(resolve));
+        expect(quit).not.toHaveBeenCalled();
+
+        finish();
+        await vi.waitFor(() => expect(quit).toHaveBeenCalledTimes(1));
+
+        // The release emptied the registry, so the re-issued quit passes
+        hasKeysToRelease.mockReturnValue(false);
+        const again = { preventDefault: vi.fn() };
+        beforeQuit(again);
+        expect(again.preventDefault).not.toHaveBeenCalled();
+    });
+
+    it('does not let an agent that stopped answering hold the quit forever', async () => {
+        const { beforeQuit } = await boot();
+        vi.useFakeTimers();
+        hasKeysToRelease.mockReturnValue(true);
+        releaseAllWindows.mockImplementation(() => new Promise(() => { /* never */ }));
+
+        beforeQuit({ preventDefault: vi.fn() });
+        await vi.advanceTimersByTimeAsync(4999);
+        expect(quit).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(2);
+        expect(quit).toHaveBeenCalledTimes(1);
+    });
+
+    it('clears the clipboard and releases the keys under the same hold', async () => {
+        const { clip, beforeQuit } = await boot();
+        await clip.copySecret('secret-1');
+        hasKeysToRelease.mockReturnValue(true);
+
+        const event = { preventDefault: vi.fn() };
+        beforeQuit(event);
+        await vi.waitFor(() => expect(quit).toHaveBeenCalledTimes(1));
+        expect(event.preventDefault).toHaveBeenCalledTimes(1);
+        expect(releaseAllWindows).toHaveBeenCalledTimes(1);
+        expect(board).toBe('');
+    });
 });
 
 describe('clipboard on quit', () => {
