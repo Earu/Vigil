@@ -32,6 +32,7 @@ import { AccessConsentDialog } from './components/AccessConsentDialog';
 import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
 import { SaveConflictDialog } from './components/SaveConflictDialog';
 import { ConflictCopyDialog, ConflictCopyRequest, hasChanges } from './components/ConflictCopyDialog';
+import { RekeyDialog } from './components/RekeyDialog';
 import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
 import { consentQueue } from './services/ConsentQueue';
 import { FaviconService } from './services/FaviconService';
@@ -85,6 +86,11 @@ function App() {
 	// resolver; the dialog rides the consent queue like the browser prompts.
 	// requestId 0: no main-process request stands behind it, so no timeout
 	// can cancel it
+	// Raised when the vault on disk stopped opening with the key this window
+	// holds. Recovery is the only route forward, so this outlives a failed
+	// attempt and carries its message rather than closing
+	const [rekeyPrompt, setRekeyPrompt] = useState<{ error?: string } | null>(null);
+
 	useEffect(() => {
 		KeepassDatabaseService.conflictResolver = (message) => {
 			window.electron?.focusWindow().catch(() => {});
@@ -263,6 +269,8 @@ function App() {
 				if (kdbxDbRef.current !== kdbxDb) return;
 				if (result === 'merged') {
 					setDatabase(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb));
+				} else if (result === 'rekeyed') {
+					setRekeyPrompt({});
 				} else if (result === 'failed') {
 					(window as any).showToast?.({
 						message: 'The database changed on disk but could not be merged; your next save will ask what to do',
@@ -549,7 +557,7 @@ function App() {
 	// through handleDatabaseChangeFromUi below, which swallows the rejection:
 	// the save path has already toasted, and the flags set here keep the close
 	// and lock guards honest about the unpersisted state
-	const handleDatabaseChange = async (updatedDatabase: Database) => {
+	const handleDatabaseChange = async (updatedDatabase: Database, rekeyTo?: kdbxweb.ProtectedValue) => {
 		// Before setDatabase: a stale caller (a background task finishing
 		// after a lock) must not put a model back on screen
 		if (!kdbxDb) {
@@ -560,7 +568,7 @@ function App() {
 		savesInFlight.current++;
 		try {
 
-			await KeepassDatabaseService.saveDatabase(updatedDatabase, kdbxDb);
+			await KeepassDatabaseService.saveDatabase(updatedDatabase, kdbxDb, rekeyTo);
 			// The vault was locked (or another opened) while this save ran.
 			// The file was still written, to the path the save started with;
 			// the decrypted model must not come back on screen, and the
@@ -578,6 +586,9 @@ function App() {
 			// Same as above: the toast has said what failed, and nothing
 			// else from a closed session may reach the UI or its flags
 			if (kdbxDbRef.current !== kdbxDb) throw err;
+			if (err instanceof Error && err.message === 'SAVE_BLOCKED_REKEYED') {
+				setRekeyPrompt({});
+			}
 			// A save that merged changes from disk and then failed to write
 			// leaves them in the kdbx only; show them, so the next edit
 			// starts from a model that has them
@@ -594,6 +605,46 @@ function App() {
 
 	const handleDatabaseChangeFromUi = (updatedDatabase: Database) => {
 		handleDatabaseChange(updatedDatabase).catch(() => {});
+	};
+
+	// Adopts the credentials the file on disk now wants and folds its contents
+	// into the open vault, so unsaved edits survive a password change made on
+	// another device. Nothing is written here: the merged vault is left dirty
+	// and the user's next save writes it under the key just adopted
+	const recoverFromRekey = async (credentials: kdbxweb.Credentials) => {
+		const path = KeepassDatabaseService.getPath();
+		if (!kdbxDb || !path || !window.electron) return;
+		const opened = kdbxDb;
+
+		const read = await window.electron.readFile(path);
+		if (kdbxDbRef.current !== opened) return;
+		if (!read.success || !read.data) {
+			setRekeyPrompt({ error: 'The database file could not be read. Check that it has finished syncing.' });
+			return;
+		}
+
+		const outcome = await KeepassDatabaseService.recoverFromRekey(opened, new Uint8Array(read.data), credentials);
+		if (kdbxDbRef.current !== opened) return;
+		if (outcome === 'wrong-credentials') {
+			setRekeyPrompt({ error: 'That password does not open the database.' });
+			return;
+		}
+		if (outcome === 'different-vault') {
+			setRekeyPrompt({ error: 'That file is a different database, not this one with a new password.' });
+			return;
+		}
+		if (outcome === 'failed') {
+			setRekeyPrompt({ error: 'The database could not be reopened.' });
+			return;
+		}
+
+		setRekeyPrompt(null);
+		setDatabase(KeepassDatabaseService.convertKdbxToDatabase(opened));
+		(window as any).showToast?.({
+			message: 'The new master password was accepted and the changes from disk were merged',
+			type: 'success',
+			duration: 6000
+		});
 	};
 
 	// Favicon promotion: fetched favicons become custom icons stored in the
@@ -675,10 +726,10 @@ function App() {
 					setAutoLockDuration(duration);
 					userSettingsService.setAutoLockDuration(duration);
 				}}
-				onDatabaseChange={() => {
+				onDatabaseChange={(rekeyTo) => {
 					if (!database || !kdbxDb) return Promise.resolve(false);
 					const updatedDatabase = KeepassDatabaseService.convertKdbxToDatabase(kdbxDb);
-					return handleDatabaseChange(updatedDatabase).then(() => true, () => false);
+					return handleDatabaseChange(updatedDatabase, rekeyTo).then(() => true, () => false);
 				}}
 			/>
 			<ToastContainer />
@@ -740,6 +791,14 @@ function App() {
 					request={consent.payload as ConflictCopyRequest}
 					onTrash={() => consentQueue.settle(consent.id, true)}
 					onKeep={() => consentQueue.settle(consent.id, false)}
+				/>
+			)}
+			{rekeyPrompt && kdbxDb && (
+				<RekeyDialog
+					hasUnsavedChanges={entryDirty.current || saveFailed.current}
+					error={rekeyPrompt.error}
+					onCancel={() => setRekeyPrompt(null)}
+					onSubmit={(credentials) => { void recoverFromRekey(credentials); }}
 				/>
 			)}
 			{hardwareKeyTouchPending && <HardwareKeyTouchDialog />}
