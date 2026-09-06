@@ -41,7 +41,7 @@ A modern, secure password manager with a beautiful user interface, built using E
 
 ## Accessibility
 
-Everything works from the keyboard: the group tree, entry list and tab strips take arrow keys, Home/End and type-ahead, F6 cycles the panes, dialogs trap focus and return it on close. The full shortcut list is in Settings > Info.
+Everything works from the keyboard: the group tree, entry list and tab strips take arrow keys, Home/End and type-ahead, F6 cycles the panes, dialogs trap focus and return it on close. The full shortcut list is in Settings > General.
 
 Screen readers get roles, names and states on every control, live announcements for toasts and search counts, and text alternatives for the clipboard and one-time code timers. Verified with UI Automation on Windows and AT-SPI on Linux.
 

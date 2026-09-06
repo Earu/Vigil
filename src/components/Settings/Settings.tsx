@@ -85,7 +85,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [pwError, setPwError] = useState('');
     const [kdfInfo, setKdfInfo] = useState<KdfInfo | null>(null);
     const [historyMax, setHistoryMax] = useState(10);
-    const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security' | 'info'>('general');
+    const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security'>('general');
     const [browserIntegration, setBrowserIntegration] = useState<{ supported: boolean; enabled: boolean; running: boolean } | null>(null);
     const [browserAssociations, setBrowserAssociations] = useState<Array<{ name: string; key: string }>>([]);
     const [contentProtection, setContentProtection] = useState<{ supported: boolean; enabled: boolean } | null>(null);
@@ -564,7 +564,6 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         { id: 'general' as const, label: 'General' },
                         ...(kdbxDb ? [{ id: 'database' as const, label: 'Database' }] : []),
                         { id: 'security' as const, label: 'Security' },
-                        { id: 'info' as const, label: 'Info' },
                     ]}
                     active={currentTab}
                     onChange={setActiveTab}
@@ -1186,7 +1185,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         </div>
                     )}
 
-                    {currentTab === 'info' && (
+                    {currentTab === 'general' && (
                         <div className="settings-section">
                             <h3>About</h3>
                             <div className="info-about">
@@ -1201,7 +1200,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         </div>
                     )}
 
-                    {currentTab === 'info' && window.electron && (
+                    {currentTab === 'general' && window.electron && (
                         <div className="settings-section">
                             <h3>Updates</h3>
                             <div className="update-controls">
@@ -1229,7 +1228,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                         </div>
                     )}
 
-                    {currentTab === 'info' && (
+                    {currentTab === 'general' && (
                         <div className="settings-section">
                             <h3>Keyboard shortcuts</h3>
                             <div className="shortcut-groups">

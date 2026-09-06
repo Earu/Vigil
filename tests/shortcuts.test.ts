@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { matchesChord, chordKeys, SHORTCUT_GROUPS } from '../src/services/Shortcuts';
 
-// One chord table feeds both the key handlers and the Settings > Info list.
+// One chord table feeds both the key handlers and the Settings > General list.
 
 const ev = (init: KeyboardEventInit) => new KeyboardEvent('keydown', init);
 const mac = (on: boolean) => vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue(on ? 'Mozilla/5.0 (Macintosh)' : 'Mozilla/5.0 (X11; Linux x86_64)');

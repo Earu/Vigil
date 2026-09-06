@@ -1,5 +1,5 @@
 // Keyboard shortcuts, in one place so the handlers and the table in
-// Settings > Info cannot drift apart. A chord is written with Mod for the
+// Settings > General cannot drift apart. A chord is written with Mod for the
 // platform's command key: Cmd on macOS, Ctrl elsewhere.
 
 export const isMac = (): boolean => navigator.userAgent.includes('Mac');

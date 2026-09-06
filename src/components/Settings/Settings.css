@@ -770,7 +770,7 @@ select.db-input {
     color: var(--text-muted);
 }
 
-/* Info tab */
+/* About, updates and shortcuts */
 .info-about {
     display: flex;
     flex-direction: column;
