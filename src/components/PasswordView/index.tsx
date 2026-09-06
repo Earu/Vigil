@@ -182,7 +182,12 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 		}
 	}, [database]);
 
+	// Clearing the selection unmounts the details panel, which would discard an
+	// open edit with no prompt. The search box holds focus after unlock, so
+	// typing in it is the easiest way to reach that. Every other route out of a
+	// dirty form asks first; a dirty form stays put here instead
 	useEffect(() => {
+		if (entryDirty.current) return;
 		setSelectedEntry(null);
 		setIsCreatingNew(false);
 	}, [selectedGroup.id, searchQuery]);
