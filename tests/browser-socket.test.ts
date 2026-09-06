@@ -46,6 +46,32 @@ describe.skipIf(process.platform === 'win32')('a private runtime directory', () 
         expect(getProxyTokenPath()).toBeNull();
     });
 
+    // macOS: the per-user cache directory, never $TMPDIR, which dirhelper
+    // sweeps of anything not accessed for three days while the app runs
+    it('on macOS uses the per-user cache directory, and only when it is private', () => {
+        const env = {};
+        const cache = dir('darwin-cache', 0o700);
+        const darwin = (darwinCacheDir: () => string | null) => ({ platform: 'darwin' as const, env, darwinCacheDir });
+
+        expect(getSocketPath(darwin(() => cache))).toBe(path.join(cache, 'vigil.BrowserServer'));
+        expect(getProxyTokenPath(darwin(() => cache))).toBe(path.join(cache, 'vigil.BrowserToken'));
+        // getconf answers with a trailing slash
+        expect(getSocketPath(darwin(() => `${cache}/`))).toBe(path.join(cache, 'vigil.BrowserServer'));
+
+        // A shared directory, or none at all, is refused rather than fallen back from
+        expect(getSocketPath(darwin(() => dir('darwin-shared', 0o755)))).toBeNull();
+        expect(getSocketPath(darwin(() => null))).toBeNull();
+
+        // XDG_RUNTIME_DIR is honoured ahead of it when a user sets one
+        const runtime = dir('darwin-runtime', 0o700);
+        expect(getSocketPath({ platform: 'darwin', env: { XDG_RUNTIME_DIR: runtime }, darwinCacheDir: () => cache }))
+            .toBe(path.join(runtime, 'vigil.BrowserServer'));
+    });
+
+    it('on Linux never looks anywhere but XDG_RUNTIME_DIR', () => {
+        expect(getSocketPath({ platform: 'linux', env: {}, darwinCacheDir: () => dir('linux-cache', 0o700) })).toBeNull();
+    });
+
     it('vouches for a token file only when it is a private regular file of this user', () => {
         const check = (name: string, mode: number) => {
             const file = path.join(scratch, name);
