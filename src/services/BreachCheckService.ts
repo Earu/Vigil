@@ -114,8 +114,24 @@ export class BreachCheckService {
     private static emailProgress = { checked: 0, total: 0 };
     private static toastId: string | null = null;
 
-    // Cancellation support
-    private static isCancelled = false;
+    // Which vault session a sweep belongs to. A lock bumps it, and every
+    // loop and every write is checked against the value captured when the
+    // sweep started, so a sweep whose vault has closed stops where it is.
+    //
+    // This was a boolean that cancelChecks set and the next sweep cleared.
+    // Lanes park on in-flight HIBP fetches, so a lock followed by an unlock
+    // before those returned cleared the flag underneath them: they resumed
+    // against the vault that had just been locked, kept sending its
+    // passwords, and wrote its verdicts through BreachStatusStore, which
+    // reads and writes under whatever key BreachCacheCrypto currently holds.
+    // The locked vault's entry ids and verdicts landed inside the newly
+    // opened vault's cache. A counter cannot be un-bumped, so a stale sweep
+    // can never become current again
+    private static generation = 0;
+
+    private static isCurrent(generation: number): boolean {
+        return this.generation === generation;
+    }
 
     // Progress toasts are throttled: a mostly-cached sweep calls
     // incrementProgress once per entry in quick succession, and each toast
@@ -128,7 +144,9 @@ export class BreachCheckService {
     private static toastTrailingTimer: ReturnType<typeof setTimeout> | null = null;
 
     public static cancelChecks(): void {
-        this.isCancelled = true;
+        this.generation++;
+        // Held per session: the addresses belong to the vault that is closing
+        this.emailFetchCache.clear();
         this.clearProgress();
         // Whatever the sweep already learned is worth keeping; a lock must not
         // throw away results that are still sitting in a coalesced write
@@ -150,12 +168,6 @@ export class BreachCheckService {
             });
             this.toastId = null;
         }
-    }
-
-    private static resetCancellation(): void {
-        this.isCancelled = false;
-        // Fresh sweep, fresh per-email dedup
-        this.emailFetchCache.clear();
     }
 
     private static cancelTrailingToast(): void {
@@ -252,10 +264,10 @@ export class BreachCheckService {
 
     // Run tasks with a bounded number in flight; stops picking up new work
     // once cancelled
-    private static async runPool<T>(items: T[], worker: (item: T) => Promise<void>): Promise<void> {
+    private static async runPool<T>(items: T[], generation: number, worker: (item: T) => Promise<void>): Promise<void> {
         let next = 0;
         const lane = async () => {
-            while (next < items.length && !this.isCancelled) {
+            while (next < items.length && this.isCurrent(generation)) {
                 const item = items[next++];
                 await worker(item);
             }
@@ -274,7 +286,7 @@ export class BreachCheckService {
         return total;
     }
 
-    public static async checkEntry(databasePath: string, entry: Entry): Promise<boolean> {
+    public static async checkEntry(databasePath: string, entry: Entry, generation: number = this.generation): Promise<boolean> {
         // No password (passkey-only entries): nothing to breach-check or
         // rate. Runs before the cache so stale flagged statuses get cleared
         const passwordString = typeof entry.password === 'string'
@@ -306,6 +318,11 @@ export class BreachCheckService {
         // If not in cache or expired, check the password
         try {
             const result = await this.checkPassword(entry.password);
+            // The vault may have closed while the lookup was in flight. The
+            // store writes through BreachCacheCrypto's current key, so a write
+            // now would seal this vault's verdict inside whichever vault is
+            // open instead
+            if (!this.isCurrent(generation)) return result.isPwned;
             const emailBreaches = EmailBreachStatusStore.getEntryEmailStatus(databasePath, entry.id, entry.username, entry.modified);
             BreachStatusStore.setEntryStatus(databasePath, entry.id, {
                 isPwned: result.isPwned,
@@ -329,16 +346,18 @@ export class BreachCheckService {
     // the user named that must not reset a running sweep's progress and
     // caches when the walk reaches it
     public static async checkGroup(databasePath: string, group: Group): Promise<boolean> {
-        this.resetCancellation();
+        // Captured, never bumped: the password and email sweeps run together
+        // for one unlock and must share a generation, so only a lock ends them
+        const generation = this.generation;
         const totalEntries = this.countTotalEntries(group);
         this.countedEntries.clear();
         this.progress = { checked: 0, total: totalEntries };
         this.updateProgressToast();
 
         try {
-            const hasBreached = await this.walkGroup(databasePath, group);
+            const hasBreached = await this.walkGroup(databasePath, group, generation);
 
-            if (!this.isCancelled) {
+            if (this.isCurrent(generation)) {
                 this.countedEntries.clear();
                 this.progress = { checked: 0, total: 0 };
                 this.renderProgressToast();
@@ -346,40 +365,41 @@ export class BreachCheckService {
 
             return hasBreached;
         } catch (error) {
-            // Make sure we stop the status if there's an error
-            this.clearProgress();
+            // Make sure we stop the status if there's an error. A sweep whose
+            // vault is gone leaves the live one's progress alone
+            if (this.isCurrent(generation)) this.clearProgress();
             throw error;
         } finally {
             // The sweep wrote one status per entry through the coalescing
             // timer; settle them however it ended
-            BreachStatusStore.flush();
+            if (this.isCurrent(generation)) BreachStatusStore.flush();
         }
     }
 
-    private static async walkGroup(databasePath: string, group: Group): Promise<boolean> {
+    private static async walkGroup(databasePath: string, group: Group, generation: number): Promise<boolean> {
         let hasBreached = false;
 
         // Check entries with a small pool; the range API tolerates it
-        await this.runPool(group.entries, async (entry) => {
+        await this.runPool(group.entries, generation, async (entry) => {
             try {
-                const isBreached = await this.checkEntry(databasePath, entry);
+                const isBreached = await this.checkEntry(databasePath, entry, generation);
                 hasBreached = hasBreached || isBreached;
             } catch (error) {
                 // Continue checking other entries even if one fails
                 console.error('Error checking entry:', error);
             }
         });
-        if (this.isCancelled) {
+        if (!this.isCurrent(generation)) {
             return false;
         }
 
         // Check subgroups one at a time
         for (const subgroup of group.groups) {
-            if (this.isCancelled) {
+            if (!this.isCurrent(generation)) {
                 return false;
             }
             try {
-                const isBreached = await this.walkGroup(databasePath, subgroup);
+                const isBreached = await this.walkGroup(databasePath, subgroup, generation);
                 hasBreached = hasBreached || isBreached;
             } catch (error) {
                 // Continue checking other groups even if one fails
@@ -662,7 +682,7 @@ export class BreachCheckService {
         return request;
     }
 
-    private static async checkEmailEntry(databasePath: string, entry: Entry): Promise<HibpBreach[]> {
+    private static async checkEmailEntry(databasePath: string, entry: Entry, generation: number): Promise<HibpBreach[]> {
         if (!this.isValidEmail(entry.username)) {
             return [];
         }
@@ -676,6 +696,9 @@ export class BreachCheckService {
         }
 
         const raw = await this.fetchEmailBreaches(entry.username);
+        // The vault may have closed during the lookup; the store writes under
+        // whatever key is open now, so a stale sweep must not write at all
+        if (!this.isCurrent(generation)) return [];
         this.incrementEmailProgress(entry.id);
         if (raw === null) {
             // Failed lookup: report nothing and leave it uncached so the
@@ -692,16 +715,23 @@ export class BreachCheckService {
     // Root setup and teardown, like checkGroup's: never keyed on the group's
     // name, the group handed in IS the root of this sweep
     public static async checkGroupEmails(databasePath: string, group: Group): Promise<boolean> {
-        this.resetCancellation();
+        // Captured like checkGroup's: both sweeps belong to the same unlock
+        const generation = this.generation;
+        // The dedup cache spans one sweep, not the session: it holds the
+        // promise for every address looked up, failures included, so that
+        // entries sharing an address cost one call. Carried into the next
+        // sweep it would also carry the failures, and a lookup that failed
+        // would never be retried
+        this.emailFetchCache.clear();
         const totalEntries = this.countTotalEntries(group);
         this.countedEmails.clear();
         this.emailProgress = { checked: 0, total: totalEntries };
         this.updateProgressToast();
 
         try {
-            const hasBreached = await this.walkGroupEmails(databasePath, group);
+            const hasBreached = await this.walkGroupEmails(databasePath, group, generation);
 
-            if (!this.isCancelled) {
+            if (this.isCurrent(generation)) {
                 this.countedEmails.clear();
                 this.emailProgress = { checked: 0, total: 0 };
                 this.renderProgressToast();
@@ -710,28 +740,30 @@ export class BreachCheckService {
             return hasBreached;
         } catch (error) {
             // Make sure we stop the status if there's an error
-            this.clearProgress();
+            if (this.isCurrent(generation)) this.clearProgress();
             throw error;
         } finally {
             // This sweep writes to both stores: breach statuses pick up the
             // breachedEmail flag as email results land
-            EmailBreachStatusStore.flush();
-            BreachStatusStore.flush();
+            if (this.isCurrent(generation)) {
+                EmailBreachStatusStore.flush();
+                BreachStatusStore.flush();
+            }
         }
     }
 
-    private static async walkGroupEmails(databasePath: string, group: Group): Promise<boolean> {
+    private static async walkGroupEmails(databasePath: string, group: Group, generation: number): Promise<boolean> {
         let hasBreached = false;
 
         // Check entries one at a time to respect rate limits
         for (const entry of group.entries) {
-            if (this.isCancelled) {
+            if (!this.isCurrent(generation)) {
                 return false;
             }
             if (this.isValidEmail(entry.username)) {
                 try {
-                    const breaches = await this.checkEmailEntry(databasePath, entry);
-                    if (breaches.length > 0) {
+                    const breaches = await this.checkEmailEntry(databasePath, entry, generation);
+                    if (breaches.length > 0 && this.isCurrent(generation)) {
                         // Merge breachedEmail into an existing password verdict
                         // only. Fabricating a record here would count as a cache
                         // hit in checkEntry and skip the real password check for
@@ -758,11 +790,11 @@ export class BreachCheckService {
 
         // Check subgroups one at a time
         for (const subgroup of group.groups) {
-            if (this.isCancelled) {
+            if (!this.isCurrent(generation)) {
                 return false;
             }
             try {
-                const isBreached = await this.walkGroupEmails(databasePath, subgroup);
+                const isBreached = await this.walkGroupEmails(databasePath, subgroup, generation);
                 hasBreached = hasBreached || isBreached;
             } catch (error) {
                 // Continue checking other groups even if one fails
