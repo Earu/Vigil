@@ -45,6 +45,7 @@ export function resetForTests(): void {
     biometricsAvailableCache = null;
     macBackendProbe = null;
     biometricsConfigCache = null;
+    persistentBlobsRetired = null;
     sessionPasswords.clear();
 }
 
@@ -132,15 +133,52 @@ interface BiometricsConfig { requirePasswordAfterRestart: boolean }
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'biometrics-config.json');
 let biometricsConfigCache: BiometricsConfig | null = null;
 
+// Session scope is the default, as it is KeePassXC's only mode: a persistent
+// blob is openable by same-user code with one habituated Hello prompt (see
+// biometrics-crypto.ts), and nothing the user did asked for that trade. An
+// explicit false in the file is the user's choice and is kept
 export function getBiometricsConfig(): BiometricsConfig {
     if (biometricsConfigCache) return biometricsConfigCache;
     try {
         const parsed = JSON.parse(fs.readFileSync(CONFIG_PATH(), 'utf8'));
-        biometricsConfigCache = { requirePasswordAfterRestart: parsed.requirePasswordAfterRestart === true };
+        biometricsConfigCache = { requirePasswordAfterRestart: parsed.requirePasswordAfterRestart !== false };
     } catch {
-        biometricsConfigCache = { requirePasswordAfterRestart: false };
+        biometricsConfigCache = { requirePasswordAfterRestart: true };
     }
     return biometricsConfigCache;
+}
+
+// The setting says nothing on disk may release a password, and a persistent
+// blob written before it took effect is exactly that. Each one becomes the
+// session marker, so the vault stays enrolled and the next password unlock
+// re-arms it, and the DPAPI entropy goes, so a blob this misses (a keytar
+// without findCredentials) can never open either: without the entropy it
+// reads as stale and is discarded. Runs once per process the first time the
+// setting is consulted, and again whenever it is switched on, so blobs from
+// before the default changed are retired without the user touching anything
+let persistentBlobsRetired: Promise<void> | null = null;
+
+async function retirePersistentBlobs(): Promise<void> {
+    if (!keytar) return;
+    try {
+        if (typeof keytar.findCredentials === 'function') {
+            for (const { account, password } of await keytar.findCredentials(SERVICE_NAME)) {
+                if (isV4Blob(password)) await keytar.setPassword(SERVICE_NAME, account, SESSION_MARKER);
+            }
+        }
+    } catch (error) {
+        console.error('Failed to retire persistent biometric blobs:', error);
+    }
+    try {
+        fs.rmSync(ENTROPY_PATH(), { force: true });
+    } catch (error) {
+        console.error('Failed to remove the biometric entropy:', error);
+    }
+}
+
+function ensurePersistentBlobsRetired(): Promise<void> {
+    if (!persistentBlobsRetired) persistentBlobsRetired = retirePersistentBlobs();
+    return persistentBlobsRetired;
 }
 
 export async function setBiometricsConfig(config: BiometricsConfig): Promise<{ success: boolean; error?: string }> {
@@ -150,6 +188,11 @@ export async function setBiometricsConfig(config: BiometricsConfig): Promise<{ s
     } catch (error) {
         console.error('Failed to store the biometrics config:', error);
         return { success: false, error: 'Failed to store the setting' };
+    }
+
+    if (config.requirePasswordAfterRestart && process.platform === 'win32') {
+        persistentBlobsRetired = retirePersistentBlobs();
+        await persistentBlobsRetired;
     }
 
     // Turning the requirement off while session entries are armed: re-seal
@@ -366,11 +409,17 @@ export async function hasBiometricsEnabled(dbPath: string): Promise<{ success: b
         }
         if (process.platform === 'win32') {
             const strict = getBiometricsConfig().requirePasswordAfterRestart;
+            if (strict && isV4Blob(stored)) {
+                // A persistent blob under the setting: retire it (and every
+                // other one) now rather than report it frozen
+                await ensurePersistentBlobsRetired();
+                return { success: true, enabled: true, armed: false };
+            }
             if (stored === SESSION_MARKER) {
                 return { success: true, enabled: true, armed: sessionPasswords.has(key) };
             }
             if (isV4Blob(stored)) {
-                return { success: true, enabled: true, armed: !strict };
+                return { success: true, enabled: true, armed: true };
             }
             await discardOutdatedBlob(key);
             return { success: true, enabled: false };
@@ -496,10 +545,10 @@ export async function getBiometricPassword(dbPath: string):
             }
 
             if (strict && isV4Blob(stored)) {
-                // The setting says nothing on disk may release the password,
-                // so a persistent blob written before the switch stays
-                // sealed; the next password unlock converts it to session
-                // scope (the re-arm path overwrites it with the marker)
+                // The setting says nothing on disk may release the password.
+                // A persistent blob from before it took effect is retired on
+                // the spot, with the rest; the next password unlock re-arms
+                await ensurePersistentBlobsRetired();
                 return { success: false, retry: true, error: REARM_MESSAGE };
             }
 

@@ -49,6 +49,7 @@ vi.mock('../electron/src/get-keytar', () => ({
         getPassword: async (_s: string, account: string) => state.keytarStore.get(account) ?? null,
         setPassword: async (_s: string, account: string, value: string) => { state.keytarStore.set(account, value); },
         deletePassword: async (_s: string, account: string) => state.keytarStore.delete(account),
+        findCredentials: async () => [...state.keytarStore].map(([account, password]) => ({ account, password })),
     },
 }));
 
@@ -101,7 +102,61 @@ beforeEach(() => {
     }
 });
 
+const entropyFile = () => path.join(state.userData, 'biometric-entropy.bin');
+
+describe('the default', () => {
+    it('is session scope: nothing that opens the password is written to disk', async () => {
+        const bio = await freshBiometrics();
+        expect(bio.getBiometricsConfig()).toEqual({ requirePasswordAfterRestart: true });
+        expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(true);
+        expect(state.keytarStore.get(keytarKeyFor(DB))).toBe('v4-session:');
+        expect(fs.existsSync(entropyFile())).toBe(false);
+    });
+
+    it('keeps an explicit choice of persistence', async () => {
+        let bio = await freshBiometrics();
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+        bio = await freshBiometrics();
+        expect(bio.getBiometricsConfig()).toEqual({ requirePasswordAfterRestart: false });
+    });
+
+    // A blob written by a version whose default was persistence, met by
+    // this one under the new default: retired the first time anything
+    // looks, with the DPAPI entropy, and the vault stays enrolled
+    it('retires persistent blobs from before the default changed', async () => {
+        let bio = await freshBiometrics();
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+        await bio.enableBiometrics(DB, 'hunter2');
+        const other = 'C:\\vaults\\other.kdbx';
+        await bio.enableBiometrics(other, 'letmein');
+        expect(fs.existsSync(entropyFile())).toBe(true);
+
+        // The config file goes, as for an install that never had one
+        fs.rmSync(path.join(state.userData, 'biometrics-config.json'));
+        bio = await freshBiometrics();
+        expect(await bio.hasBiometricsEnabled(DB)).toMatchObject({ enabled: true, armed: false });
+        // Every persistent blob became the marker, not just the one asked about
+        expect(state.keytarStore.get(keytarKeyFor(DB))).toBe('v4-session:');
+        expect(state.keytarStore.get(keytarKeyFor(other))).toBe('v4-session:');
+        expect(fs.existsSync(entropyFile())).toBe(false);
+
+        // Nothing releases either password without the master password
+        const disarmed = await bio.getBiometricPassword(DB);
+        expect(disarmed).toMatchObject({ success: false, retry: true });
+        expect(disarmed.password).toBeUndefined();
+        // And the re-arm works as in session mode
+        expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(true);
+        expect((await bio.getBiometricPassword(DB)).password).toBe('hunter2');
+    });
+});
+
 describe('persistent mode (v4)', () => {
+    // Persistence is opt-in now; these exercise what the opt-in gets
+    beforeEach(async () => {
+        const bio = await freshBiometrics();
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+    });
+
     it('enables as a v4 blob and unlocks across a restart', async () => {
         let bio = await freshBiometrics();
         expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(true);
@@ -242,18 +297,30 @@ describe('session-scoped mode (require master password after restart)', () => {
         expect((await bio.getBiometricPassword(DB)).password).toBe(secret);
     });
 
-    it('freezes a pre-existing persistent blob instead of releasing it', async () => {
+    // Turning the setting on is a decision about every vault, including the
+    // ones not opened for weeks: their persistent blobs are retired on the
+    // spot rather than left frozen for a same-user process to open with one
+    // phished Hello prompt. The vault stays enrolled; the next password
+    // unlock re-arms it
+    it('retires every pre-existing persistent blob when switched on', async () => {
         let bio = await freshBiometrics();
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
         await bio.enableBiometrics(DB, 'hunter2'); // persistent v4
+        const dormant = 'C:\\vaults\\dormant.kdbx';
+        await bio.enableBiometrics(dormant, 'sleepy'); // never opened again
 
         await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
+        expect(state.keytarStore.get(keytarKeyFor(DB))).toBe('v4-session:');
+        expect(state.keytarStore.get(keytarKeyFor(dormant))).toBe('v4-session:');
+        expect(fs.existsSync(entropyFile())).toBe(false);
         const frozen = await bio.getBiometricPassword(DB);
         expect(frozen).toMatchObject({ success: false, retry: true });
         expect(await bio.hasBiometricsEnabled(DB)).toMatchObject({ enabled: true, armed: false });
 
-        // The re-arm replaces the blob with the marker: conversion complete
+        // The re-arm seals a session copy; the marker stays
         await bio.enableBiometrics(DB, 'hunter2');
         expect(state.keytarStore.get(keytarKeyFor(DB))).toBe('v4-session:');
+        expect((await bio.getBiometricPassword(DB)).password).toBe('hunter2');
     });
 
     it('turning the setting off re-seals armed vaults persistently', async () => {

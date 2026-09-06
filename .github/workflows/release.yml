@@ -11,6 +11,13 @@ on:
         required: true
         type: string
 
+# Read-only by default; the jobs that need more say so themselves. The
+# jobs holding release secrets run in the "release" environment, so the
+# repository can put required reviewers in front of them: a tag push then
+# builds, but signs and publishes only once someone has approved the run
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -51,6 +58,11 @@ jobs:
           - os: macos-latest
             arch: arm64
     runs-on: ${{ matrix.os }}
+    # The Apple signing certificate and notarization credentials are read
+    # here, in a job that has run every dependency's install script. The
+    # environment is what lets a required reviewer stand between a tag push
+    # and that
+    environment: release
     # id-token and attestations are what the provenance step below needs;
     # nothing else in this job writes anywhere
     permissions:
@@ -123,7 +135,6 @@ jobs:
       env:
         SIGNING_IDENTITY_NAME: ${{ secrets.SIGNING_IDENTITY_NAME }}
         NODE_ENV: production
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # macOS signing. Enabled only when the Developer ID secrets are
         # present, so forks and PRs still produce an (unsigned) build instead
         # of failing. Without a signature the app runs, but the biometry-gated
@@ -145,7 +156,6 @@ jobs:
       run: npm run electron:build -- --publish never
       env:
         NODE_ENV: production
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # macOS signing. Enabled only when the Developer ID secrets are
         # present, so forks and PRs still produce an (unsigned) build instead
         # of failing. Without a signature the app runs, but the biometry-gated
@@ -256,6 +266,7 @@ jobs:
   sign:
     needs: build
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
 
@@ -291,6 +302,7 @@ jobs:
   release:
     needs: [build, sign]
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
 

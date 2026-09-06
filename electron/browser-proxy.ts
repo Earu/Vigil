@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import {
     getSocketPath,
     getProxyTokenPath,
+    isPrivateTokenFile,
     PROXY_AUTH_ACTION,
     SERVER_PROOF_LABEL,
     CLIENT_PROOF_LABEL,
@@ -33,9 +34,19 @@ export function run(): void {
     const tokenPath = getProxyTokenPath();
     if (!socketPath || !tokenPath) process.exit(1);
 
+    // The token is the handshake's whole secret, so it is only taken from a
+    // file this user wrote and nobody else can read; checked on the open
+    // descriptor, so the bytes read are the bytes checked. A token planted
+    // by another user would have the proxy authenticate their server
     let token: string;
     try {
-        token = fs.readFileSync(tokenPath, 'utf8').trim();
+        const fd = fs.openSync(tokenPath!, 'r');
+        try {
+            if (!isPrivateTokenFile(fd)) process.exit(1);
+            token = fs.readFileSync(fd, 'utf8').trim();
+        } finally {
+            fs.closeSync(fd);
+        }
     } catch {
         // No token means no running, set-up Vigil to talk to
         process.exit(1);

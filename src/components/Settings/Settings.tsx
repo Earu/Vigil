@@ -477,10 +477,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         setNewPw('');
         setConfirmPw('');
         if (!outcome.saved) {
-            // The save path has already said what failed
-            if (outcome.biometrics === 'off') {
-                showSettingsToast('Biometric unlock was turned off because the database could not be saved. Turn it on again from the unlock screen', 'error');
-            }
+            // The save path has already said what failed; the old password
+            // is back in force and biometric unlock, if any, still fits it
+            showSettingsToast('The master password was not changed', 'error');
             return;
         }
         if (outcome.biometrics === 'off') {

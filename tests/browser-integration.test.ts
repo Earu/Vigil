@@ -249,6 +249,48 @@ describe('get-logins access control', () => {
         expect(result.errorCode).toBe(15);
     });
 
+    // A lock while the dialog is up: the queue resolves the consent with a
+    // denial, but the entries with a standing allow were decided before the
+    // dialog and used to go out anyway, from a vault the user had closed
+    it('answers nothing, not even standing allows, when the vault locks during the dialog', async () => {
+        const db = await paired();
+        // The existing GitHub entry gets a remembered allow first
+        const first = db.getDefaultGroup().entries.find(e => e.fields.get('Title') === 'GitHub')!;
+        const allowOnce = {
+            ...ctxFor(db),
+            requestAccessConsent: vi.fn(async ({ entries }: { entries: Array<{ id: string }> }) =>
+                ({ allowedIds: entries.map(e => e.id), remember: true })),
+        };
+        await Svc.handleRequest('get-logins', request, allowOnce);
+        expect(JSON.parse(first.customData!.get('KeePassXC-Browser Settings')!.value!).Allow).toEqual(['github.com']);
+        // Then a second GitHub entry with no decision yet, so the next
+        // request has to ask
+        const extra = db.createEntry(db.getDefaultGroup());
+        extra.fields.set('Title', 'GitHub work');
+        extra.fields.set('UserName', 'octo-work');
+        extra.fields.set('Password', kdbxweb.ProtectedValue.fromString('work-pass'));
+        extra.fields.set('URL', 'https://github.com/work');
+
+        let current = true;
+        const ctx = {
+            ...ctxFor(db),
+            isCurrent: () => current,
+            // The lock lands while the dialog is up: consentQueue.clear()
+            // resolves with the denial value
+            requestAccessConsent: vi.fn(async () => { current = false; return null; }),
+        };
+        const result = await Svc.handleRequest('get-logins', request, ctx);
+        expect(ctx.requestAccessConsent).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({ errorCode: 1 });
+        expect(result.entries).toBeUndefined();
+
+        // The same request with the vault still open hands out the allowed one
+        current = true;
+        const open = await Svc.handleRequest('get-logins', request, { ...ctx, requestAccessConsent: vi.fn(async () => null) });
+        expect(open.entries).toHaveLength(1);
+        expect(open.entries[0].login).toBe('octo');
+    });
+
     it('remembers an allow: writes KeePassXC browser settings and stops asking', async () => {
         const db = await paired();
         const ctx = {

@@ -198,6 +198,9 @@ function App() {
 			if (!database) return;
 			try {
 				const result = await BrowserIntegrationService.handleRequest(action, payload, {
+					// A consent dialog can outlive the vault it was asked for: a lock
+					// while it is up must end the request, not answer it
+					isCurrent: () => kdbxDbRef.current === kdbxDb,
 					database,
 					kdbxDb,
 					saveDatabase: async () => {
