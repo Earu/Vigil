@@ -40,6 +40,8 @@ vi.mock('net', async () => {
 vi.mock('../electron/src/browser-socket', () => ({
     getSocketPath: () => '/fake-socket',
     getProxyTokenPath: () => state.tokenFile,
+    // The real check is on the file's owner and mode (browser-socket.test.ts); here the token is a fixture
+    isPrivateTokenFile: () => true,
     PROXY_AUTH_ACTION: 'vigil-proxy-auth',
     SERVER_PROOF_LABEL: 'vigil-server:',
     CLIENT_PROOF_LABEL: 'vigil-client:',

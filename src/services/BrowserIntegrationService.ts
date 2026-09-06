@@ -21,6 +21,7 @@ const BROWSER_GROUP_NAME = 'Browser Passwords';
 // so decisions made in either app bind the other
 const BROWSER_SETTINGS_KEY = 'KeePassXC-Browser Settings';
 
+const ERROR_DATABASE_NOT_OPENED = 1;
 const ERROR_ASSOCIATION_FAILED = 8;
 const ERROR_INCORRECT_ACTION = 12;
 const ERROR_NO_URL_PROVIDED = 14;
@@ -44,6 +45,9 @@ export interface PasskeyConsentRequest {
     rpId: string;
     origin: string;
     username?: string;
+    // register: the entry whose passkey this registration overwrites, when
+    // the database already holds one for the same account
+    replaces?: { title: string; username: string };
     // get: matching credentials the user picks from
     entries?: Array<{ title: string; username: string; credentialId: string }>;
 }
@@ -75,6 +79,13 @@ export interface BrowserRequestContext {
     database: Database;
     kdbxDb: kdbxweb.Kdbx;
     saveDatabase: () => Promise<void>;
+    // Whether kdbxDb is still the vault on screen. Every consent below is
+    // awaited, and a lock can land while the dialog is up: the queue then
+    // resolves it with its denial value, but the request would carry on
+    // with whatever it had already decided (entries with a standing allow)
+    // against a database the user just closed. When this says no after an
+    // await, the request answers as a locked database does
+    isCurrent?: () => boolean;
     // Shows the pairing dialog; resolves with the connection name or null.
     // existingNames are the pairings the database already holds: a name that
     // repeats one of them replaces that pairing's key and silently
@@ -260,6 +271,12 @@ export class BrowserIntegrationService {
         config.Deny = [...deny];
         if (!entry.customData) entry.customData = new Map();
         entry.customData.set(BROWSER_SETTINGS_KEY, { value: JSON.stringify(config), lastModified: new Date() });
+    }
+
+    // After any awaited consent: whether the vault went away meanwhile. A
+    // host that gives no way to tell is taken at its word that it did not
+    private static lockedMeanwhile(ctx: BrowserRequestContext): boolean {
+        return ctx.isCurrent ? !ctx.isCurrent() : false;
     }
 
     private static isAssociated(kdbxDb: kdbxweb.Kdbx, keys: unknown): boolean {
@@ -457,6 +474,10 @@ export class BrowserIntegrationService {
                             username: shown(entry, 'UserName'),
                         })),
                     });
+                    // A lock while the dialog was up ends the request, the
+                    // standing allows included: the browser must not get
+                    // credentials out of a vault that is no longer open
+                    if (this.lockedMeanwhile(ctx)) return { errorCode: ERROR_DATABASE_NOT_OPENED };
                     if (consent) {
                         for (const entry of undecided) {
                             const allowed = consent.allowedIds.includes(this.uuidHex(entry.uuid));
@@ -504,6 +525,7 @@ export class BrowserIntegrationService {
                             : undefined,
                     })
                     : false;
+                if (this.lockedMeanwhile(ctx)) return { errorCode: ERROR_DATABASE_NOT_OPENED };
                 if (!consent) return { errorCode: ERROR_DENIED };
 
                 if (entry) {
@@ -556,7 +578,9 @@ export class BrowserIntegrationService {
                     rpId: result.rpId!,
                     origin: payload.origin,
                     username: result.username,
+                    replaces: result.replaces,
                 });
+                if (this.lockedMeanwhile(ctx)) return { errorCode: ERROR_DATABASE_NOT_OPENED };
                 if (!consent) {
                     return { response: { errorCode: PASSKEY_ERRORS.REQUEST_CANCELED } };
                 }
@@ -593,6 +617,7 @@ export class BrowserIntegrationService {
                         title: e.title, username: e.username, credentialId: e.credentialId,
                     })),
                 });
+                if (this.lockedMeanwhile(ctx)) return { errorCode: ERROR_DATABASE_NOT_OPENED };
                 const selected = allowed.entries.find(e => e.credentialId === chosenId);
                 if (!selected) {
                     return { response: { errorCode: PASSKEY_ERRORS.REQUEST_CANCELED } };

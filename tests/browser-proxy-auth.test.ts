@@ -283,6 +283,33 @@ describe('proxy-server handshake', () => {
         }
     });
 
+    it('writes the token owner-only, replacing whatever was planted at its path', async () => {
+        // A symlink pre-planted where the token goes: a plain write would
+        // follow it and hand the token to the file it names
+        const elsewhere = path.join(tmpRoot, 'elsewhere');
+        fs.writeFileSync(elsewhere, 'planted', { mode: 0o644 });
+        fs.symlinkSync(elsewhere, tokenPath);
+
+        expect((await startServer()).success).toBe(true);
+        const stat = fs.lstatSync(tokenPath);
+        expect(stat.isSymbolicLink()).toBe(false);
+        expect(stat.isFile()).toBe(true);
+        if (process.platform !== 'win32') expect(stat.mode & 0o077).toBe(0);
+        expect(fs.readFileSync(elsewhere, 'utf8')).toBe('planted');
+        expect(fs.readFileSync(tokenPath, 'utf8')).toMatch(/^[0-9a-f]{64}$/);
+    });
+
+    it.skipIf(process.platform === 'win32')('the proxy refuses a token anyone else could read', async () => {
+        // The token is the proof of who the server is; one another user
+        // could have written would have the proxy trust their server. The
+        // server is real here, so a refusal is the proxy's doing alone
+        expect((await startServer()).success).toBe(true);
+        fs.chmodSync(tokenPath, 0o644);
+        const { code, stdout } = await runProxy(JSON.stringify({ action: 'get-databasehash' }));
+        expect(code).toBe(1);
+        expect(stdout.length).toBe(0);
+    });
+
     it('the proxy refuses to run with no token on disk', async () => {
         expect((await startServer()).success).toBe(true);
         fs.rmSync(tokenPath, { force: true });

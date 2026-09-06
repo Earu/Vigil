@@ -164,7 +164,12 @@ function writeProxyToken(): boolean {
     try {
         proxyToken = crypto.randomBytes(32).toString('hex');
         fs.mkdirSync(path.dirname(tokenPath), { recursive: true, mode: 0o700 });
-        fs.writeFileSync(tokenPath, proxyToken, { mode: 0o600 });
+        // Removed first and created exclusively: a plain write follows
+        // whatever sits at the path, so something pre-planted there (a
+        // symlink into a file another user reads) would receive the token.
+        // 'wx' refuses to open anything that already exists, links included
+        fs.rmSync(tokenPath, { force: true });
+        fs.writeFileSync(tokenPath, proxyToken, { mode: 0o600, flag: 'wx' });
         if (process.platform !== 'win32') fs.chmodSync(tokenPath, 0o600);
         return true;
     } catch (err) {
@@ -681,8 +686,22 @@ const AUTH_ACTION = ${JSON.stringify(PROXY_AUTH_ACTION)};
 const SERVER_LABEL = ${JSON.stringify(SERVER_PROOF_LABEL)};
 const CLIENT_LABEL = ${JSON.stringify(CLIENT_PROOF_LABEL)};
 if (!socketPath || !tokenPath) process.exit(1);
+// Only a token this user wrote and nobody else can read, checked on the
+// open descriptor so the bytes read are the bytes checked (see
+// browser-socket.ts isPrivateTokenFile); Windows leaves it to the profile ACL
 let token;
-try { token = fs.readFileSync(tokenPath, 'utf8').trim(); } catch { process.exit(1); }
+try {
+    const fd = fs.openSync(tokenPath, 'r');
+    try {
+        if (process.platform !== 'win32') {
+            const stat = fs.fstatSync(fd);
+            if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0) process.exit(1);
+        }
+        token = fs.readFileSync(fd, 'utf8').trim();
+    } finally {
+        fs.closeSync(fd);
+    }
+} catch { process.exit(1); }
 const challenge = crypto.randomBytes(32).toString('base64');
 const expected = crypto.createHmac('sha256', token).update(SERVER_LABEL + challenge).digest();
 let authed = false;

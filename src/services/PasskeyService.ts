@@ -429,7 +429,7 @@ export class PasskeyService {
         origin: string,
         groupName: string | undefined,
         opts: { allowLocalhost?: boolean; relatedOrigins?: string[] } = {},
-    ): Promise<{ response: any; store?: () => void; rpId?: string; username?: string }> {
+    ): Promise<{ response: any; store?: () => void; rpId?: string; username?: string; replaces?: { title: string; username: string } }> {
         const error = (errorCode: number) => ({ response: { errorCode } });
 
         if (!options || !options.challenge) return error(PASSKEY_ERRORS.EMPTY_PUBLIC_KEY);
@@ -482,9 +482,14 @@ export class PasskeyService {
         const rpName = options.rp?.name ?? rpId;
         const userHandle = String(options.user?.id ?? '');
 
+        // Same user handle on the same RP replaces the existing passkey. Named
+        // to the caller so the consent dialog can say so: the old key stops
+        // signing in the moment the new one is stored, which is not what
+        // "create a passkey" suggests
+        const updatable = existing.find(e => e.userHandle === userHandle);
+        const replaces = updatable ? { title: updatable.title, username: updatable.username } : undefined;
+
         const store = () => {
-            // Same user handle on the same RP replaces the existing passkey
-            const updatable = existing.find(e => e.userHandle === userHandle);
             let entry: kdbxweb.KdbxEntry;
             if (updatable) {
                 entry = updatable.entry;
@@ -521,6 +526,7 @@ export class PasskeyService {
             store,
             rpId,
             username,
+            replaces,
             response: {
                 authenticatorAttachment: options.authenticatorSelection?.authenticatorAttachment || 'platform',
                 id: credentialIdB64,

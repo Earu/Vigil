@@ -10,6 +10,12 @@ on:
   # trip to each, for an artifact nobody installs
   workflow_dispatch:
 
+# Nothing here writes to the repository: the token every job gets is
+# read-only, so a dependency's code running in a build step holds nothing
+# it could push with
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -116,7 +122,6 @@ jobs:
       env:
         SIGNING_IDENTITY_NAME: ${{ secrets.SIGNING_IDENTITY_NAME }}
         NODE_ENV: production
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # macOS signing, on manual runs only, and only when the secrets exist
         # so forks still build. Everything else produces an unsigned app: it
         # runs, but the biometry-gated keychain rejects it and biometric
@@ -137,7 +142,6 @@ jobs:
       run: npm run electron:build -- --publish never
       env:
         NODE_ENV: production
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # macOS signing, on manual runs only, and only when the secrets exist
         # so forks still build. Everything else produces an unsigned app: it
         # runs, but the biometry-gated keychain rejects it and biometric

@@ -63,15 +63,33 @@ describe('changing the master password', () => {
         expect(b.disableBiometrics).toHaveBeenCalledWith(DB);
     });
 
-    it('turns biometric unlock off, and never re-seals, when the save fails', async () => {
+    // The file stayed on the old password, so the in-memory key goes back to
+    // it: otherwise the next save of anything would re-encrypt under the
+    // password the user was just told did not take. The sealed biometric
+    // copy still holds the old password, which is now correct again
+    it('puts the old password back, and leaves biometric unlock alone, when the save fails', async () => {
         const db = await makeDb();
         const b = bridge(true);
 
         const outcome = await changeMasterPassword(db, 'new-pass', async () => false, b, DB);
 
-        expect(outcome).toEqual({ saved: false, biometrics: 'off', reason: 'the database could not be saved' });
+        expect(outcome).toEqual({ saved: false, biometrics: 'kept' });
         expect(b.enableBiometrics).not.toHaveBeenCalled();
-        expect(b.disableBiometrics).toHaveBeenCalledWith(DB);
+        expect(b.disableBiometrics).not.toHaveBeenCalled();
+        expect(await Svc.verifyMasterPassword(db, 'test')).toBe(true);
+        expect(await Svc.verifyMasterPassword(db, 'new-pass')).toBe(false);
+        // A second attempt starts from the old password, as the user expects
+        expect((await changeMasterPassword(db, 'new-pass', async () => true, b, DB)).saved).toBe(true);
+        expect(await Svc.verifyMasterPassword(db, 'new-pass')).toBe(true);
+    });
+
+    it('a failed save re-encrypts nothing under the new password', async () => {
+        const db = await makeDb();
+        await changeMasterPassword(db, 'new-pass', async () => false, undefined, undefined);
+        // What a later save would write opens with the old password only
+        const bytes = await db.save();
+        await expect(kdbxweb.Kdbx.load(bytes, cred())).resolves.toBeDefined();
+        await expect(kdbxweb.Kdbx.load(bytes, new kdbxweb.Credentials(kdbxweb.ProtectedValue.fromString('new-pass')))).rejects.toThrow();
     });
 
     it('treats a save that throws like one that failed', async () => {
@@ -80,8 +98,9 @@ describe('changing the master password', () => {
 
         const outcome = await changeMasterPassword(db, 'new-pass', async () => { throw new Error('disk'); }, b, DB);
 
-        expect(outcome.saved).toBe(false);
-        expect(b.disableBiometrics).toHaveBeenCalled();
+        expect(outcome).toEqual({ saved: false, biometrics: 'kept' });
+        expect(b.disableBiometrics).not.toHaveBeenCalled();
+        expect(await Svc.verifyMasterPassword(db, 'test')).toBe(true);
     });
 
     it('leaves a vault without biometric unlock alone', async () => {

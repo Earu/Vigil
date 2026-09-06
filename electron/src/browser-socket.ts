@@ -1,3 +1,4 @@
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
@@ -26,18 +27,49 @@ function currentUsername(): string {
     }
 }
 
-// null means there is nowhere private to put the socket: on Linux without
-// XDG_RUNTIME_DIR the old fallback was world-writable /tmp, where another
-// local user can pre-bind the fixed name and impersonate Vigil to the
-// browser (the proxy authenticates the server, but a squatted name is still
-// a denial of service and /tmp squatting is free). Refusing is better than
-// listening there. macOS keeps os.tmpdir(): it is per-user 0700
+// Whether a directory is this user's alone: owned by the current uid with
+// no group or other bits. The socket and the token beside it are only as
+// private as the directory they sit in: in a shared one, another local user
+// can pre-bind the socket name, and plant a token of their own for the
+// proxy to read, which is the handshake's whole secret
+export function isPrivateDir(dir: string): boolean {
+    if (process.platform === 'win32' || typeof process.getuid !== 'function') return false;
+    try {
+        const stat = fs.statSync(dir);
+        return stat.isDirectory() && stat.uid === process.getuid() && (stat.mode & 0o077) === 0;
+    } catch {
+        return false;
+    }
+}
+
+// null means there is nowhere private to put the socket, and refusing is
+// better than listening somewhere shared. Linux without XDG_RUNTIME_DIR used
+// to fall back to /tmp; macOS used os.tmpdir(), which is a per-user 0700
+// directory under launchd but plain /tmp when TMPDIR is unset. Whatever the
+// directory came from, it has to actually be private, checked rather than
+// assumed
 export function getSocketPath(): string | null {
     // Windows named pipes live in their own namespace, not the filesystem
     if (process.platform === 'win32') return pipeNameFor(currentUsername());
     if (process.platform === 'linux' && !process.env.XDG_RUNTIME_DIR) return null;
     const runtimeDir = process.env.XDG_RUNTIME_DIR || os.tmpdir();
+    if (!isPrivateDir(runtimeDir)) return null;
     return path.join(runtimeDir, 'vigil.BrowserServer');
+}
+
+// Whether the token file is one this user wrote and nobody else can read:
+// owner-only mode, owned by the current uid, and a regular file rather than
+// a link somewhere else. The proxy checks the open descriptor, so what it
+// then reads is the file it checked. Windows leaves this to the profile
+// ACL and always passes
+export function isPrivateTokenFile(fd: number): boolean {
+    if (process.platform === 'win32' || typeof process.getuid !== 'function') return true;
+    try {
+        const stat = fs.fstatSync(fd);
+        return stat.isFile() && stat.uid === process.getuid() && (stat.mode & 0o077) === 0;
+    } catch {
+        return false;
+    }
 }
 
 // The proxy authenticates the server before forwarding a byte: pipe and

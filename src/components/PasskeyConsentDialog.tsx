@@ -15,11 +15,23 @@ export const PasskeyConsentDialog = ({ request, onSubmit, onCancel }: PasskeyCon
     const [selected, setSelected] = useState(entries[0]?.credentialId ?? '');
 
     const isRegister = request.kind === 'register';
+    // A registration for an account this database already holds a passkey
+    // for replaces it: the old key stops signing in once the new one is
+    // stored, so the dialog says which entry that is, as KeePassXC does
+    const replaces = isRegister ? request.replaces : undefined;
 
     return (
         <Modal overlayClassName="pairing-overlay" quietInitialFocus className="pairing-dialog passkey-dialog" labelledBy="passkey-title" onClose={onCancel}>
-                <h3 id="passkey-title">{isRegister ? 'Create Passkey' : 'Use Passkey'}</h3>
-                {isRegister ? (
+                <h3 id="passkey-title">{isRegister ? (replaces ? 'Replace Passkey' : 'Create Passkey') : 'Use Passkey'}</h3>
+                {isRegister && replaces ? (
+                    <p>
+                        <strong>{request.rpId}</strong> wants to create a passkey
+                        {request.username ? <> for <strong>{request.username}</strong></> : null},
+                        and this database already holds one for that account in <strong>{replaces.title}</strong>.
+                        Continuing replaces it: the current passkey stops working for this site,
+                        and the old key remains only in the entry's history.
+                    </p>
+                ) : isRegister ? (
                     <p>
                         <strong>{request.rpId}</strong> wants to create a passkey
                         {request.username ? <> for <strong>{request.username}</strong></> : null}.
@@ -54,7 +66,7 @@ export const PasskeyConsentDialog = ({ request, onSubmit, onCancel }: PasskeyCon
                         disabled={!isRegister && !selected}
                         onClick={() => onSubmit(isRegister ? 'approved' : selected)}
                     >
-                        {isRegister ? 'Create' : 'Sign in'}
+                        {isRegister ? (replaces ? 'Replace' : 'Create') : 'Sign in'}
                     </button>
                 </div>
         </Modal>

@@ -180,6 +180,25 @@ describe('options a page can send that refuse to become strings', () => {
         expect(res).toEqual({ errorCode: PASSKEY_ERRORS.INVALID_CHALLENGE });
     });
 
+    // Registering again for the same account overwrites that entry's key,
+    // so the caller is told which entry, for the consent dialog to name
+    it('names the entry a repeat registration for the same account would replace', async () => {
+        const db = makeDb();
+        const first = await PasskeyService.register(db, creationOptions(), origin, undefined);
+        expect(first.replaces).toBeUndefined();
+        first.store!();
+
+        const again = await PasskeyService.register(db, creationOptions(), origin, undefined);
+        expect(again.replaces).toEqual({ title: 'Example (Passkey)', username: 'alice' });
+
+        const otherUser = await PasskeyService.register(db, creationOptions({ user: { id: b64urlEncode(new Uint8Array([9, 9])), name: 'bob', displayName: 'Bob' } }), origin, undefined);
+        expect(otherUser.replaces).toBeUndefined();
+        // Storing the repeat replaces rather than duplicates
+        again.store!();
+        expect(PasskeyService.passkeyEntries(db, rpId)).toHaveLength(1);
+        expect(PasskeyService.passkeyEntries(db, rpId)[0].credentialId).toBe(again.response.id);
+    });
+
     it('skips an excludeCredentials id that cannot be converted', async () => {
         const res = await PasskeyService.register(
             makeDb(),
