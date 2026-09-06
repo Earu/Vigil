@@ -65,6 +65,14 @@ export class PasswordGeneratorService {
         return Math.max(this.MIN_LENGTH, Math.min(this.MAX_LENGTH, n));
     }
 
+    // The word count reaches generation from storage by the same route, and
+    // needs the same treatment
+    static clampWordCount(count: unknown): number {
+        const n = typeof count === 'number' ? Math.floor(count) : Number.NaN;
+        if (!Number.isFinite(n)) return DEFAULT_WORD_OPTIONS.wordCount;
+        return Math.max(PassphraseService.MIN_WORDS, Math.min(PassphraseService.MAX_WORDS, n));
+    }
+
     static characterPool(options: PasswordOptions): string {
         let chars = '';
         if (options.upperCase) chars += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -120,10 +128,11 @@ export class PasswordGeneratorService {
         try {
             const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
             const characters = { ...defaults.characters, ...stored.characters };
+            const words = { ...defaults.words, ...stored.words };
             return {
                 mode: stored.mode === 'words' ? 'words' : 'characters',
                 characters: { ...characters, length: this.clampLength(characters.length) },
-                words: { ...defaults.words, ...stored.words },
+                words: { ...words, wordCount: this.clampWordCount(words.wordCount) },
             };
         } catch {
             return defaults;
@@ -139,15 +148,17 @@ export class PasswordGeneratorService {
     }
 
     // What the browser extension gets: the saved mode and options, with a
-    // fallback to defaults if the saved character pool is somehow empty
+    // fallback to defaults if the saved options are somehow unusable (an
+    // empty character pool, a word count out of range)
     static generateFromSettings(settings: GeneratorSettings = this.loadSettings()): string {
-        if (settings.mode === 'words') {
-            return PassphraseService.generate(settings.words);
-        }
         try {
-            return this.generate(settings.characters);
+            return settings.mode === 'words'
+                ? PassphraseService.generate(settings.words)
+                : this.generate(settings.characters);
         } catch {
-            return this.generate(DEFAULT_CHARACTER_OPTIONS);
+            return settings.mode === 'words'
+                ? PassphraseService.generate(DEFAULT_WORD_OPTIONS)
+                : this.generate(DEFAULT_CHARACTER_OPTIONS);
         }
     }
 }

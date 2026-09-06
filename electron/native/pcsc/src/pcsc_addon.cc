@@ -36,6 +36,8 @@
 #include <string>
 #include <vector>
 
+#include "pcsc_parse.h"
+
 namespace {
 
 // Windows resolves these names to the wide variants when UNICODE is defined,
@@ -49,7 +51,7 @@ namespace {
 #endif
 
 // Largest response an extended-length APDU can carry, plus the status word
-const DWORD kMaxResponse = 65538;
+const DWORD kMaxResponse = static_cast<DWORD>(vigil_pcsc::kMaxResponse);
 
 struct Session {
     SCARDCONTEXT context;
@@ -66,30 +68,11 @@ double NormalizeRv(LONG rv) {
     return static_cast<double>(static_cast<uint32_t>(rv));
 }
 
-// Overwrite before the vector's storage goes back to the heap: a PUT's APDU
-// carries an OTP secret. Written through a volatile pointer so the compiler
-// cannot drop the stores as dead writes
-void Scrub(std::vector<uint8_t>& buffer) {
-    volatile uint8_t* p = buffer.data();
-    for (size_t i = 0; i < buffer.size(); ++i) {
-        p[i] = 0;
-    }
-    buffer.clear();
-}
-
-// A multi-string: NUL-separated names ending with a second NUL
-std::vector<std::string> SplitMultiString(const std::vector<char>& buffer, DWORD length) {
-    std::vector<std::string> names;
-    size_t start = 0;
-    const size_t end = length <= buffer.size() ? length : buffer.size();
-    for (size_t i = 0; i < end; ++i) {
-        if (buffer[i] != '\0') continue;
-        if (i == start) break;
-        names.emplace_back(buffer.data() + start, i - start);
-        start = i + 1;
-    }
-    return names;
-}
+// Everything the driver's own numbers decide lives in pcsc_parse.h, where
+// fuzz/pcsc_fuzz.cc can reach it
+using vigil_pcsc::Scrub;
+using vigil_pcsc::SplitMultiString;
+using vigil_pcsc::TransmitResponseLength;
 
 // One PC/SC call off the loop; resolves { rv, ...whatever Fill adds }
 class PcscWorker : public Napi::AsyncWorker {
@@ -145,7 +128,7 @@ protected:
             rv_ = VIGIL_SCardListReaders(context, nullptr, buffer.data(), &length);
             // A reader arrived between sizing and reading; size again
             if (rv_ == static_cast<LONG>(SCARD_E_INSUFFICIENT_BUFFER)) continue;
-            if (rv_ == SCARD_S_SUCCESS) readers_ = SplitMultiString(buffer, length);
+            if (rv_ == SCARD_S_SUCCESS) readers_ = SplitMultiString(buffer, static_cast<size_t>(length));
             break;
         }
         SCardReleaseContext(context);
@@ -221,7 +204,8 @@ protected:
                     session_.card, pci,
                     apdu_.data(), static_cast<DWORD>(apdu_.size()),
                     nullptr, response_.data(), &length);
-                response_.resize(rv_ == SCARD_S_SUCCESS ? length : 0);
+                response_.resize(TransmitResponseLength(
+                    rv_ == SCARD_S_SUCCESS, static_cast<size_t>(length), vigil_pcsc::kMaxResponse));
                 break;
             }
             case CardOp::BeginTransaction:
@@ -299,6 +283,10 @@ Napi::Value CardCall(const Napi::CallbackInfo& info, CardOp op) {
             return env.Undefined();
         }
         auto buffer = info[1].As<Napi::Buffer<uint8_t>>();
+        if (buffer.Length() > vigil_pcsc::kMaxApdu) {
+            Napi::RangeError::New(env, "apdu longer than a card can be sent").ThrowAsJavaScriptException();
+            return env.Undefined();
+        }
         apdu.assign(buffer.Data(), buffer.Data() + buffer.Length());
     }
 

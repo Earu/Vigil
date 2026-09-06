@@ -13,6 +13,7 @@
 		"test": "vitest run",
 		"smoke": "node scripts/smoke-boot.mjs",
 		"test:fuzz": "vitest run tests/fuzz tests/hardening-invariants.test.ts",
+		"test:fuzz:native": "node scripts/fuzz-native.mjs",
 		"check:fuses": "node scripts/check-fuses.mjs",
 		"hash:asar": "node scripts/asar-hash.mjs"
 	},
