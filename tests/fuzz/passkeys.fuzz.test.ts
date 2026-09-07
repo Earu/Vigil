@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import * as kdbxweb from 'kdbxweb';
 import { cred } from '../helpers';
-import { PasskeyService, validateRpId, isPublicSuffix, b64urlEncode, PASSKEY_ERRORS } from '../../src/services/PasskeyService';
+import { PasskeyService, validateRpId, b64urlEncode, PASSKEY_ERRORS } from '../../src/services/PasskeyService';
+import { isPublicSuffix } from '../../src/services/PublicSuffix';
 import { settings, anyText, anyValue } from './fuzz';
 
 // The WebAuthn options arrive from a web page by way of the extension. They

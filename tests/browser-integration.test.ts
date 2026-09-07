@@ -42,59 +42,85 @@ const ctxFor = (kdbxDb: kdbxweb.Kdbx, pairingName: string | null = null) => ({
 // Follows KeePassXC's BrowserService::handleURL, so a database moved between
 // the two applications gets the same credentials offered on the same pages
 describe('url matching', () => {
-    it('matches the same host, ignoring path and www', () => {
-        expect(Svc.urlMatches('https://github.com/login', 'https://github.com')).toBe(true);
-        expect(Svc.urlMatches('https://www.github.com', 'https://github.com')).toBe(true);
-        expect(Svc.urlMatches('https://github.com', 'https://www.github.com')).toBe(true);
-        expect(Svc.urlMatches(undefined, 'https://github.com')).toBe(false);
+    it('matches the same host, ignoring path and www', async () => {
+        expect(await Svc.urlMatches('https://github.com/login', 'https://github.com')).toBe(true);
+        expect(await Svc.urlMatches('https://www.github.com', 'https://github.com')).toBe(true);
+        expect(await Svc.urlMatches('https://github.com', 'https://www.github.com')).toBe(true);
+        expect(await Svc.urlMatches(undefined, 'https://github.com')).toBe(false);
     });
 
-    it('offers an entry on subdomains of its host but not the other way round', () => {
-        expect(Svc.urlMatches('https://example.com', 'https://app.example.com')).toBe(true);
-        expect(Svc.urlMatches('https://example.com', 'https://deep.app.example.com')).toBe(true);
+    it('offers an entry on subdomains of its host but not the other way round', async () => {
+        expect(await Svc.urlMatches('https://example.com', 'https://app.example.com')).toBe(true);
+        expect(await Svc.urlMatches('https://example.com', 'https://deep.app.example.com')).toBe(true);
         // KeePassXC tests siteHost.endsWith(entryHost), so an entry saved for a
         // subdomain is not handed out on the parent
-        expect(Svc.urlMatches('https://app.example.com', 'https://example.com')).toBe(false);
+        expect(await Svc.urlMatches('https://app.example.com', 'https://example.com')).toBe(false);
     });
 
-    it('does not fall for a host that merely ends with the entry host', () => {
-        expect(Svc.urlMatches('https://github.com', 'https://gitlab.com')).toBe(false);
-        expect(Svc.urlMatches('https://github.com', 'https://notgithub.com')).toBe(false);
-        expect(Svc.urlMatches('https://notgithub.com', 'https://github.com')).toBe(false);
-        expect(Svc.urlMatches('https://example.com', 'https://evilexample.com')).toBe(false);
+    it('does not fall for a host that merely ends with the entry host', async () => {
+        expect(await Svc.urlMatches('https://github.com', 'https://gitlab.com')).toBe(false);
+        expect(await Svc.urlMatches('https://github.com', 'https://notgithub.com')).toBe(false);
+        expect(await Svc.urlMatches('https://notgithub.com', 'https://github.com')).toBe(false);
+        expect(await Svc.urlMatches('https://example.com', 'https://evilexample.com')).toBe(false);
     });
 
-    it('does not hand an https entry to an http page', () => {
-        expect(Svc.urlMatches('https://example.com', 'http://example.com')).toBe(false);
-        expect(Svc.urlMatches('http://example.com', 'https://example.com')).toBe(false);
-        expect(Svc.urlMatches('https://example.com', 'https://example.com')).toBe(true);
+    it('does not hand an https entry to an http page', async () => {
+        expect(await Svc.urlMatches('https://example.com', 'http://example.com')).toBe(false);
+        expect(await Svc.urlMatches('http://example.com', 'https://example.com')).toBe(false);
+        expect(await Svc.urlMatches('https://example.com', 'https://example.com')).toBe(true);
     });
 
-    it('reads an entry with no scheme as https', () => {
+    it('reads an entry with no scheme as https', async () => {
         // A bare host is the common way to fill the URL field in by hand
-        expect(Svc.urlMatches('example.com', 'https://example.com')).toBe(true);
-        expect(Svc.urlMatches('example.com', 'http://example.com')).toBe(false);
+        expect(await Svc.urlMatches('example.com', 'https://example.com')).toBe(true);
+        expect(await Svc.urlMatches('example.com', 'http://example.com')).toBe(false);
         // Writing the scheme is how an intranet or local site opts back in
-        expect(Svc.urlMatches('http://intranet.local', 'http://intranet.local')).toBe(true);
+        expect(await Svc.urlMatches('http://intranet.local', 'http://intranet.local')).toBe(true);
     });
 
-    it('matches a port only when the entry names one', () => {
-        expect(Svc.urlMatches('https://example.com:8443', 'https://example.com:8443')).toBe(true);
-        expect(Svc.urlMatches('https://example.com:8443', 'https://example.com')).toBe(false);
-        expect(Svc.urlMatches('https://example.com:8443', 'https://example.com:9000')).toBe(false);
+    it('matches a port only when the entry names one', async () => {
+        expect(await Svc.urlMatches('https://example.com:8443', 'https://example.com:8443')).toBe(true);
+        expect(await Svc.urlMatches('https://example.com:8443', 'https://example.com')).toBe(false);
+        expect(await Svc.urlMatches('https://example.com:8443', 'https://example.com:9000')).toBe(false);
         // No port on the entry means any port on the site
-        expect(Svc.urlMatches('https://example.com', 'https://example.com:8443')).toBe(true);
+        expect(await Svc.urlMatches('https://example.com', 'https://example.com:8443')).toBe(true);
         // An explicit default port is still a named port, even though the
         // parser reads it back as none (fuzz seed 1843005606)
-        expect(Svc.urlMatches('https://example.com:443', 'https://example.com:9000')).toBe(false);
-        expect(Svc.urlMatches('https://example.com:443', 'https://example.com')).toBe(true);
-        expect(Svc.urlMatches('https://user:pw@example.com:443', 'https://example.com:9000')).toBe(false);
+        expect(await Svc.urlMatches('https://example.com:443', 'https://example.com:9000')).toBe(false);
+        expect(await Svc.urlMatches('https://example.com:443', 'https://example.com')).toBe(true);
+        expect(await Svc.urlMatches('https://user:pw@example.com:443', 'https://example.com:9000')).toBe(false);
     });
 
-    it('rejects an entry url carrying characters a url cannot hold', () => {
+    it('rejects an entry url carrying characters a url cannot hold', async () => {
         for (const bad of ['https://exa<mple.com', 'https://example.com/{a}', 'https://exa|mple.com']) {
-            expect(Svc.urlMatches(bad, 'https://example.com')).toBe(false);
+            expect(await Svc.urlMatches(bad, 'https://example.com')).toBe(false);
         }
+    });
+
+    // The subdomain rule assumes whoever holds the entry's host holds
+    // everything under it. A public suffix is the name for which that is
+    // false: anyone can register under github.io, so an entry stored against
+    // the bare suffix must not be offered to whatever registered there
+    it('refuses the subdomain rule to an entry stored against a public suffix', async () => {
+        for (const suffix of ['github.io', 'herokuapp.com', 's3.amazonaws.com', 'co.uk', 'com']) {
+            expect(await Svc.urlMatches(`https://${suffix}`, `https://mallory.${suffix}`)).toBe(false);
+            // The exact match is still a match: the entry is for that host
+            expect(await Svc.urlMatches(`https://${suffix}`, `https://${suffix}`)).toBe(true);
+        }
+    });
+
+    it('leaves an ordinary entry under a public suffix its own subdomains', async () => {
+        expect(await Svc.urlMatches('https://alice.github.io', 'https://sub.alice.github.io')).toBe(true);
+        expect(await Svc.urlMatches('https://myapp.herokuapp.com', 'https://api.myapp.herokuapp.com')).toBe(true);
+        // And still refuses the sibling, as it always did
+        expect(await Svc.urlMatches('https://alice.github.io', 'https://mallory.github.io')).toBe(false);
+    });
+
+    // Both read as public suffixes (an IP because the list has never heard of
+    // it), so a check applied to the exact-match branch would break them
+    it('still matches an entry stored for an IP address or localhost', async () => {
+        expect(await Svc.urlMatches('http://192.168.1.5', 'http://192.168.1.5')).toBe(true);
+        expect(await Svc.urlMatches('http://localhost:8080', 'http://localhost:8080')).toBe(true);
     });
 });
 

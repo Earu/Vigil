@@ -6,6 +6,7 @@ import { TotpService } from './TotpService';
 import { PasswordGeneratorService } from './PasswordGeneratorService';
 import { PassphraseService } from './PassphraseService';
 import { PasskeyService, PasskeyEntryInfo, PASSKEY_ERRORS } from './PasskeyService';
+import { isPublicSuffix } from './PublicSuffix';
 import { userSettingsService } from './UserSettingsService';
 
 // Renderer side of the KeePassXC-Browser protocol: answers the requests the
@@ -192,14 +193,22 @@ export class BrowserIntegrationService {
     // implementation for this protocol, in the same order: illegal characters,
     // then port, then scheme, then host.
     //
-    // KeePassXC guards its host test with a public suffix lookup because its
-    // test is a bare endsWith, which would otherwise let an entry for
-    // example.com match evilexample.com. The comparison below requires a dot
-    // before the entry host, so that confusion cannot arise and the suffix
-    // list buys only one thing: refusing an entry stored against a bare public
-    // suffix such as github.io. That is rare enough not to be worth carrying
-    // ten thousand rules that go stale.
-    static urlMatches(entryUrl: string | undefined, requestUrl: string): boolean {
+    // KeePassXC's public suffix lookup does two jobs, and only one of them is
+    // about its bare endsWith letting an entry for example.com match
+    // evilexample.com. The comparison below requires a dot before the entry
+    // host, so that confusion cannot arise here.
+    //
+    // The second job is the one the list is still needed for. Offering an
+    // entry on subdomains of its host assumes whoever holds the host holds
+    // everything under it, which is what a registrable domain means and what
+    // a public suffix is defined not to be: mallory.github.io is no more
+    // alice.github.io's to speak for than one .com site is another's. So an
+    // entry stored against a bare suffix is refused the subdomain rule and
+    // keeps only the exact match. Checked on the entry host, never the site's,
+    // and never on the exact-match branch, so an entry for an IP address or
+    // for localhost (both of which read as public suffixes, the first because
+    // the list has never heard of it) still matches itself.
+    static async urlMatches(entryUrl: string | undefined, requestUrl: string): Promise<boolean> {
         if (!entryUrl || this.ILLEGAL_URL_CHARS.test(entryUrl)) return false;
 
         const entry = this.parseUrl(entryUrl);
@@ -221,7 +230,9 @@ export class BrowserIntegrationService {
 
         // The site may be a subdomain of the entry, not the reverse: an entry
         // for mail.example.com is not offered up on example.com
-        return siteHost === entryHost || siteHost.endsWith('.' + entryHost);
+        if (siteHost === entryHost) return true;
+        if (!siteHost.endsWith('.' + entryHost)) return false;
+        return !(await isPublicSuffix(entryHost));
     }
 
     private static uuidHex(uuid: kdbxweb.KdbxUuid): string {
@@ -460,7 +471,7 @@ export class BrowserIntegrationService {
                     if (this.browserOption(entry, OPTION_HIDE_ENTRY)) continue;
                     if (this.browserOption(entry, httpAuth ? OPTION_NOT_HTTP_AUTH : OPTION_ONLY_HTTP_AUTH)) continue;
                     const url = this.fieldString(entry.fields.get('URL'));
-                    if (this.urlMatches(url, payload.url)) {
+                    if (await this.urlMatches(url, payload.url)) {
                         matching.push(entry);
                     }
                 }
