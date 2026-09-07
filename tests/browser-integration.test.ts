@@ -466,6 +466,39 @@ describe('set-login', () => {
         expect(ctx.saveDatabase).not.toHaveBeenCalled();
     });
 
+    // Both values are shown in the confirmation dialog. The socket takes a
+    // megabyte, so without a cap the dialog can be grown until the question
+    // it asks is off the screen and the text above the buttons is the
+    // browser's, not Vigil's
+    it('refuses a login too long to be an account name', async () => {
+        const db = await makeDb();
+        const ctx = ctxFor(db);
+        const result = await Svc.handleRequest('set-login', {
+            url: 'https://new.example.org/login', login: 'a'.repeat(257), password: 'y',
+        }, ctx);
+        expect(result.errorCode).toBe(12);
+        expect(ctx.requestSetLoginConsent).not.toHaveBeenCalled();
+        expect(ctx.saveDatabase).not.toHaveBeenCalled();
+    });
+
+    it('takes a login as long as an account name plausibly is', async () => {
+        const db = await makeDb();
+        const ctx = ctxFor(db);
+        const result = await Svc.handleRequest('set-login', {
+            url: 'https://new.example.org/login', login: 'a'.repeat(256), password: 'y',
+        }, ctx);
+        expect(result.errorCode).toBeUndefined();
+    });
+
+    it('refuses a url too long to be a page address, on both actions that take one', async () => {
+        const db = await makeDb();
+        const ctx = ctxFor(db);
+        const url = `https://new.example.org/${'a'.repeat(4096)}`;
+        expect((await Svc.handleRequest('set-login', { url, login: 'x', password: 'y' }, ctx)).errorCode).toBe(14);
+        expect((await Svc.handleRequest('get-logins', { url, keys: [] }, ctx)).errorCode).toBe(14);
+        expect(ctx.requestSetLoginConsent).not.toHaveBeenCalled();
+    });
+
     it('reports failure to the extension when the save fails', async () => {
         const db = await makeDb();
         const ctx = { ...ctxFor(db), saveDatabase: vi.fn(async () => { throw new Error('disk full'); }) };

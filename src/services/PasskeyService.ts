@@ -104,17 +104,25 @@ const challengeText = (value: unknown, minimumChars = 0): string | null => {
     return text;
 };
 
-// The account name the page supplies. It gates nothing, so a shape that will
-// not convert reads as the absent name it may as well be rather than failing
-// the ceremony. Coerced here because nothing downstream would refuse a
-// non-string: the consent dialog renders it, and the entry it is written into
-// holds strings. The cap bounds both, as MAX_CHALLENGE_CHARS bounds the value
-// that gets hashed and signed
-const MAX_USER_NAME_CHARS = 128;
+// The display text the page supplies: the account name and the RP's name.
+// Neither gates anything, so anything that is not text reads as the caller's
+// fallback rather than failing the ceremony. Checked here because nothing
+// downstream would refuse another shape: the consent dialog renders these,
+// and the entry they are written into holds strings.
+//
+// Typed rather than run through safeString, which is the wrong tool for a
+// value someone reads: String() turns most objects into "[object Object]",
+// so coercing would title an entry with that instead of the RP it is for.
+// A number is taken, as the importers take one for a text field; everything
+// else is a page sending something WebAuthn says is a string, and the
+// fallback says more than its coercion would. The cap bounds what reaches
+// the dialog and the vault, as MAX_CHALLENGE_CHARS bounds what gets signed
+const MAX_DISPLAY_CHARS = 128;
 
-const userName = (value: unknown): string => {
-    if (value === undefined || value === null) return '';
-    return (safeString(value) ?? '').slice(0, MAX_USER_NAME_CHARS);
+const displayText = (value: unknown, fallback = ''): string => {
+    if (typeof value === 'string') return value.slice(0, MAX_DISPLAY_CHARS);
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+    return fallback;
 };
 
 const hexToBytes = (hex: string): Uint8Array =>
@@ -519,8 +527,8 @@ export class PasskeyService {
         const authenticatorData = await buildAuthenticatorData(rpId);
         const clientDataJson = buildClientDataJson(challenge, origin, false);
 
-        const username = userName(options.user?.name);
-        const rpName = options.rp?.name ?? rpId;
+        const username = displayText(options.user?.name);
+        const rpName = displayText(options.rp?.name, rpId);
         const userHandle = String(options.user?.id ?? '');
 
         // Same user handle on the same RP replaces the existing passkey. Named

@@ -214,15 +214,21 @@ describe('options a page can send that refuse to become strings', () => {
     // field, so a shape that is not a string crashes the renderer on its way
     // to one and corrupts the entry on its way to the other
     it('hands on a string user name whatever the page sent', async () => {
-        for (const name of [unstringable, { evil: 1 }, ['a', 'b'], 42, null, undefined, Symbol('x')]) {
+        for (const [name, expected] of [
+            [unstringable, ''], [{ evil: 1 }, ''], [['a', 'b'], ''], [null, ''], [undefined, ''],
+            [Symbol('x'), ''], [true, ''],
+            // A number reads as the account name it was meant to be, the way
+            // the importers take one for a text field
+            [42, '42'],
+        ] as Array<[unknown, string]>) {
             const db = makeDb();
             const res = await PasskeyService.register(db, creationOptions({ user: { id: userId, name } }), origin, undefined);
             expect(res.response.errorCode).toBeUndefined();
-            expect(typeof res.username).toBe('string');
+            expect(res.username).toBe(expected);
             res.store!();
             const entry = PasskeyService.passkeyEntries(db, rpId)[0];
-            expect(typeof entry.entry.fields.get('UserName')).toBe('string');
-            expect(typeof entry.entry.fields.get(PASSKEY_ATTRIBUTES.username)).toBe('string');
+            expect(entry.entry.fields.get('UserName')).toBe(expected);
+            expect(entry.entry.fields.get(PASSKEY_ATTRIBUTES.username)).toBe(expected);
         }
     });
 
@@ -240,6 +246,25 @@ describe('options a page can send that refuse to become strings', () => {
     it('an absent user name is still empty, not the word "undefined"', async () => {
         const res = await PasskeyService.register(makeDb(), creationOptions({ user: { id: userId } }), origin, undefined);
         expect(res.username).toBe('');
+    });
+
+    // The RP name is the entry's title. A shape that will not convert used to
+    // throw out of store(), past the point the user had already consented
+    it('titles the entry after the rp id when the rp name will not convert', async () => {
+        for (const name of [unstringable, { evil: 1 }, undefined]) {
+            const db = makeDb();
+            const res = await PasskeyService.register(db, creationOptions({ rp: { id: rpId, name } }), origin, undefined);
+            expect(res.response.errorCode).toBeUndefined();
+            expect(() => res.store!()).not.toThrow();
+            expect(PasskeyService.passkeyEntries(db, rpId)[0].title).toBe(`${rpId} (Passkey)`);
+        }
+    });
+
+    it('caps an rp name the page made absurdly long', async () => {
+        const db = makeDb();
+        const res = await PasskeyService.register(db, creationOptions({ rp: { id: rpId, name: 'b'.repeat(100_000) } }), origin, undefined);
+        res.store!();
+        expect(PasskeyService.passkeyEntries(db, rpId)[0].title).toBe(`${'b'.repeat(128)} (Passkey)`);
     });
 
     it('skips an excludeCredentials id that cannot be converted', async () => {
