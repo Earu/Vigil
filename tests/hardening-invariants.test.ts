@@ -63,6 +63,24 @@ describe('main process trust boundary', () => {
         expect(csp).toContain("base-uri 'self'");
     });
 
+    // A remote host in img-src is a way out of a document that holds a
+    // decrypted vault: an <img> needs no script and no response to carry
+    // whatever is in its URL to whoever is listening. The renderer fetches
+    // nothing from the network itself, so the only directive that may name a
+    // host is connect-src, and only the HIBP endpoints the breach check calls
+    it('the packaged CSP names no remote host outside connect-src', () => {
+        const window = read('electron/src/window.ts');
+        const production = window.slice(window.indexOf(': "default-src \'self\';"'));
+        const csp = production.slice(0, production.indexOf('frame-ancestors'));
+        for (const directive of ['default-src', 'img-src', 'style-src', 'font-src', 'script-src']) {
+            const value = new RegExp(`${directive}([^;]*);`).exec(csp)?.[1] ?? '';
+            expect(value, directive).not.toMatch(/https?:\/\//);
+        }
+        const connect = /connect-src([^;]*);/.exec(csp)?.[1] ?? '';
+        expect([...connect.matchAll(/https?:\/\/[^\s"]+/g)].map(m => m[0]).sort())
+            .toEqual(['https://api.pwnedpasswords.com', 'https://haveibeenpwned.com']);
+    });
+
     it('the packaged renderer loads from the app scheme, never from file:', () => {
         const window = read('electron/src/window.ts');
         expect(window).not.toMatch(/loadFile\(/);

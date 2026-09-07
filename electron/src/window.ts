@@ -186,8 +186,16 @@ export function createWindow(startupFile?: string) {
     // Fonts are self-hosted (src/fonts), so no remote font or style host is
     // allowed. A packaged build loads from vigil://app (app-protocol.ts), so
     // 'self' is that origin and nothing else: file: in particular is
-    // foreign to it. The google.com / gstatic.com grant is only for entry
-    // favicons, which are off unless the user opts in
+    // foreign to it.
+    //
+    // No remote host appears anywhere in this policy. img-src used to name
+    // google.com and gstatic.com for the placeholder favicon the entry list
+    // loaded directly, which made an <img> tag in a document holding a
+    // decrypted vault into a way out to a third party. Website icons are
+    // fetched in the main process now and reach the renderer as bytes
+    // (favicon.ts, FaviconService), so the renderer opens no connection of
+    // its own and the grant is gone with the tag. connect-src names the two
+    // HIBP endpoints the breach check calls and nothing else
     win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
         callback({
             responseHeaders: {
@@ -197,7 +205,7 @@ export function createWindow(startupFile?: string) {
                         ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
                           "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:5173; " +
                           "style-src 'self' 'unsafe-inline'; " +
-                          "img-src 'self' data: blob: https://www.google.com https://*.gstatic.com; " +
+                          "img-src 'self' data: blob:; " +
                           "font-src 'self'; " +
                           "connect-src 'self' ws://localhost:5173 http://localhost:5173 https://api.pwnedpasswords.com https://haveibeenpwned.com; " +
                           "base-uri 'self'; " +
@@ -206,7 +214,7 @@ export function createWindow(startupFile?: string) {
                         : "default-src 'self';" +
                           "script-src 'self';" +
                           "style-src 'self' 'unsafe-inline';" +
-                          "img-src 'self' data: blob: https://www.google.com https://*.gstatic.com;" +
+                          "img-src 'self' data: blob:;" +
                           "font-src 'self';" +
                           "connect-src 'self' https://api.pwnedpasswords.com https://haveibeenpwned.com;" +
                           "base-uri 'self';" +
