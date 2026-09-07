@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterAll } from 'vitest';
+import { describe, it, expect, vi, afterAll, beforeEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -10,6 +10,7 @@ import {
     nominateConflictCopy,
     isNominatedConflictCopy,
     resetNominationsForTests,
+    forgetNominations,
     readBoundedFile,
     hashFile,
     MAX_VAULT_BYTES,
@@ -158,14 +159,35 @@ describe('scanning the vault directory', () => {
 });
 
 describe('nominations', () => {
+    beforeEach(() => resetNominationsForTests());
+
     it('remember a copy by resolved path and nothing else', () => {
-        resetNominationsForTests();
-        nominateConflictCopy('/vaults/./vault 2.kdbx');
-        expect(isNominatedConflictCopy('/vaults/vault 2.kdbx')).toBe(true);
-        expect(isNominatedConflictCopy('/vaults/vault 3.kdbx')).toBe(false);
-        expect(isNominatedConflictCopy('/keys/vault.keyx')).toBe(false);
-        expect(isNominatedConflictCopy(undefined)).toBe(false);
-        expect(isNominatedConflictCopy(42)).toBe(false);
+        nominateConflictCopy(1, '/vaults/./vault 2.kdbx');
+        expect(isNominatedConflictCopy(1, '/vaults/vault 2.kdbx')).toBe(true);
+        expect(isNominatedConflictCopy(1, '/vaults/vault 3.kdbx')).toBe(false);
+        expect(isNominatedConflictCopy(1, '/keys/vault.keyx')).toBe(false);
+        expect(isNominatedConflictCopy(1, undefined)).toBe(false);
+        expect(isNominatedConflictCopy(1, 42)).toBe(false);
+    });
+
+    // A nomination says "a copy of the vault open in that window", so it is
+    // that window's alone: another window holds its own vault, and the copies
+    // beside it are not the same claim
+    it('belong to the window that made them', () => {
+        nominateConflictCopy(1, '/vaults/vault 2.kdbx');
+        expect(isNominatedConflictCopy(2, '/vaults/vault 2.kdbx')).toBe(false);
+    });
+
+    // The claim lasts exactly as long as the vault does. removeWindow calls
+    // this on a lock, a close, a crash, and on another vault opening in the
+    // window's place (window.ts)
+    it('go when the window vault does', () => {
+        nominateConflictCopy(1, '/vaults/vault 2.kdbx');
+        nominateConflictCopy(2, '/other/vault 2.kdbx');
+        forgetNominations(1);
+        expect(isNominatedConflictCopy(1, '/vaults/vault 2.kdbx')).toBe(false);
+        // Another window's are untouched
+        expect(isNominatedConflictCopy(2, '/other/vault 2.kdbx')).toBe(true);
     });
 });
 

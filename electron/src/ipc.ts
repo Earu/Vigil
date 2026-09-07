@@ -202,11 +202,14 @@ export function setupIpcHandlers(): void {
     // grants on the copies it finds, and a key file's read grant must not
     // reach the files named like copies of it beside it. Same for the two
     // folder channels below, which take the same argument
-    handle('list-conflict-copies', async (_, vaultPath: string) => {
-        if (!isPathGranted(vaultPath, { write: true })) return [];
+    handle('list-conflict-copies', async (event, vaultPath: string) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (!win || !isPathGranted(vaultPath, { write: true })) return [];
         const copies = await scanConflictCopies(vaultPath);
         for (const copy of copies) {
-            nominateConflictCopy(copy.copyPath);
+            // Nominated for this window alone, and only while it still has
+            // this vault open (conflict-copies.ts)
+            nominateConflictCopy(win.id, copy.copyPath);
             grantPath(copy.copyPath);
         }
         return copies;
@@ -229,8 +232,9 @@ export function setupIpcHandlers(): void {
     // The one delete the renderer may request, and only for a file the main
     // process itself named as a conflict copy: a read grant alone is not
     // enough, since key files hold one too. To the trash, never unlinked
-    handle('trash-conflict-copy', async (_, copyPath: string) => {
-        if (!isPathGranted(copyPath) || !isNominatedConflictCopy(copyPath)) {
+    handle('trash-conflict-copy', async (event, copyPath: string) => {
+        const win = BrowserWindow.fromWebContents(event.sender);
+        if (!win || !isPathGranted(copyPath) || !isNominatedConflictCopy(win.id, copyPath)) {
             return { success: false, error: 'Not a conflict copy of an open vault' };
         }
         try {
@@ -596,10 +600,18 @@ export function setupIpcHandlers(): void {
     });
 
     // Notification handler
-    handle('show-notification', async (_, { title, body }: { title: string, body: string }) => {
+    // The payload is checked rather than destructured on trust, like every
+    // other channel here: a message carrying anything but an object threw
+    // inside the handler instead of failing the call. The caps are what a
+    // notification shows anyway, and the body names a vault path, which has
+    // no length of its own
+    handle('show-notification', async (_, options: unknown) => {
+        const { title, body } = (options && typeof options === 'object' ? options : {}) as
+            { title?: unknown; body?: unknown };
+        if (typeof title !== 'string' || typeof body !== 'string') return;
         const notification = new Notification({
-            title,
-            body,
+            title: title.slice(0, 128),
+            body: body.slice(0, 512),
             icon: getAppIconPath(),
             silent: false
         });

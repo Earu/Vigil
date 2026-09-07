@@ -556,6 +556,9 @@ function App() {
 		BreachStatusStore.flush();
 		EmailBreachStatusStore.flush();
 		BreachCacheCrypto.lock();
+		// Entries this vault handed the browser stop counting as handed over;
+		// get-totp answers for nothing the browser has not asked for again
+		BrowserIntegrationService.forgetReleases();
 		window.electron?.reportVaultClosed().catch(() => {});
 	};
 	shortcutActions.current = { lock: () => handleLock(), vaultOpen: database !== null };

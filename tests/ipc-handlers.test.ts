@@ -9,6 +9,7 @@ const handlers = new Map<string, (...args: any[]) => any>();
 const listeners = new Map<string, (...args: any[]) => any>();
 const fromWebContents = vi.fn();
 
+const shown: any[] = [];
 vi.mock('electron', () => ({
     ipcMain: {
         handle: (channel: string, fn: (...args: any[]) => any) => { handlers.set(channel, fn); },
@@ -16,7 +17,7 @@ vi.mock('electron', () => ({
     },
     BrowserWindow: { fromWebContents: (...args: any[]) => fromWebContents(...args) },
     Notification: class {
-        constructor(public readonly options: unknown) {}
+        constructor(public readonly options: any) { shown.push(options); }
         show(): void {}
     },
     app: {},
@@ -683,7 +684,8 @@ describe('conflict copies', () => {
     });
 
     it('refuses to trash a nominated copy whose grant is gone', async () => {
-        conflictCopies.nominateConflictCopy('/vaults/vault 2.kdbx');
+        fromWebContents.mockReturnValue({ id: 1 });
+        conflictCopies.nominateConflictCopy(1, '/vaults/vault 2.kdbx');
         isPathGranted.mockReturnValue(false);
         const result = await handlers.get('trash-conflict-copy')!(makeEvent(), '/vaults/vault 2.kdbx');
         expect(result.success).toBe(false);
@@ -691,11 +693,60 @@ describe('conflict copies', () => {
     });
 
     it('trashes a nominated, granted copy and nothing else', async () => {
-        conflictCopies.nominateConflictCopy('/vaults/vault 2.kdbx');
+        fromWebContents.mockReturnValue({ id: 1 });
+        conflictCopies.nominateConflictCopy(1, '/vaults/vault 2.kdbx');
         isPathGranted.mockReturnValue(true);
         const result = await handlers.get('trash-conflict-copy')!(makeEvent(), '/vaults/vault 2.kdbx');
         expect(result).toEqual({ success: true });
         expect(trashItem).toHaveBeenCalledWith('/vaults/vault 2.kdbx');
+    });
+
+    // The nomination belongs to the window whose vault the copy sits beside,
+    // so another window asking about it is asking about somebody else's file
+    it('refuses to trash a copy another window nominated', async () => {
+        conflictCopies.nominateConflictCopy(1, '/vaults/vault 2.kdbx');
+        isPathGranted.mockReturnValue(true);
+        fromWebContents.mockReturnValue({ id: 2 });
+        const result = await handlers.get('trash-conflict-copy')!(makeEvent(), '/vaults/vault 2.kdbx');
+        expect(result.success).toBe(false);
+        expect(trashItem).not.toHaveBeenCalled();
+    });
+
+    it('refuses to trash once the window vault has gone', async () => {
+        fromWebContents.mockReturnValue({ id: 1 });
+        conflictCopies.nominateConflictCopy(1, '/vaults/vault 2.kdbx');
+        isPathGranted.mockReturnValue(true);
+        conflictCopies.forgetNominations(1);
+        const result = await handlers.get('trash-conflict-copy')!(makeEvent(), '/vaults/vault 2.kdbx');
+        expect(result.success).toBe(false);
+        expect(trashItem).not.toHaveBeenCalled();
+    });
+});
+
+// Every other channel checks its argument; this one destructured the payload
+// on trust, so a message carrying anything but an object threw inside the
+// handler rather than failing the call
+describe('show-notification', () => {
+    beforeEach(() => { shown.length = 0; });
+
+    it('shows a well-formed notification', async () => {
+        await handlers.get('show-notification')!(makeEvent(), { title: 'Alert', body: 'Something happened' });
+        expect(shown).toHaveLength(1);
+        expect(shown[0]).toMatchObject({ title: 'Alert', body: 'Something happened' });
+    });
+
+    it('shows nothing for a payload that is not two strings', async () => {
+        for (const bad of [undefined, null, 42, 'text', [], {}, { title: 'x' }, { title: 1, body: 2 }]) {
+            await expect(handlers.get('show-notification')!(makeEvent(), bad)).resolves.toBeUndefined();
+        }
+        expect(shown).toHaveLength(0);
+    });
+
+    // The body names a vault path, which has no length of its own
+    it('bounds what it will render', async () => {
+        await handlers.get('show-notification')!(makeEvent(), { title: 'T'.repeat(500), body: 'B'.repeat(5000) });
+        expect(shown[0].title).toHaveLength(128);
+        expect(shown[0].body).toHaveLength(512);
     });
 });
 

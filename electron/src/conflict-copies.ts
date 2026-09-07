@@ -183,15 +183,37 @@ export async function scanConflictCopies(
 // renderer may ask for one of these to be trashed and for nothing else: the
 // nomination is what makes "delete this file" a request about a conflict
 // copy rather than about an arbitrary granted path (a key file is granted
-// too, and must never be deletable from the renderer)
-const nominated = new Set<string>();
+// too, and must never be deletable from the renderer).
+//
+// Held per window, and dropped with the vault rather than with the process.
+// The standing a nomination carries is "this is a copy of the vault open in
+// that window", and a lock, a close or a switch to another vault ends it;
+// one flat set outlived all three, so a copy named hours ago beside a vault
+// since closed stayed deletable for as long as Vigil ran. Per window also
+// means one window cannot trash what another window's vault nominated.
+//
+// Keyed by window id rather than by the window, so this file needs no
+// electron import (see the note at the top)
+const nominated = new Map<number, Set<string>>();
 
-export function nominateConflictCopy(copyPath: string): void {
-    nominated.add(path.resolve(copyPath));
+export function nominateConflictCopy(windowId: number, copyPath: string): void {
+    let paths = nominated.get(windowId);
+    if (!paths) {
+        paths = new Set<string>();
+        nominated.set(windowId, paths);
+    }
+    paths.add(path.resolve(copyPath));
 }
 
-export function isNominatedConflictCopy(copyPath: unknown): boolean {
-    return typeof copyPath === 'string' && nominated.has(path.resolve(copyPath));
+export function isNominatedConflictCopy(windowId: number, copyPath: unknown): boolean {
+    if (typeof copyPath !== 'string') return false;
+    return nominated.get(windowId)?.has(path.resolve(copyPath)) ?? false;
+}
+
+// The window's vault went away (lock, close, crash, or another vault opened
+// in its place), so what it named beside that vault is nobody's copy now
+export function forgetNominations(windowId: number): void {
+    nominated.delete(windowId);
 }
 
 export function resetNominationsForTests(): void {

@@ -5,6 +5,7 @@ import { installMockWindow, cred, MockEnv } from './helpers';
 
 const env: MockEnv = installMockWindow();
 const { ImportService } = await import('../src/services/ImportService');
+const { parse1Pux } = await import('../src/services/OnePasswordImport');
 
 // 1Password's own export dialog produces these two, and its CSV carries
 // logins only by 1Password's own documentation. Field names follow
@@ -140,6 +141,31 @@ describe('1Password .1pux', () => {
             .rejects.toThrow(/no export.data/);
         await expect(ImportService.parseFile(new File([zipSync({ 'export.data': strToU8('not json') })], 'x.1pux')))
             .rejects.toThrow(/not valid JSON/);
+    });
+
+    // A zip names what each file unpacks to, and a highly compressible one
+    // names far more than it costs to send. Unbounded that is the renderer,
+    // and any unsaved edit, gone on a file the user was only importing.
+    // The bound is passed in so this needs no real bomb to exercise it
+    it('refuses an archive that unpacks to more than it will read', () => {
+        const bytes = zipSync({
+            'export.data': strToU8(JSON.stringify(archive)),
+            'files/doc___big.pdf': strToU8('x'.repeat(4096)),
+        });
+        expect(() => parse1Pux(bytes, 1024)).toThrow(/unpacks to more than/);
+        // A damaged archive is a different thing and says so
+        expect(() => parse1Pux(bytes)).not.toThrow();
+    });
+
+    // The bound counts what the filter would have taken, not what the archive
+    // holds: an export padded with things Vigil never unpacks (1Password
+    // writes export.attributes beside the data) must not be refused for them
+    it('ignores the size of files it was never going to unpack', () => {
+        const bytes = zipSync({
+            'export.data': strToU8(JSON.stringify(archive)),
+            'export.attributes': strToU8('y'.repeat(8192)),
+        });
+        expect(parse1Pux(bytes, 4096).length).toBeGreaterThan(0);
     });
 });
 

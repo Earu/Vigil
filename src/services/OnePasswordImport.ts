@@ -231,16 +231,50 @@ export function is1PuxArchive(bytes: Uint8Array): boolean {
     return bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
 }
 
-export function parse1Pux(bytes: Uint8Array): ImportedEntry[] {
+// The most a .1pux may unpack to. A zip names the uncompressed size of each
+// file it holds, and a few hundred kilobytes on disk can name gigabytes on
+// the way out; unpacked without a bound that takes the renderer, and any
+// unsaved edit, down with it. The same hazard QrScanService caps for images.
+//
+// The declared size is worth trusting here because fflate allocates exactly
+// it and inflates into that fixed buffer, so a header claiming less than the
+// data holds fails the inflate rather than growing past it.
+//
+// Well above a real export, which is text plus whatever documents were
+// attached to items, and in step with the bound on a vault itself
+// (conflict-copies MAX_VAULT_BYTES): an import larger than this would build
+// a vault Vigil then refuses to open
+export const MAX_UNPACKED_BYTES = 256 * 1024 * 1024;
+
+// The bound is a parameter so the tests can reach it with a small archive
+// rather than by building a real bomb, the way checkArgon2Params takes the
+// machine's memory and readBoundedFile takes its cap
+export function parse1Pux(bytes: Uint8Array, maxUnpackedBytes = MAX_UNPACKED_BYTES): ImportedEntry[] {
     let unpacked: Record<string, Uint8Array>;
+    // Set by the filter rather than thrown from it: a throw there is caught
+    // below as a damaged archive, which is the wrong thing to tell someone
+    // whose file is merely too big
+    let tooLarge = false;
     try {
         // export.data plus the Document items under files/. export.attributes
         // holds only viewer metadata and is left packed
+        let unpackedBytes = 0;
         unpacked = unzipSync(bytes, {
-            filter: file => file.name === 'export.data' || file.name.startsWith('files/'),
+            filter: file => {
+                if (file.name !== 'export.data' && !file.name.startsWith('files/')) return false;
+                // Counted before the file is taken, and once the budget is
+                // gone nothing else is: the filter runs ahead of the inflate,
+                // so a rejected file is never unpacked at all
+                unpackedBytes += file.originalSize;
+                if (unpackedBytes > maxUnpackedBytes) tooLarge = true;
+                return !tooLarge;
+            },
         });
     } catch {
         throw new Error('That .1pux file could not be opened; it may be damaged');
+    }
+    if (tooLarge) {
+        throw new Error('That .1pux file unpacks to more than Vigil will read; export it again without its documents');
     }
     const manifest = unpacked['export.data'];
     if (!manifest) {
