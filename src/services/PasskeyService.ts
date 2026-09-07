@@ -1,18 +1,6 @@
 import * as kdbxweb from 'kdbxweb';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
-
-// The public suffix list is 125 KB minified, for a check that runs once per
-// passkey ceremony. Fetched on first use rather than carried in the startup
-// chunk, the way the strength estimator is
-let suffixList: Promise<typeof import('tldts')> | null = null;
-const loadSuffixList = (): Promise<typeof import('tldts')> => {
-    if (!suffixList) {
-        suffixList = import('tldts');
-        // A failed chunk load retries on the next ceremony
-        suffixList.catch(() => { suffixList = null; });
-    }
-    return suffixList;
-};
+import { isPublicSuffix, loadSuffixList } from './PublicSuffix';
 
 // WebAuthn authenticator for the KeePassXC-Browser passkeys protocol
 // (passkeys-register / passkeys-get). Response shapes, entry attributes and
@@ -329,17 +317,6 @@ const normalizeOrigin = (origin: string): string | null => {
         return null;
     }
 };
-
-// Whether a host is a public suffix (com, co.uk, github.io): a name under
-// which unrelated parties register, so nothing can claim it as its own.
-// Private-section entries count, since user.github.io and other.github.io
-// are as unrelated as two .com sites. A host the list knows nothing about
-// (an IP address) is treated as one too, which fails closed
-export async function isPublicSuffix(host: string): Promise<boolean> {
-    const { getPublicSuffix } = await loadSuffixList();
-    const suffix = getPublicSuffix(host, { allowPrivateDomains: true });
-    return suffix === null || suffix === host;
-}
 
 // The RP ID must equal the origin's domain or be a registrable suffix of it
 // (HTML's "is a registrable domain suffix of or is equal to"). A suffix that
