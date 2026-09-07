@@ -207,3 +207,87 @@ describe('KeePassXC XML against a real writer', () => {
         expect(result.entries[0].passwordHistory?.map(h => h.password)).toEqual(['was current']);
     });
 });
+
+// KDBX4 writes a time as seconds since year one, base64 as a little-endian
+// int64. A value near that type's ceiling is a finite count of milliseconds
+// that is still past the range a Date can hold, and an Invalid Date on an
+// entry makes every later save of the database throw
+describe('KeePassXC XML unrepresentable timestamps', () => {
+    const withTime = (bytes: number[]) => `<?xml version="1.0"?><KeePassFile><Meta/><Root><Group><Name>G</Name>
+<Entry><String><Key>Title</Key><Value>Site</Value></String><String><Key>Password</Key><Value>now</Value></String>
+<History><Entry><String><Key>Password</Key><Value>old</Value></String>
+<Times><LastModificationTime>${b64(new Uint8Array(bytes))}</LastModificationTime></Times></Entry></History>
+</Entry></Group></Root></KeePassFile>`;
+
+    it('drops an int64 time past the range a Date can hold', async () => {
+        const result = await ImportService.parseFile(file('export.xml', withTime([0, 0, 0, 0, 0, 0, 0, 0x40])));
+        expect(result.entries[0].passwordHistory).toEqual([{ password: 'old', changed: undefined }]);
+    });
+
+    // What the save path chokes on. The 1pif suite runs the save itself;
+    // here kdbxweb's own Meta.write trips over jsdom's second ArrayBuffer
+    // realm before it ever reaches an entry
+    it('never stamps an entry with a date it cannot write', async () => {
+        const result = await ImportService.parseFile(file('export.xml', withTime([0, 0, 0, 0, 0, 0, 0, 0x40])));
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        await ImportService.writeEntries(result, db);
+        const entry = [...db.getDefaultGroup().allEntries()][0];
+        for (const times of [entry.times, ...entry.history.map(h => h.times)]) {
+            expect(Number.isNaN(times.lastModTime!.getTime())).toBe(false);
+        }
+    });
+
+    it('keeps a time it can represent', async () => {
+        // 2023-11-14T22:13:20Z, seconds since year one, little-endian
+        const seconds = 1700000000 + 62135596800;
+        const bytes = Array.from({ length: 8 }, (_, i) => Math.floor(seconds / 2 ** (8 * i)) & 0xff);
+        const result = await ImportService.parseFile(file('export.xml', withTime(bytes)));
+        expect(result.entries[0].passwordHistory?.[0].changed?.toISOString()).toBe('2023-11-14T22:13:20.000Z');
+    });
+});
+
+// SshAgentService reads this record on unlock and loads the key it points at
+// into the agent. Carried across as written, an export could name a key it
+// brought with it and have it enrolled without anyone asking
+describe('KeeAgent record in an imported file', () => {
+    const settings = (addAtOpen: boolean) => `<?xml version="1.0" encoding="UTF-8"?>
+<EntrySettings>
+  <AllowUseOfSshKey>true</AllowUseOfSshKey>
+  <AddAtDatabaseOpen>${addAtOpen}</AddAtDatabaseOpen>
+  <RemoveAtDatabaseClose>true</RemoveAtDatabaseClose>
+  <Location><SelectedType>attachment</SelectedType><AttachmentName>id_ed25519</AttachmentName></Location>
+</EntrySettings>`;
+
+    const xml = (addAtOpen: boolean) => `<?xml version="1.0"?><KeePassFile><Meta><Binaries>
+<Binary ID="0" Compressed="False">${b64(strToU8(settings(addAtOpen)))}</Binary>
+<Binary ID="1" Compressed="False">${b64(strToU8('-----BEGIN OPENSSH PRIVATE KEY-----\n'))}</Binary>
+</Binaries></Meta><Root><Group><Name>G</Name>
+<Entry><String><Key>Title</Key><Value>Server</Value></String><String><Key>Password</Key><Value>p</Value></String>
+<Binary><Key>KeeAgent.settings</Key><Value Ref="0"/></Binary>
+<Binary><Key>id_ed25519</Key><Value Ref="1"/></Binary>
+</Entry></Group></Root></KeePassFile>`;
+
+    const readRecord = async (addAtOpen: boolean) => {
+        const result = await ImportService.parseFile(file('export.xml', xml(addAtOpen)));
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        await ImportService.writeEntries(result, db);
+        const entry = [...db.getDefaultGroup().allEntries()][0];
+        const binary = entry.binaries.get('KeeAgent.settings') as { value: ArrayBuffer };
+        return { entry, text: new TextDecoder().decode(new Uint8Array(binary.value)) };
+    };
+
+    it('clears AddAtDatabaseOpen but keeps the rest of the record', async () => {
+        const { entry, text } = await readRecord(true);
+        expect(text).toContain('<AddAtDatabaseOpen>false</AddAtDatabaseOpen>');
+        expect(text).toContain('<AllowUseOfSshKey>true</AllowUseOfSshKey>');
+        expect(text).toContain('<RemoveAtDatabaseClose>true</RemoveAtDatabaseClose>');
+        expect(text).toContain('<AttachmentName>id_ed25519</AttachmentName>');
+        expect([...entry.binaries.keys()]).toContain('id_ed25519');
+    });
+
+    it('leaves a record that never asked for it alone', async () => {
+        const { text } = await readRecord(false);
+        expect(text).toContain('<AddAtDatabaseOpen>false</AddAtDatabaseOpen>');
+        expect(text).toContain('<AllowUseOfSshKey>true</AllowUseOfSshKey>');
+    });
+});

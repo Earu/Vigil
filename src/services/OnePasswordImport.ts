@@ -56,13 +56,22 @@ const text = (value: unknown): string | undefined => {
 // in a kdbx entry and reads as its printed form
 const KEY_ORDER = ['string', 'concealed', 'url', 'email', 'phone', 'totp', 'creditCardNumber', 'reference', 'menu', 'gender', 'date', 'monthYear'];
 
+// Whole seconds as a Date, or nothing. Finite is not the same as
+// representable: 1e15 passes Number.isFinite and lands past year 275760,
+// where new Date gives an Invalid Date. One of those reaching an entry's
+// times makes the whole database refuse to serialize, so it stops here
+const secondsToDate = (raw: unknown): Date | undefined => {
+    if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+    const at = new Date(raw * 1000);
+    return Number.isNaN(at.getTime()) ? undefined : at;
+};
+
 // 1Password keeps a date as whole seconds and a monthYear as the number
 // YYYYMM. Stored raw they read as "1700000000", which says nothing to
 // whoever opens the entry later
 function spellDate(raw: unknown): string | undefined {
     if (typeof raw !== 'number' || !Number.isFinite(raw)) return text(raw);
-    const at = new Date(raw * 1000);
-    return Number.isNaN(at.getTime()) ? undefined : at.toISOString().slice(0, 10);
+    return secondsToDate(raw)?.toISOString().slice(0, 10);
 }
 
 function spellMonthYear(raw: unknown): string | undefined {
@@ -173,11 +182,10 @@ function puxEntry(item: PuxItem, group: string[] | undefined, files: Map<string,
     const history = (details.passwordHistory ?? []).flatMap(revision => {
         const value = text(revision?.value);
         if (value === undefined) return [];
-        const seconds = revision?.time;
         return [{
             password: value,
             // 1Password stamps these in whole seconds
-            changed: typeof seconds === 'number' && Number.isFinite(seconds) ? new Date(seconds * 1000) : undefined,
+            changed: secondsToDate(revision?.time),
         }];
     }).sort((a, b) => (a.changed?.getTime() ?? 0) - (b.changed?.getTime() ?? 0));
 
@@ -328,11 +336,7 @@ export function parse1Pif(content: string): ImportedEntry[] {
             .flatMap((revision: any) => {
                 const value = text(revision?.value);
                 if (value === undefined) return [];
-                const seconds = revision?.time;
-                return [{
-                    password: value,
-                    changed: typeof seconds === 'number' && Number.isFinite(seconds) ? new Date(seconds * 1000) : undefined,
-                }];
+                return [{ password: value, changed: secondsToDate(revision?.time) }];
             })
             .sort((a: { changed?: Date }, b: { changed?: Date }) => (a.changed?.getTime() ?? 0) - (b.changed?.getTime() ?? 0));
 
