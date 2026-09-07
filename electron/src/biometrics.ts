@@ -204,15 +204,12 @@ async function retirePersistentBlobs(): Promise<void> {
     if (!keytar) return;
     const mac = process.platform === 'darwin';
     const isPersistentBlob = mac ? isV3Blob : isV4Blob;
-    const marker = mac ? MAC_SESSION_MARKER : SESSION_MARKER;
     try {
         if (typeof keytar.findCredentials === 'function') {
             for (const { account, password } of await keytar.findCredentials(SERVICE_NAME)) {
                 if (!isPersistentBlob(password)) continue;
-                await keytar.setPassword(SERVICE_NAME, account, marker);
-                // macOS: the wrapping key is per account, so it goes with the
-                // blob it sealed. Arming generates a fresh one
-                if (mac) await touchid.deleteSecret(account);
+                if (mac) await retireMacBlob(account);
+                else await keytar.setPassword(SERVICE_NAME, account, SESSION_MARKER);
             }
         }
     } catch (error) {
@@ -221,8 +218,8 @@ async function retirePersistentBlobs(): Promise<void> {
     // Windows: the DPAPI entropy is half the key for every v4 blob at once,
     // so dropping it also covers a blob this pass missed (a keytar without
     // findCredentials), which without the entropy reads as stale and is
-    // discarded. macOS has no equivalent single value, so a v3 blob this
-    // missed is retired the next time it is seen, at status check or unlock
+    // discarded. macOS has no equivalent single value, so a blob this pass
+    // never saw is retired by retireMacBlobOnSight instead
     if (mac) return;
     try {
         fs.rmSync(ENTROPY_PATH(), { force: true });
@@ -231,9 +228,31 @@ async function retirePersistentBlobs(): Promise<void> {
     }
 }
 
+// macOS: the wrapping key is per account, so it goes with the blob it sealed
+// and a copy that outlived the keytar record cannot be opened either. The
+// marker keeps the vault enrolled, so the next password unlock re-arms it
+// under a fresh key
+async function retireMacBlob(key: string): Promise<void> {
+    try {
+        await keytar?.setPassword(SERVICE_NAME, key, MAC_SESSION_MARKER);
+        await touchid.deleteSecret(key);
+    } catch (error) {
+        console.error('Failed to retire a persistent biometric blob:', error);
+    }
+}
+
 function ensurePersistentBlobsRetired(): Promise<void> {
     if (!persistentBlobsRetired) persistentBlobsRetired = retirePersistentBlobs();
     return persistentBlobsRetired;
+}
+
+// Retiring a macOS blob at the moment it is read. The sweep runs once per
+// process and only covers what findCredentials reports, and unlike Windows
+// there is no shared value whose removal would invalidate one it missed, so
+// the blob in hand is retired here as well. Both steps are idempotent
+async function retireMacBlobOnSight(key: string): Promise<void> {
+    await ensurePersistentBlobsRetired();
+    await retireMacBlob(key);
 }
 
 export async function setBiometricsConfig(config: BiometricsConfig): Promise<{ success: boolean; error?: string }> {
@@ -487,7 +506,7 @@ export async function hasBiometricsEnabled(dbPath: string): Promise<{ success: b
             if (strict && isV3Blob(stored)) {
                 // A persistent blob under the setting: retire it (and every
                 // other one) now rather than report it frozen
-                await ensurePersistentBlobsRetired();
+                await retireMacBlobOnSight(key);
                 return { success: true, enabled: true, armed: false };
             }
             if (stored === MAC_SESSION_MARKER) {
@@ -732,7 +751,7 @@ export async function getBiometricPassword(dbPath: string):
             // The setting says nothing on disk may release the password. A
             // persistent blob from before it took effect is retired on the
             // spot, with the rest; the next password unlock re-arms
-            await ensurePersistentBlobsRetired();
+            await retireMacBlobOnSight(key);
             return { success: false, retry: true, error: masterPasswordNeededMessage() };
         }
 

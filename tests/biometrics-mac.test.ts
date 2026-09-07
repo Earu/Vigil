@@ -24,6 +24,9 @@ const state = vi.hoisted(() => ({
         reads: 0,
     },
     hardwareUuid: '1234-ABCD' as string | null,
+    // keytar does not guarantee findCredentials, and biometrics.ts guards for
+    // its absence, so the tests can take it away
+    keytarEnumerable: true,
 }));
 
 vi.mock('electron', () => ({
@@ -36,8 +39,10 @@ vi.mock('../electron/src/get-keytar', () => ({
         getPassword: async (_s: string, account: string) => state.keytar.get(account) ?? null,
         setPassword: async (_s: string, account: string, value: string) => { state.keytar.set(account, value); },
         deletePassword: async (_s: string, account: string) => state.keytar.delete(account),
-        findCredentials: async () =>
-            [...state.keytar].map(([account, password]) => ({ account, password })),
+        get findCredentials() {
+            if (!state.keytarEnumerable) return undefined;
+            return async () => [...state.keytar].map(([account, password]) => ({ account, password }));
+        },
     },
 }));
 
@@ -112,6 +117,7 @@ beforeEach(() => {
     state.touch.readBehaviour = 'ok';
     state.touch.reads = 0;
     state.hardwareUuid = '1234-ABCD';
+    state.keytarEnumerable = true;
     fs.rmSync(CONFIG(), { force: true });
     secureBuild();
 });
@@ -336,6 +342,40 @@ describe('session-scoped mode on macOS (the default)', () => {
 
         expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(true);
         expect((await bio.getBiometricPassword(DB)).password).toBe('hunter2');
+    });
+
+    // The sweep only covers what findCredentials reports, and macOS has no
+    // shared value whose removal would invalidate a blob it missed, the way
+    // dropping the DPAPI entropy does on Windows. So the blob has to go when
+    // it is read, or the setting leaves exactly what it promises to remove:
+    // a copy on disk that one Touch ID prompt opens
+    it('retires a persistent blob the sweep cannot enumerate, at status check', async () => {
+        await persistentMode();
+        await bio.enableBiometrics(DB, 'hunter2');
+        expect(state.keytar.get(ACCOUNT)?.startsWith('v3:')).toBe(true);
+
+        fs.rmSync(CONFIG());
+        restart();
+        state.keytarEnumerable = false;
+
+        expect(await bio.hasBiometricsEnabled(DB)).toMatchObject({ enabled: true, armed: false });
+        expect(state.keytar.get(ACCOUNT)).toBe('v3-session:');
+        expect(state.touch.secrets.has(ACCOUNT)).toBe(false);
+    });
+
+    it('retires a persistent blob the sweep cannot enumerate, at unlock', async () => {
+        await persistentMode();
+        await bio.enableBiometrics(DB, 'hunter2');
+
+        fs.rmSync(CONFIG());
+        restart();
+        state.keytarEnumerable = false;
+
+        const disarmed = await bio.getBiometricPassword(DB);
+        expect(disarmed).toMatchObject({ success: false, retry: true });
+        expect(disarmed.password).toBeUndefined();
+        expect(state.keytar.get(ACCOUNT)).toBe('v3-session:');
+        expect(state.touch.secrets.has(ACCOUNT)).toBe(false);
     });
 
     it('turning the setting off re-seals armed vaults persistently', async () => {
