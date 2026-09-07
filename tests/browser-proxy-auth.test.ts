@@ -224,7 +224,15 @@ describe('proxy-server handshake', () => {
             action: PROXY_AUTH_ACTION,
             response: crypto.createHmac('sha256', token).update(CLIENT_PROOF_LABEL + challenge).digest('hex'),
         });
-        client.send({ action: 'change-public-keys', publicKey: 'AA==', nonce: 'AA==', clientID: 'x' });
+        // Real sizes: the key exchange refuses a key or nonce tweetnacl would
+        // not take, so a placeholder here would be answered with an error and
+        // say nothing about whether the token proof let the traffic through
+        client.send({
+            action: 'change-public-keys',
+            publicKey: Buffer.alloc(32).toString('base64'),
+            nonce: Buffer.alloc(24).toString('base64'),
+            clientID: 'x',
+        });
         const reply = await client.next();
         client.destroy();
 
