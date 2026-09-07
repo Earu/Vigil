@@ -17,7 +17,7 @@ A modern, secure password manager with a beautiful user interface, built using E
 | One-time codes | TOTP with live codes and HOTP (counter-based), add secrets by scanning a QR code (screen, clipboard or image) or a Google Authenticator export |
 | Browser integration | Autofill, save and update logins via the KeePassXC-Browser extension (Windows, Linux, macOS) |
 | Passkeys | Create and use passkeys in the browser, stored in your database |
-| Import | Bitwarden, LastPass, 1Password, KeePassXC and generic CSV, format auto-detected |
+| Import | Bitwarden (JSON and CSV), 1Password (1PUX, 1PIF and CSV), KeePassXC (XML and CSV), LastPass and generic CSV, format auto-detected |
 | Export | CSV export |
 | Password generator | Character and passphrase modes with entropy estimate |
 | Custom fields | Arbitrary entry fields with per-field protection |

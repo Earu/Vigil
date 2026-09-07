@@ -326,7 +326,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
 
         const input = document.createElement('input');
         input.type = 'file';
-        input.accept = '.csv,.json';
+        input.accept = '.csv,.json,.xml,.1pux,.1pif';
 
         input.onchange = async (e) => {
             const file = (e.target as HTMLInputElement).files?.[0];
@@ -344,7 +344,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
 
                 // onDatabaseChange performs the save; writing entries here and
                 // saving there avoids a redundant second save
-                ImportService.writeEntries(result, kdbxDb);
+                await ImportService.writeEntries(result, kdbxDb);
                 setShowImportModal(false);
                 await saveAndReport(
                     `Imported ${result.entries.length} entries from ${result.source}`,

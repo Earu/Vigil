@@ -296,8 +296,32 @@ export class TotpService {
         return fields;
     }
 
-    // Accepts an otpauth:// URI, Bitwarden's steam://<secret>, or a bare
-    // base32 secret (always time-based)
+    // The KeeOtp plugin's storage format, which KeePassXC reads, writes into
+    // an `otp` field, and puts in the TOTP column of a CSV export
+    // (Totp::writeSettings, StorageFormat::KEEOTP):
+    //
+    //     key=<base32>&size=<digits>&step=<seconds>[&otpHashMode=Sha256]
+    //
+    // It has no scheme to recognise it by, so it was read as a bare secret,
+    // failed the base32 check and vanished. An entry written by that plugin
+    // reaches this the same way a CSV column does, so both are covered
+    private static parseKeeOtp(input: string): TotpConfig | null {
+        if (!/^key=/i.test(input)) return null;
+        const params = new URLSearchParams(input);
+        const secret = this.normalizeSecret(params.get('key') ?? '');
+        if (!secret) return null;
+        const hashMode = (params.get('otpHashMode') ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+        return {
+            type: 'totp',
+            secret,
+            digits: this.sanitizeDigits(params.get('size') ?? undefined),
+            period: this.sanitizePeriod(params.get('step') ?? undefined),
+            algorithm: hashMode === 'SHA256' ? 'SHA-256' : hashMode === 'SHA512' ? 'SHA-512' : 'SHA-1',
+        };
+    }
+
+    // Accepts an otpauth:// URI, Bitwarden's steam://<secret>, the KeeOtp
+    // key=... form, or a bare base32 secret (always time-based)
     static parseUserInput(input: string): OtpConfig | null {
         const trimmed = input.trim();
         if (trimmed.toLowerCase().startsWith('otpauth://')) {
@@ -310,6 +334,8 @@ export class TotpService {
             const secret = this.steamSecret(trimmed.slice('steam://'.length));
             return secret ? this.steamConfig(secret) : null;
         }
+        const keeOtp = this.parseKeeOtp(trimmed);
+        if (keeOtp) return keeOtp;
         const secret = this.normalizeSecret(trimmed);
         if (!secret) return null;
         return { type: 'totp', secret, period: 30, digits: 6, algorithm: 'SHA-1' };
