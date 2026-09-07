@@ -747,6 +747,11 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// anything running as the user can mint codes while the key is plugged in
 	const handlePushToYubiKey = async () => {
 		if (!otpConfig || pushingToKey) return;
+		// The key computes RFC 4226 codes and has no way to encode Steam's
+		// alphabet, so a Steam secret pushed to it would produce six digits
+		// Steam rejects, for a secret the key can never hand back. The button
+		// is hidden for these, and this is the second gate
+		if (TotpService.isSteam(otpConfig)) return;
 		const label = editedEntry.title.trim() || 'Vigil';
 		const account = editedEntry.username.trim() || label;
 		const confirmed = await confirmDialog(
@@ -1197,7 +1202,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 									{totpSecondsLeft}s
 								</span>
 							</div>
-							{keyPresent && (
+							{keyPresent && !TotpService.isSteam(totpConfig) && (
 								<button
 									className="generate-button"
 									onClick={handlePushToYubiKey}
@@ -1283,7 +1288,15 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 						<label>One-Time Password</label>
 						{otpConfig ? (
 							<div className="totp-configured-row">
-								{otpConfig.type === 'totp' ? (
+								{TotpService.isSteam(otpConfig) ? (
+									// Digits, period and algorithm are fixed for Steam, so
+									// naming them would be noise. The label is what makes an
+									// inferred encoder (TotpService.steamFromUri) visible,
+									// with the remove button beside it as the way to undo it
+									<span className="totp-configured-text">
+										Steam Guard configured
+									</span>
+								) : otpConfig.type === 'totp' ? (
 									<span className="totp-configured-text">
 										TOTP configured ({otpConfig.digits} digits, {otpConfig.period}s, {otpConfig.algorithm})
 									</span>
@@ -1319,7 +1332,7 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 										type="text"
 										className="field-value"
 										value={totpInput}
-										placeholder="Secret or otpauth:// URI"
+										placeholder="Secret, otpauth:// URI, or steam://secret"
 										onChange={(e) => { setTotpInput(e.target.value); setTotpError(''); }}
 									/>
 									<button
