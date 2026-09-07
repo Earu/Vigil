@@ -580,11 +580,18 @@ export class BrowserIntegrationService {
                     // Created outside any UI model: without this a save from
                     // a model built before this write would tombstone it
                     KeepassDatabaseService.registerUnmodeledUuids([entry.uuid.toString()]);
-                    entry.fields.set('Title', this.hostOf(payload.url) || 'New entry');
-                    entry.fields.set('URL', payload.url ?? '');
+                    // hostOf hands back the URL as it was given when the URL
+                    // does not parse, so the title is page-chosen text too
+                    entry.fields.set('Title', PlaceholderService.inert(this.hostOf(payload.url) || 'New entry'));
+                    entry.fields.set('URL', PlaceholderService.inert(payload.url ?? ''));
                 }
-                entry.fields.set('UserName', payload.login ?? '');
-                entry.fields.set('Password', kdbxweb.ProtectedValue.fromString(payload.password ?? ''));
+                // Every field of this entry is text the page chose, and
+                // get-logins resolves an entry's fields on the way out, so
+                // stored raw they are a pointer at whatever else the vault
+                // holds rather than a credential for this site. See
+                // PlaceholderService.inert
+                entry.fields.set('UserName', PlaceholderService.inert(payload.login ?? ''));
+                entry.fields.set('Password', kdbxweb.ProtectedValue.fromString(PlaceholderService.inert(payload.password ?? '')));
                 entry.times.lastModTime = new Date();
                 try {
                     await ctx.saveDatabase();

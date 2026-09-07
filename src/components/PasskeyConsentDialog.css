@@ -5,6 +5,18 @@
     font-weight: 600;
 }
 
+/* Shown only when the page asking is not part of the relying party it names,
+   which is the one case the sentence above it cannot describe on its own.
+   Carries the same alert colours as the breach summaries rather than a set of
+   its own. Outranks the .pairing-dialog p rule the way .pairing-existing does */
+.passkey-dialog p.passkey-origin-warning {
+    padding: 0.6rem 0.7rem;
+    background-color: var(--alert-warning-bg);
+    border: 1px solid var(--alert-warning-border);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+}
+
 .passkey-entry-list {
     display: flex;
     flex-direction: column;

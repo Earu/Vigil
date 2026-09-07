@@ -554,6 +554,95 @@ describe('set-login', () => {
     });
 });
 
+// Every field of a browser-written entry is text the page put in the form,
+// and get-logins resolves an entry's fields on the way back out. Stored raw,
+// a placeholder there is a pointer at the rest of the vault: the page saves
+// a login for its own domain whose password is {REF:P@T:Bank} and is handed
+// the Bank entry's password the next time it asks, with both consent dialogs
+// describing an ordinary save and an ordinary autofill. See
+// PlaceholderService.inert
+describe('set-login placeholder injection', () => {
+    const bankDb = async () => {
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db.setVersion(3);
+        const bank = db.createEntry(db.getDefaultGroup());
+        bank.fields.set('Title', 'Bank');
+        bank.fields.set('UserName', 'alice');
+        bank.fields.set('Password', kdbxweb.ProtectedValue.fromString('bank-secret'));
+        bank.fields.set('otp', kdbxweb.ProtectedValue.fromString(
+            'otpauth://totp/Bank?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'
+        ));
+        return await kdbxweb.Kdbx.load(await db.save(), cred());
+    };
+    const plant = async (db: kdbxweb.Kdbx, url: string, fields: { login: string; password: string }) => {
+        const ctx = ctxFor(db);
+        db.meta.customData.set('KPXC_BROWSER_FF', { value: 'good' });
+        await Svc.handleRequest('set-login', { url, ...fields }, ctx);
+        return await Svc.handleRequest('get-logins', { url, keys: [{ id: 'FF', key: 'good' }] }, ctx);
+    };
+
+    it('hands back the reference as text rather than the entry it points at', async () => {
+        const db = await bankDb();
+        const { entries } = await plant(db, 'https://evil.example',
+            { login: 'user', password: '{REF:P@T:Bank}' });
+        expect(entries[0].password).toBe('{REF:P@T:Bank}');
+    });
+
+    it('closes the username channel too', async () => {
+        const db = await bankDb();
+        const { entries } = await plant(db, 'https://evil.example',
+            { login: '{REF:P@T:Bank}', password: 'x' });
+        expect(entries[0].login).toBe('{REF:P@T:Bank}');
+    });
+
+    // An update reaches the fields of an entry the browser already reads, so
+    // the prize there is the one thing the protocol withholds: get-logins
+    // hands out a generated code, never the seed behind it
+    it('does not let an update read the entry own custom fields', async () => {
+        const db = await bankDb();
+        const ctx = ctxFor(db);
+        db.meta.customData.set('KPXC_BROWSER_FF', { value: 'good' });
+        const bank = db.getDefaultGroup().entries[0];
+        bank.fields.set('URL', 'https://bank.example');
+        const { entries } = await Svc.handleRequest('get-logins', {
+            url: 'https://bank.example', keys: [{ id: 'FF', key: 'good' }],
+        }, ctx);
+        await Svc.handleRequest('set-login', {
+            url: 'https://bank.example', login: 'alice', password: '{S:otp}', uuid: entries[0].uuid,
+        }, ctx);
+        const after = await Svc.handleRequest('get-logins', {
+            url: 'https://bank.example', keys: [{ id: 'FF', key: 'good' }],
+        }, ctx);
+        expect(after.entries[0].password).toBe('{S:otp}');
+    });
+
+    // The title comes from hostOf, which hands the URL back as it was given
+    // when it does not parse, so it is page-chosen text as well
+    it('does not let an unparseable url carry a reference into the title', async () => {
+        const db = await bankDb();
+        const ctx = ctxFor(db);
+        await Svc.handleRequest('set-login', {
+            url: '{REF:P@T:Bank}', login: 'u', password: 'p',
+        }, ctx);
+        // hostOf lowercases what it hands back, and the reference syntax is
+        // case insensitive, so the escape has to be too
+        const group = db.getDefaultGroup().groups.find(g => g.name === 'Browser Passwords')!;
+        expect(group.entries[0].fields.get('Title')).toBe('{{}ref:p@t:bank}');
+    });
+
+    // Vigil's own generator has braces in its character set, so escaping
+    // every one of them would mangle passwords the extension legitimately saves
+    it('stores an ordinary password containing braces unchanged', async () => {
+        const db = await bankDb();
+        const { entries } = await plant(db, 'https://ok.example',
+            { login: 'user', password: 'aB3{ss}[x]!' });
+        expect(entries[0].password).toBe('aB3{ss}[x]!');
+        const group = db.getDefaultGroup().groups.find(g => g.name === 'Browser Passwords')!;
+        expect((group.entries[0].fields.get('Password') as kdbxweb.ProtectedValue).getText())
+            .toBe('aB3{ss}[x]!');
+    });
+});
+
 // HOTP counters are state: a code costs one, so get-logins (every page
 // load) leaves them alone and get-totp (user-triggered) advances and saves
 describe('hotp', () => {

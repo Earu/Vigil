@@ -120,6 +120,14 @@ function searchMatches(view: RefEntryView, searchIn: string, text: string): bool
     return view.field(searchIn as FieldCode).toLowerCase().includes(needle);
 }
 
+// Whether a token's inner text is one this resolver acts on. The three
+// branches of resolveToken below read it in the same order, so a token shape
+// can never be resolvable to one and inert to the other
+function isResolvableToken(inner: string): boolean {
+    const upper = inner.toUpperCase();
+    return !!LOCAL_PLACEHOLDERS[upper] || upper.startsWith('S:') || REF_PATTERN.test(inner);
+}
+
 function resolveToken(token: string, source: RefSource, depth: number, budget: Budget): string | undefined {
     if (budget.left <= 0) return undefined;
     budget.left--;
@@ -196,6 +204,48 @@ function resolveIn(text: string, source: RefSource, depth: number, budget: Budge
     return result;
 }
 
+// Brace-escapes every token resolveIn would act on, leaving the rest of the
+// text alone. `{REF:P@T:Bank}` becomes `{{}REF:P@T:Bank}`, which resolves
+// back to the literal characters rather than to another entry's field, so the
+// value reads and copies as exactly what was written and points at nothing.
+//
+// Scans the way resolveIn does, escapes included, so text that already
+// carries an escape is left as it is rather than escaped twice. Only tokens
+// isResolvableToken recognises are touched: a password that merely contains
+// braces is stored unchanged, which matters because Vigil's own generator
+// puts them in the character set
+function escapeResolvable(text: string): string {
+    if (!text.includes('{')) return text;
+
+    let result = '';
+    let i = 0;
+    while (i < text.length) {
+        const open = text.indexOf('{', i);
+        if (open === -1) {
+            result += text.slice(i);
+            break;
+        }
+        result += text.slice(i, open);
+
+        if (text.startsWith('{{}', open) || text.startsWith('{}}', open)) {
+            result += text.slice(open, open + 3);
+            i = open + 3;
+            continue;
+        }
+
+        const close = text.indexOf('}', open + 1);
+        if (close === -1) {
+            result += text.slice(open);
+            break;
+        }
+
+        const token = text.slice(open, close + 1);
+        result += isResolvableToken(token.slice(1, -1)) ? `{{}${token.slice(1)}` : token;
+        i = close + 1;
+    }
+    return result;
+}
+
 export class PlaceholderService {
     // The open vault's model root, registered by PasswordView for as long
     // as a vault is on screen. Display surfaces resolve through
@@ -218,6 +268,30 @@ export class PlaceholderService {
 
     static hasReference(text: string | undefined): boolean {
         return !!text && this.REF_TOKEN.test(text);
+    }
+
+    // For values written into the vault by something other than the user
+    // typing them: the browser extension's set-login, whose login and
+    // password are whatever the page put in the form.
+    //
+    // Stored raw, such a value is a read primitive rather than a credential.
+    // get-logins resolves an entry's fields before handing them over
+    // (BrowserIntegrationService.entryToLogin), so a page that has a login
+    // saved for its own domain with the password `{REF:P@T:Bank}` is handed
+    // the Bank entry's password the next time it asks, and both consent
+    // dialogs on the way there describe an ordinary save and an ordinary
+    // autofill for the site the user is actually on. `{S:...}` is the same
+    // shape on an update, reaching the entry's own custom fields: that one
+    // yields the raw TOTP seed where the protocol otherwise hands out a
+    // generated code.
+    //
+    // Escaping rather than refusing, because the write is not necessarily
+    // hostile and the user asked for it: the value is kept verbatim, and it
+    // reads, copies and autofills as the text the page sent. It simply
+    // resolves to nothing. References the user authors in the app are
+    // untouched, which is the case the feature exists for
+    static inert(text: string): string {
+        return escapeResolvable(text);
     }
 
     // A password that IS a single reference (the normal authored shape), for
