@@ -165,6 +165,56 @@ describe('writing into the database', () => {
         const { TotpService } = await import('../src/services/TotpService');
         expect(TotpService.getConfig(workGroup.entries[0].customFields)).not.toBeNull();
     });
+
+    // A custom field's name is whoever wrote the export's to choose, and one
+    // named like a standard field used to be written straight over it: the
+    // entry's real password was replaced by the custom value, and stored as
+    // a plain string where a ProtectedValue had been
+    it('keeps a custom field named like a standard one from taking its place', async () => {
+        const db0 = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db0.setVersion(3);
+        const kdbxDb = await kdbxweb.Kdbx.load(await db0.save(), cred());
+
+        const result = await ImportService.parseFile(fileOf('export.json', JSON.stringify({
+            items: [{
+                type: 1, name: 'Bank',
+                login: { username: 'me', password: 'realsecret', uris: [{ uri: 'https://bank.example' }] },
+                fields: [
+                    { name: 'Password', value: 'not the password', type: 0 },
+                    { name: 'Title', value: 'not the title', type: 0 },
+                    { name: 'otp', value: 'not a code', type: 0 },
+                    { name: 'KPEX_PASSKEY_PRIVATE_KEY_PEM', value: 'not a passkey', type: 0 },
+                    // Two of the same name: the second used to replace the first
+                    { name: 'Note', value: 'first', type: 0 },
+                    { name: 'Note', value: 'second', type: 0 },
+                ],
+            }],
+        })));
+        await ImportService.importToDatabase(result, kdbxDb);
+
+        const reloaded = await loadSaved(env);
+        const entry = reloaded.getDefaultGroup().groups.find(g => g.name === 'Imported (Bitwarden)')!.entries[0];
+
+        const password = entry.fields.get('Password');
+        expect(password).toBeInstanceOf(kdbxweb.ProtectedValue);
+        expect((password as kdbxweb.ProtectedValue).getText()).toBe('realsecret');
+        expect(entry.fields.get('Title')).toBe('Bank');
+        expect(entry.fields.get('otp')).toBeUndefined();
+        expect(entry.fields.get('KPEX_PASSKEY_PRIVATE_KEY_PEM')).toBeUndefined();
+
+        // Renamed out of the way, and protected because they were named
+        // after fields of ours
+        for (const [key, text] of [['Password_2', 'not the password'], ['Title_2', 'not the title'],
+            ['otp_2', 'not a code'], ['KPEX_PASSKEY_PRIVATE_KEY_PEM_2', 'not a passkey']] as const) {
+            const value = entry.fields.get(key);
+            expect(value).toBeInstanceOf(kdbxweb.ProtectedValue);
+            expect((value as kdbxweb.ProtectedValue).getText()).toBe(text);
+        }
+
+        // A name that collides with nothing of ours keeps its own protection
+        expect(entry.fields.get('Note')).toBe('first');
+        expect(entry.fields.get('Note_2')).toBe('second');
+    });
 });
 
 describe('hotp import', () => {

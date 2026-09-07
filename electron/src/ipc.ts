@@ -342,17 +342,17 @@ export function setupIpcHandlers(): void {
 
     // What the UI shows for a key attachment: type and fingerprint, and
     // whether the entry password opens it
-    handle('ssh-agent-inspect-key', (_, data: unknown, passphrase?: unknown) => {
+    handle('ssh-agent-inspect-key', async (_, data: unknown, passphrase?: unknown) => {
         try {
             const bytes = keyBytes(data);
             const secret = typeof passphrase === 'string' ? passphrase : '';
             try {
-                const key = parsePrivateKey(bytes, secret);
+                const key = await parsePrivateKey(bytes, secret);
                 key.privateParts.fill(0);
                 return { success: true as const, type: key.type, fingerprint: key.fingerprint, comment: key.comment, encrypted: key.encrypted };
             } catch (error) {
                 if (!(error instanceof SshKeyError) || error.code !== 'passphrase') throw error;
-                const info = readPublicInfo(bytes);
+                const info = await readPublicInfo(bytes);
                 return { success: true as const, ...info, passphraseError: error.message };
             }
         } catch (error) {
@@ -365,7 +365,7 @@ export function setupIpcHandlers(): void {
             const bytes = keyBytes(data);
             const opts = (options && typeof options === 'object' ? options : {}) as Record<string, unknown>;
             const lifetime = Number(opts.lifetimeSeconds);
-            const key = parsePrivateKey(bytes, typeof passphrase === 'string' ? passphrase : '');
+            const key = await parsePrivateKey(bytes, typeof passphrase === 'string' ? passphrase : '');
             try {
                 await addKeyForWindow(BrowserWindow.fromWebContents(event.sender), key, {
                     // The key's own comment wins; the entry's is the fallback for keys
@@ -385,7 +385,7 @@ export function setupIpcHandlers(): void {
 
     handle('ssh-agent-remove-key', async (event, data: unknown, passphrase?: unknown) => {
         try {
-            const blob = publicBlobOf(keyBytes(data), typeof passphrase === 'string' ? passphrase : '');
+            const blob = await publicBlobOf(keyBytes(data), typeof passphrase === 'string' ? passphrase : '');
             const removed = await removeIdentity(blob);
             const senderWindow = BrowserWindow.fromWebContents(event.sender);
             forgetKeyForWindow(senderWindow?.id ?? null, fingerprintOf(blob));
