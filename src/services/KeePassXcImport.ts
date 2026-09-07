@@ -23,6 +23,12 @@ const STANDARD = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
 function parseDocument(text: string): Document | null {
     if (typeof DOMParser === 'undefined') return null;
     try {
+        // codeql[js/xss-through-dom]: parseFromString is modelled as an HTML
+        // sink whatever the type argument says. This is application/xml, and
+        // the caller reads text and attributes out and drops the document.
+        // Verified in Chromium: parsing runs no script, an external entity
+        // resolves to nothing, an entity bomb is refused. Adopting these
+        // nodes into a live document would run the script; nothing does
         const doc = new DOMParser().parseFromString(text, 'application/xml');
         return doc.getElementsByTagName('parsererror').length > 0 ? null : doc;
     } catch {
