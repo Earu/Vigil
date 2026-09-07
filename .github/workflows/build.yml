@@ -34,6 +34,31 @@ jobs:
       # round trip left once the npm cache hits
       run: npm ci --no-audit --no-fund
 
+    # Electron ships no postinstall script, so npm ci never fetches the
+    # binary: node_modules/electron/index.js downloads it on the first
+    # require, which is inside the test run. That put a hundred megabytes from
+    # the GitHub release CDN in the middle of npm test, and a 504 from it read
+    # as a failing suite. The cache is @electron/get's own, which setup-node's
+    # npm cache does not cover
+    - name: Cache the Electron binary
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/electron
+        key: electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('package-lock.json') }}
+
+    # Requiring the module is what triggers the download. Done here so a CDN
+    # failure is a failing download step that can be retried on its own,
+    # rather than a test file that reports as broken
+    - name: Fetch the Electron binary
+      run: |
+        for attempt in 1 2 3; do
+          if node -e "require('electron')"; then exit 0; fi
+          echo "Electron download failed (attempt $attempt)"
+          if [ "$attempt" -lt 3 ]; then sleep $((attempt * 15)); fi
+        done
+        echo "Electron binary could not be downloaded after 3 attempts"
+        exit 1
+
     - name: Run tests
       run: npm test
 
