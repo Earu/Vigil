@@ -460,7 +460,7 @@ export const PasswordForm = ({
 
             // Seed the new database with imported passwords if any
             if (browserPasswords && browserPasswords.entries.length > 0) {
-                ImportService.writeEntries(browserPasswords, db);
+                await ImportService.writeEntries(browserPasswords, db);
                 setBrowserPasswords?.(undefined);
             }
 

@@ -329,3 +329,34 @@ describe('Steam Guard', () => {
         expect(TotpService.parseUserInput('steam://')).toBeNull();
     });
 });
+
+// The KeeOtp plugin's storage format, which KeePassXC reads, writes into an
+// `otp` field and puts in the TOTP column of a CSV export. It has no scheme
+// to recognise it by, so it used to fail the bare-secret check and vanish
+describe('KeeOtp storage format', () => {
+    it('reads key, size, step and the hash mode', () => {
+        expect(TotpService.parseUserInput(`key=${SHA1_SECRET}&size=8&step=60&otpHashMode=Sha256`))
+            .toEqual({ type: 'totp', secret: SHA1_SECRET, digits: 8, period: 60, algorithm: 'SHA-256' });
+        // the defaults when it names only a key
+        expect(TotpService.parseUserInput(`key=${SHA1_SECRET}`))
+            .toMatchObject({ digits: 6, period: 30, algorithm: 'SHA-1' });
+    });
+
+    it('is read the same way out of an entry field', () => {
+        expect(TotpService.getConfig([field('otp', `key=${SHA1_SECRET}&size=6&step=30`)]))
+            .toMatchObject({ type: 'totp', secret: SHA1_SECRET, digits: 6 });
+    });
+
+    // KeePassXC's other two CSV spellings are "[step];[digits]" and
+    // "[step];[encoder]", and neither carries the secret: the export drops it,
+    // so there is nothing to import and nothing to invent
+    it('refuses the semicolon forms, which hold no secret', () => {
+        expect(TotpService.parseUserInput('30;6')).toBeNull();
+        expect(TotpService.parseUserInput('30;S')).toBeNull();
+    });
+
+    it('is not confused by a bare secret or a URI', () => {
+        expect(TotpService.parseUserInput(SHA1_SECRET)).toMatchObject({ digits: 6 });
+        expect(TotpService.parseUserInput(`otpauth://totp/x?secret=${SHA1_SECRET}`)).toMatchObject({ digits: 6 });
+    });
+});
