@@ -143,6 +143,41 @@ describe('1Password .1pux', () => {
     });
 });
 
+// A `time` is whatever the file says. Finite is not the same as
+// representable, and an Invalid Date on an entry makes every later save of
+// the database throw, so a poisoned import would take the open vault with it
+describe('1Password unrepresentable timestamps', () => {
+    const revision = (time: unknown) => ({
+        uuid: 'x', title: 'Site', location: 'https://x.test',
+        secureContents: {
+            fields: [{ designation: 'username', value: 'u' }, { designation: 'password', value: 'now' }],
+            passwordHistory: [{ value: 'old', time }],
+        },
+    });
+
+    it('drops a 1pif revision time past the range a Date can hold', async () => {
+        const file = new File([JSON.stringify(revision(1e15))], 'data.1pif');
+        const result = await ImportService.parseFile(file);
+        expect(result.entries[0].passwordHistory).toEqual([{ password: 'old', changed: undefined }]);
+    });
+
+    it('leaves the database saveable', async () => {
+        const file = new File([JSON.stringify(revision(1e15))], 'data.1pif');
+        const result = await ImportService.parseFile(file);
+        const db = kdbxweb.Kdbx.create(cred(), 'Vault');
+        db.setVersion(3);
+        await ImportService.writeEntries(result, db);
+        const bytes = await db.save();
+        expect(bytes.byteLength).toBeGreaterThan(0);
+    });
+
+    it('keeps a time it can represent', async () => {
+        const file = new File([JSON.stringify(revision(1700000000))], 'data.1pif');
+        const result = await ImportService.parseFile(file);
+        expect(result.entries[0].passwordHistory?.[0].changed?.toISOString()).toBe('2023-11-14T22:13:20.000Z');
+    });
+});
+
 describe('1Password .1pif', () => {
     const lines = [
         JSON.stringify({

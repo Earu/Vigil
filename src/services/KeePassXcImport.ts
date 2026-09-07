@@ -85,9 +85,12 @@ function readTime(raw: string): Date | undefined {
         if (bytes.length < 8) return undefined;
         let seconds = 0n;
         for (let i = 7; i >= 0; i--) seconds = (seconds << 8n) | BigInt(bytes[i]);
-        // 0001-01-01T00:00:00Z to the unix epoch
-        const epoch = Number(seconds) * 1000 - 62135596800000;
-        return Number.isFinite(epoch) ? new Date(epoch) : undefined;
+        // 0001-01-01T00:00:00Z to the unix epoch. Finite is not the same as
+        // representable: an int64 near its ceiling gives a finite count of
+        // milliseconds that is still past the range a Date can hold, and an
+        // Invalid Date on an entry makes the database refuse to serialize
+        const at = new Date(Number(seconds) * 1000 - 62135596800000);
+        return Number.isNaN(at.getTime()) ? undefined : at;
     } catch {
         return undefined;
     }

@@ -645,17 +645,31 @@ export class ImportService {
                 if (!entry.tags.includes('Passkey')) entry.tags = [...entry.tags, 'Passkey'];
             }
 
+            // Before the SSH key below, so a key file cannot be displaced by
+            // a document that happens to share its name.
+            //
+            // One attachment name acts on its own: SshAgentService reads
+            // KeeAgent.settings on unlock and loads the key it points at into
+            // the agent. Carried across verbatim, a file could name a key it
+            // brought with it and have it enrolled at the next unlock without
+            // anyone asking. The record is kept, so an entry configured in
+            // KeePassXC arrives configured, with that one flag cleared. A
+            // record too malformed to parse is inert and goes through as bytes
+            for (const attachment of imported.attachments ?? []) {
+                const settings = attachment.name === KEEAGENT_SETTINGS_ATTACHMENT
+                    ? SshAgentService.parseSettings(attachment.data)
+                    : null;
+                const data = settings
+                    ? this.utf8Buffer(SshAgentService.serializeSettings({ ...settings, addAtDatabaseOpen: false }))
+                    : this.toBuffer(attachment.data);
+                entry.binaries.set(attachment.name, await kdbxDb.createBinary(data));
+            }
+
             // The key file as an attachment plus the KeeAgent record naming
             // it, which is how Vigil and KeePassXC both find it. Bitwarden
             // stores the key unencrypted, so the entry password stays empty
-            // and that is the passphrase. addAtDatabaseOpen is left off: an
-            // import must not quietly start pushing keys into the agent
-            // Before the SSH key, so a key file cannot be displaced by a
-            // document that happens to share its name
-            for (const attachment of imported.attachments ?? []) {
-                entry.binaries.set(attachment.name, await kdbxDb.createBinary(this.toBuffer(attachment.data)));
-            }
-
+            // and that is the passphrase. addAtDatabaseOpen is left off for
+            // the reason above
             if (imported.sshKey) {
                 const { fileName, privateKey, publicKey } = imported.sshKey;
                 entry.binaries.set(fileName, await kdbxDb.createBinary(this.utf8Buffer(privateKey)));
@@ -698,7 +712,12 @@ export class ImportService {
             // is the closest the two models come to each other
             for (const revision of imported.passwordHistory ?? []) {
                 entry.fields.set('Password', kdbxweb.ProtectedValue.fromString(revision.password));
-                if (revision.changed) entry.times.lastModTime = revision.changed;
+                // The importers reject a timestamp they cannot represent, and
+                // this is the invariant they are protecting: an Invalid Date
+                // on an entry makes every later save of this database throw
+                if (revision.changed && !Number.isNaN(revision.changed.getTime())) {
+                    entry.times.lastModTime = revision.changed;
+                }
                 entry.pushHistory();
             }
             if (imported.passwordHistory?.length) {
