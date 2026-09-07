@@ -24,7 +24,14 @@ export async function fetchFavicon(host: unknown): Promise<FaviconResult> {
     try {
         const response = await net.fetch(
             `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=32`,
-            { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'follow' }
+            // No cookies, in either direction. net.fetch takes part in the
+            // session's cookie jar by default, and a Set-Cookie it accepts is
+            // stored persistently (measured: session=false, so it outlives the
+            // process). This endpoint is unauthenticated and needs none, and
+            // without this it hands whoever answers a stable identifier to
+            // attach to every domain the vault asks about, session after
+            // session. See app-main.ts for the sweep that covers what slips
+            { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'follow', credentials: 'omit' }
         );
         if (!response.ok) {
             return { success: false, error: `No favicon (status ${response.status})` };

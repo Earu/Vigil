@@ -61,6 +61,11 @@ export async function checkEmailBreaches(email: string): Promise<any[]> {
             // redirect named. The v3 API never redirects; a redirect is a
             // failed lookup
             redirect: 'error',
+            // The key is a header, so this takes nothing away from the
+            // request: what it drops is the session cookie jar, which
+            // net.fetch otherwise reads and writes persistently. Nothing here
+            // authenticates by cookie (see favicon.ts)
+            credentials: 'omit',
             signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
         }
     );

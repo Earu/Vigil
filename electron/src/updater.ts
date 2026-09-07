@@ -83,7 +83,9 @@ function shortError(err: unknown): string {
 const MAX_ASSET_BYTES = 1024 * 1024;
 
 async function fetchReleaseAsset(url: string): Promise<Uint8Array> {
-    const response = await net.fetch(url, { signal: AbortSignal.timeout(30_000), redirect: 'follow' });
+    // Release assets are public, so the cookie jar net.fetch would otherwise
+    // read and write buys nothing and leaves a correlator behind (favicon.ts)
+    const response = await net.fetch(url, { signal: AbortSignal.timeout(30_000), redirect: 'follow', credentials: 'omit' });
     if (!response.ok) {
         throw new Error(`HTTP ${response.status} fetching ${url}`);
     }

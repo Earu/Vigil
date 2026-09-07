@@ -119,6 +119,17 @@ app.whenReady().then(() => {
         return allowedPermissions.has(permission);
     });
 
+    // Nothing this app does authenticates by cookie. The three main-process
+    // fetches (favicon, HIBP, update metadata) each pass credentials: 'omit',
+    // and the renderer reaches the network not at all, so an empty jar costs
+    // nothing. This is the backstop under those three: net.fetch stores a
+    // Set-Cookie persistently by default, so one call site added later
+    // without the option would otherwise let a third party keep a handle on
+    // this install indefinitely. Cleared at every start, which also drops
+    // whatever a version before this collected
+    session.defaultSession.clearStorageData({ storages: ['cookies'] })
+        .catch(error => console.error('Failed to clear stored cookies:', error));
+
     // Before the first window, so no window is ever briefly reachable from a
     // default menu that still has DevTools on it
     applyApplicationMenu();
