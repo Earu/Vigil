@@ -81,6 +81,28 @@ describe('main process trust boundary', () => {
             .toEqual(['https://api.pwnedpasswords.com', 'https://haveibeenpwned.com']);
     });
 
+    // net.fetch joins the session cookie jar unless told otherwise, and a
+    // Set-Cookie it accepts is stored persistently. None of these endpoints
+    // authenticates by cookie, so carrying one only lets the other end
+    // recognise this install on every later request
+    it('every main-process fetch opts out of the cookie jar', () => {
+        const callers = electronSources.filter(file => read(file).includes('net.fetch('));
+        expect(callers.sort()).toEqual([
+            'electron/src/favicon.ts',
+            'electron/src/hibp.ts',
+            'electron/src/updater.ts',
+        ]);
+        for (const file of callers) {
+            const source = read(file);
+            // One call per file today; the count check is what fails if a
+            // second one is added beside it without the option
+            expect(source.match(/net\.fetch\(/g), file).toHaveLength(1);
+            expect(source, file).toMatch(/credentials:\s*'omit'/);
+        }
+        // And the backstop that empties the jar whatever the call sites do
+        expect(read('electron/app-main.ts')).toMatch(/clearStorageData\(\{\s*storages:\s*\['cookies'\]\s*\}\)/);
+    });
+
     it('the packaged renderer loads from the app scheme, never from file:', () => {
         const window = read('electron/src/window.ts');
         expect(window).not.toMatch(/loadFile\(/);
