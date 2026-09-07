@@ -25,6 +25,14 @@ const REPO_URL = 'https://github.com/Earu/Vigil';
 const ISSUES_URL = `${REPO_URL}/issues`;
 const RELEASES_URL = `${REPO_URL}/releases`;
 
+// What each platform's biometric check is called where the user can see it
+const BIOMETRIC_METHOD_NAMES: Record<string, string> = {
+    'windows-hello': 'Windows Hello',
+    'touch-id': 'Touch ID',
+    'face-id': 'Face ID',
+    'optic-id': 'Optic ID',
+};
+
 const openLink = (url: string) => {
     if (window.electron) window.electron.openExternal(url).catch(() => {});
     else window.open(url, '_blank', 'noopener');
@@ -93,6 +101,10 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [contentProtection, setContentProtection] = useState<{ supported: boolean; enabled: boolean } | null>(null);
     // null until loaded, so the toggle never flashes a wrong default
     const [biometricsRestartLock, setBiometricsRestartLock] = useState<boolean | null>(null);
+    // What the platform calls its biometric check, and null when this machine
+    // (or this build) has no biometric unlock at all, which is what hides the
+    // setting rather than a guess from the user agent
+    const [biometricsMethod, setBiometricsMethod] = useState<string | null>(null);
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
     // the database
@@ -131,6 +143,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         window.electron.sshAgentStatus?.().then(setSshAgent).catch(() => {});
         window.electron.getBiometricsConfig?.()
             .then(config => setBiometricsRestartLock(config.requirePasswordAfterRestart))
+            .catch(() => {});
+        window.electron.getBiometricsInfo()
+            .then(info => setBiometricsMethod(info.available ? BIOMETRIC_METHOD_NAMES[info.biometryType] ?? 'Biometric' : null))
             .catch(() => {});
         const refreshAssociations = () =>
             setBrowserAssociations(kdbxDb ? BrowserIntegrationService.listAssociations(kdbxDb) : []);
@@ -182,7 +197,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
 
     const handleBiometricsRestartLockToggle = async (enabled: boolean) => {
         if (!window.electron) return;
-        // Optimistic; turning the lock OFF may show one Hello prompt per
+        // Optimistic; turning the lock OFF may show one biometric prompt per
         // armed vault, the consent to write its password back to disk
         setBiometricsRestartLock(enabled);
         const result = await window.electron.setBiometricsConfig({ requirePasswordAfterRestart: enabled });
@@ -896,10 +911,10 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                 </div>
                             )}
                         </div>
-                        {navigator.userAgent.includes('Windows') && biometricsRestartLock !== null && (
+                        {biometricsMethod && biometricsRestartLock !== null && (
                             <div className="content-protection-controls">
                                 <div className="auto-lock-toggle">
-                                    <label htmlFor="biometrics-restart-lock">Require master password after restart</label>
+                                    <label htmlFor="biometrics-restart-lock">Require master password each time Vigil starts</label>
                                     <input
                                         type="checkbox"
                                         id="biometrics-restart-lock"
@@ -908,10 +923,9 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     />
                                 </div>
                                 <p className="auto-lock-help">
-                                    Windows Hello unlock then works only until Vigil quits: nothing that can
-                                    release the master password is written to disk, so a fake Hello prompt
-                                    from another program cannot phish it. After a restart, type the master
-                                    password once and Hello unlock re-arms for the session.
+                                    Type your master password once each time you open Vigil. {biometricsMethod} then
+                                    unlocks it until you quit. Turning this off lets {biometricsMethod} work right
+                                    away, but Vigil has to keep an unlock key stored on this computer for that.
                                 </p>
                             </div>
                         )}

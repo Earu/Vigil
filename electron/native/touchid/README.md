@@ -9,8 +9,8 @@ KeePassXC's `src/quickunlock/TouchID.mm`.
 
 Needs a build signed with entitlements authorized by a provisioning profile
 (Apple TN3137). Unsigned builds get `errSecMissingEntitlement` (-34018) and
-fall back to the prompt-only scheme; that covers forks, PRs and
-`npm run electron:dev`. A certificate without a profile does not work: the
+get no biometric unlock at all rather than a weaker one; that covers forks,
+PRs and `npm run electron:dev`. A certificate without a profile does not work: the
 process is SIGKILLed at launch. `LARightStore` is backed by the same keychain
 and fails the same way.
 
@@ -86,13 +86,29 @@ on without it and says so.
 
 ## Storage
 
-`biometrics.ts` seals the password as a `v3:` blob in keytar (base64 of IV, GCM
-tag, ciphertext) under `HKDF-SHA256(key, "vigil-biometric-v3")`. Legacy blobs
-upgrade to `v3:` on first successful unlock.
+`biometrics.ts` seals the password under `HKDF-SHA256(key, <scope>)` as base64
+of IV, GCM tag and ciphertext. Which scope depends on "require master password
+after restart", which defaults on:
+
+- On (`mac-session:`): the blob is held in this process's memory and keytar
+  gets only the marker `v3-session:`. The wrapping key is regenerated at every
+  arming. Opening it costs both a read of the process's memory, which the
+  hardened runtime refuses, and a Touch ID check; a restart takes the blob
+  away entirely. Same scope as the Windows Hello session mode, and the same
+  model as KeePassXC's quick unlock.
+- Off (`v3:`): the blob is written to keytar and survives restarts. One
+  habituated Touch ID (or device passcode) dialog opens it, at any time, with
+  Vigil not running.
+
+A blob is never read under the other scope's rules: the prefixes differ and so
+does the HKDF info, so the same keychain item derives unrelated keys for the
+two. A blob in any format older than these is discarded and the user
+re-enables; there is no compatibility reader.
 
 `BiometryCurrentSet` means macOS destroys the item when enrolled fingerprints
-change. That arrives as `not-found`; the app drops the blob and asks the user
-to enable unlock again.
+change. That arrives as `not-found`. A persistent blob is dropped and the user
+enables unlock again; a session copy is dropped too, but the vault stays
+enrolled, since the next master-password unlock re-arms it under a fresh key.
 
 ## Signing
 
