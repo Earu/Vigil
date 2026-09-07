@@ -35,6 +35,11 @@ interface PasswordFormProps {
     setBrowserPasswords?: (passwords: ImportResult | undefined) => void;
 }
 
+// What this platform calls its biometric check, in the user's words
+const BIOMETRIC_METHOD_NAME = navigator.userAgent.includes('Mac')
+    ? 'Touch ID'
+    : navigator.userAgent.includes('Windows') ? 'Windows Hello' : 'Biometrics';
+
 export const PasswordForm = ({
     selectedFile,
     isCreatingNew,
@@ -413,8 +418,22 @@ export const PasswordForm = ({
             // declining it just leaves the vault unarmed until next time
             if (isBiometricsEnabled && !biometricsArmed && databasePath && window.electron) {
                 void window.electron.enableBiometrics(databasePath, password)
-                    .then(result => { if (result.success) setBiometricsArmed(true); })
-                    .catch(() => {});
+                    .then(result => {
+                        if (result.success) {
+                            setBiometricsArmed(true);
+                            return;
+                        }
+                        // Swallowing this made a vault that failed to arm look
+                        // identical to one that armed fine, until the next
+                        // biometric attempt failed with no reason given
+                        console.error('Failed to arm biometric unlock:', result.error);
+                        (window as any).showToast?.({
+                            message: result.error || 'Could not turn biometric unlock back on',
+                            type: 'error',
+                            duration: 5000
+                        });
+                    })
+                    .catch(err => console.error('Failed to arm biometric unlock:', err));
             }
 
             // Start breach checking in the background
@@ -622,16 +641,36 @@ export const PasswordForm = ({
                                 if (!isBiometricsEnabled) {
                                     setShowPasswordInput(true);
                                     handleBiometricsToggle();
-                                } else {
-                                    setShowPasswordInput(false);
-                                    handleBiometricUnlock();
+                                    return;
                                 }
+                                // Enrolled but not armed: this run of Vigil holds
+                                // no sealed copy for the biometric check to
+                                // release, so an attempt could only fail and
+                                // re-show the same notice. The typed master
+                                // password is exactly what unlocks and arms it,
+                                // so spend it rather than sending the user
+                                // through a prompt that cannot succeed
+                                if (!biometricsArmed) {
+                                    setShowPasswordInput(true);
+                                    if (password) void handleUnlock();
+                                    else passwordInputRef.current?.focus();
+                                    return;
+                                }
+                                setShowPasswordInput(false);
+                                handleBiometricUnlock();
                             }}
                         >
                             <BiometricAuthIcon className="auth-icon" />
-                            {navigator.userAgent.includes('Mac') ? 'Touch ID' : (navigator.userAgent.includes('Windows') ? 'Windows Hello' : 'Biometrics')}
+                            {BIOMETRIC_METHOD_NAME}
                         </button>
                     </div>
+
+                    {isBiometricsEnabled && !biometricsArmed && (
+                        <p className="biometric-weak-notice">
+                            {BIOMETRIC_METHOD_NAME} needs your master password once each time Vigil
+                            starts.
+                        </p>
+                    )}
 
                     {isBiometricsEnabled && !showPasswordInput && (
                         <button
@@ -640,7 +679,7 @@ export const PasswordForm = ({
                             disabled={isLoading}
                         >
                             <BiometricAuthIcon className="biometric-icon" />
-                            {navigator.userAgent.includes('Mac') ? 'Unlock with Touch ID' : (navigator.userAgent.includes('Windows') ? 'Unlock with Windows Hello' : 'Unlock with Biometrics')}
+                            Unlock with {BIOMETRIC_METHOD_NAME}
                         </button>
                     )}
 
@@ -650,7 +689,7 @@ export const PasswordForm = ({
                             onClick={handleBiometricsToggle}
                             disabled={isLoading}
                         >
-                            Forget {navigator.userAgent.includes('Mac') ? 'Touch ID' : (navigator.userAgent.includes('Windows') ? 'Windows Hello' : 'biometrics')} for this database
+                            Forget {BIOMETRIC_METHOD_NAME} for this database
                         </button>
                     )}
                 </>

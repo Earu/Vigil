@@ -7,12 +7,24 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto'
 // (a sealed copy of a password the user knows), so "migration" for them is
 // a reset, not a compatibility reader that lives forever.
 //
-// v3 (macOS): the AES key is derived from a random 32-byte value that lives
-// in a biometry-gated keychain item, so releasing it costs a Touch ID (or
-// device passcode) check enforced by the OS. Nothing on disk derives the key.
-// Same envelope as v4 minus the challenge, because the wrapping key is
-// stored rather than reconstructed. (KeePassXC's TouchID quick unlock does the same
-// thing, with the sealed key held in memory instead of the keychain.)
+// v3 (macOS, "require master password after restart" off): the AES key is
+// derived from a random 32-byte value that lives in a biometry-gated keychain
+// item, so releasing it costs a Touch ID (or device passcode) check enforced
+// by the OS. Nothing on disk derives the key. Same envelope as v4 minus the
+// challenge, because the wrapping key is stored rather than reconstructed.
+//
+// mac-session (macOS, "require master password after restart", the default):
+// the v3 envelope held in process memory only, never written anywhere, under
+// a wrapping key generated fresh at every arming. Two independent barriers
+// instead of v3's one: reading the ciphertext takes a read of this process's
+// memory, which task_for_pid and DYLD_INSERT_LIBRARIES both refuse against a
+// hardened, notarized build carrying neither get-task-allow nor
+// disable-library-validation, and the ciphertext is then still sealed to a
+// keychain item no other code identity can ask for. What it closes that v3
+// does not is prompt phishing: v3's blob is on disk, so a habituated Touch ID
+// (or "macOS needs your password") dialog is enough on its own, at any time,
+// with Vigil not even running. A restart takes the ciphertext away entirely.
+// (KeePassXC's TouchID quick unlock is this model, session scope included.)
 //
 // session (Windows, "require master password after restart"): the same
 // envelope as v4, held in process memory only, never written anywhere. The
@@ -21,6 +33,8 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto'
 // memory (a debugger, a crash dump, swap) yields ciphertext and a challenge:
 // releasing the password still takes a live Hello signature, and a restart
 // takes even that away. This is KeePassXC's Windows Hello quick-unlock model.
+// The memory read is free on Windows, so session scope buys exposure duration
+// there; on macOS it is a denial as well.
 //
 // v4 (Windows): the AES key is HKDF of a Windows Hello signature over a
 // random challenge stored alongside the ciphertext, with a DPAPI-protected
@@ -38,6 +52,7 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'crypto'
 const V3_PREFIX = 'v3:';
 const V4_PREFIX = 'v4:';
 const SESSION_PREFIX = 'session:';
+const MAC_SESSION_PREFIX = 'mac-session:';
 const CHALLENGE_LENGTH = 32;
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
@@ -120,28 +135,47 @@ export function openPasswordSession(blob: string, key: Buffer): string {
     return openWithPrefix(SESSION_PREFIX, blob, key);
 }
 
-// v3: seal under a key that only a passed biometric check can produce.
-// The keychain value is run through HKDF rather than used directly, so the
-// AES key is domain separated from whatever else that secret might gate
-export function sealWithKeychainKey(password: string, keychainKey: Buffer): string {
-    const key = Buffer.from(hkdfSync('sha256', keychainKey, Buffer.alloc(0), 'vigil-biometric-v3', 32));
+// v3 and mac-session: seal under a key that only a passed biometric check can
+// produce. The keychain value is run through HKDF rather than used directly,
+// so the AES key is domain separated from whatever else that secret might
+// gate, and the two scopes derive different keys from the same item: a blob
+// cannot be moved between them, so a session copy that somehow reached disk
+// is unreadable rather than quietly persistent
+function sealKeychain(prefix: string, info: string, password: string, keychainKey: Buffer): string {
+    const key = Buffer.from(hkdfSync('sha256', keychainKey, Buffer.alloc(0), info, 32));
     const iv = randomBytes(IV_LENGTH);
     const cipher = createCipheriv('aes-256-gcm', key, iv);
     const encrypted = Buffer.concat([cipher.update(password, 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();
-    return V3_PREFIX + Buffer.concat([iv, tag, encrypted]).toString('base64');
+    return prefix + Buffer.concat([iv, tag, encrypted]).toString('base64');
 }
 
-export function openWithKeychainKey(blob: string, keychainKey: Buffer): string {
-    const data = Buffer.from(blob.slice(V3_PREFIX.length), 'base64');
+function openKeychain(prefix: string, info: string, blob: string, keychainKey: Buffer): string {
+    const data = Buffer.from(blob.slice(prefix.length), 'base64');
     if (data.length < IV_LENGTH + TAG_LENGTH) {
         throw new Error('Malformed biometric blob');
     }
-    const key = Buffer.from(hkdfSync('sha256', keychainKey, Buffer.alloc(0), 'vigil-biometric-v3', 32));
+    const key = Buffer.from(hkdfSync('sha256', keychainKey, Buffer.alloc(0), info, 32));
     const iv = data.subarray(0, IV_LENGTH);
     const tag = data.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH);
     const encrypted = data.subarray(IV_LENGTH + TAG_LENGTH);
     const decipher = createDecipheriv('aes-256-gcm', key, iv);
     decipher.setAuthTag(tag);
     return decipher.update(encrypted, undefined, 'utf8') + decipher.final('utf8');
+}
+
+export function sealWithKeychainKey(password: string, keychainKey: Buffer): string {
+    return sealKeychain(V3_PREFIX, 'vigil-biometric-v3', password, keychainKey);
+}
+
+export function openWithKeychainKey(blob: string, keychainKey: Buffer): string {
+    return openKeychain(V3_PREFIX, 'vigil-biometric-v3', blob, keychainKey);
+}
+
+export function sealSessionWithKeychainKey(password: string, keychainKey: Buffer): string {
+    return sealKeychain(MAC_SESSION_PREFIX, 'vigil-biometric-mac-session', password, keychainKey);
+}
+
+export function openSessionWithKeychainKey(blob: string, keychainKey: Buffer): string {
+    return openKeychain(MAC_SESSION_PREFIX, 'vigil-biometric-mac-session', blob, keychainKey);
 }

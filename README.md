@@ -29,7 +29,7 @@ A modern, secure password manager with a beautiful user interface, built using E
 | Entry expiry | Expiry dates with visual indicators for expired entries |
 | Recycle bin | Deleted entries and groups can be restored or purged |
 | Security report | Breached, reused, weak, exposed and expired credentials (HaveIBeenPwned) |
-| Biometrics | Windows Hello/biometric unlock, credentials in the system keychain |
+| Biometrics | Windows Hello and Touch ID unlock, session-scoped by default so nothing on disk releases the master password |
 | Strong crypto | Argon2 password hashing, Argon2id defaults for new databases |
 | Database settings | Master password change, KDF tuning, name, description, history retention |
 | Multiple vaults | Each database opens in its own window |
