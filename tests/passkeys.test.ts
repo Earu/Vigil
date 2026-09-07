@@ -210,6 +210,38 @@ describe('options a page can send that refuse to become strings', () => {
         expect(PasskeyService.passkeyEntries(db, rpId)[0].credentialId).toBe(again.response.id);
     });
 
+    // The consent dialog renders this value and store() writes it into a kdbx
+    // field, so a shape that is not a string crashes the renderer on its way
+    // to one and corrupts the entry on its way to the other
+    it('hands on a string user name whatever the page sent', async () => {
+        for (const name of [unstringable, { evil: 1 }, ['a', 'b'], 42, null, undefined, Symbol('x')]) {
+            const db = makeDb();
+            const res = await PasskeyService.register(db, creationOptions({ user: { id: userId, name } }), origin, undefined);
+            expect(res.response.errorCode).toBeUndefined();
+            expect(typeof res.username).toBe('string');
+            res.store!();
+            const entry = PasskeyService.passkeyEntries(db, rpId)[0];
+            expect(typeof entry.entry.fields.get('UserName')).toBe('string');
+            expect(typeof entry.entry.fields.get(PASSKEY_ATTRIBUTES.username)).toBe('string');
+        }
+    });
+
+    it('caps a user name the page made absurdly long', async () => {
+        const res = await PasskeyService.register(
+            makeDb(),
+            creationOptions({ user: { id: userId, name: 'a'.repeat(100_000) } }),
+            origin,
+            undefined
+        );
+        expect(res.response.errorCode).toBeUndefined();
+        expect(res.username!.length).toBe(128);
+    });
+
+    it('an absent user name is still empty, not the word "undefined"', async () => {
+        const res = await PasskeyService.register(makeDb(), creationOptions({ user: { id: userId } }), origin, undefined);
+        expect(res.username).toBe('');
+    });
+
     it('skips an excludeCredentials id that cannot be converted', async () => {
         const res = await PasskeyService.register(
             makeDb(),

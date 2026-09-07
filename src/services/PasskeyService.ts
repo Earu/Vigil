@@ -104,6 +104,19 @@ const challengeText = (value: unknown, minimumChars = 0): string | null => {
     return text;
 };
 
+// The account name the page supplies. It gates nothing, so a shape that will
+// not convert reads as the absent name it may as well be rather than failing
+// the ceremony. Coerced here because nothing downstream would refuse a
+// non-string: the consent dialog renders it, and the entry it is written into
+// holds strings. The cap bounds both, as MAX_CHALLENGE_CHARS bounds the value
+// that gets hashed and signed
+const MAX_USER_NAME_CHARS = 128;
+
+const userName = (value: unknown): string => {
+    if (value === undefined || value === null) return '';
+    return (safeString(value) ?? '').slice(0, MAX_USER_NAME_CHARS);
+};
+
 const hexToBytes = (hex: string): Uint8Array =>
     new Uint8Array(hex.match(/../g)!.map(b => parseInt(b, 16)));
 
@@ -506,7 +519,7 @@ export class PasskeyService {
         const authenticatorData = await buildAuthenticatorData(rpId);
         const clientDataJson = buildClientDataJson(challenge, origin, false);
 
-        const username = options.user?.name ?? '';
+        const username = userName(options.user?.name);
         const rpName = options.rp?.name ?? rpId;
         const userHandle = String(options.user?.id ?? '');
 

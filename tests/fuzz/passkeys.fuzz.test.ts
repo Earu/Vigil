@@ -22,7 +22,10 @@ const domain = fc.domain().map(d => d.toLowerCase());
 const nearlyValidOptions = fc.record({
     challenge: fc.oneof(fc.constant(challenge), anyText(), anyValue()),
     rp: fc.oneof(fc.record({ id: fc.oneof(domain, anyText()), name: anyText() }), anyValue()),
-    user: fc.oneof(fc.record({ id: fc.oneof(fc.constant(b64urlEncode(new Uint8Array([1, 2, 3]))), anyText()), name: anyText() }), anyValue()),
+    // name is display metadata rather than key material, so it reaches the
+    // consent dialog and the entry without a check of its own to stop it:
+    // the generator has to be able to send a shape, not only text
+    user: fc.oneof(fc.record({ id: fc.oneof(fc.constant(b64urlEncode(new Uint8Array([1, 2, 3]))), anyText()), name: fc.oneof(anyText(), anyValue()) }), anyValue()),
     pubKeyCredParams: fc.oneof(
         fc.array(fc.record({ type: fc.oneof(fc.constant('public-key'), anyText()), alg: fc.oneof(fc.constantFrom(-7, -8, -257), fc.integer()) })),
         anyValue(),
@@ -48,6 +51,11 @@ describe('passkey ceremonies under fuzz', () => {
                 expect(Object.values(PASSKEY_ERRORS)).toContain(result.response.errorCode);
             } else {
                 expect(typeof result.store).toBe('function');
+                // Every value the caller carries onward has to be a string:
+                // the consent dialog renders these and store() writes them
+                // into kdbx fields, neither of which refuses another shape
+                expect(typeof result.username).toBe('string');
+                expect(typeof result.rpId).toBe('string');
             }
         }), settings({ numRuns: Math.min(settings().numRuns!, 400) }));
     });
