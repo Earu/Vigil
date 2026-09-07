@@ -93,8 +93,46 @@ export async function probeVaultFolder(
     }
 }
 
+// The most a vault, or a file named like a copy of one, may be before this
+// refuses to read it whole.
+//
+// A vault normally sits in a folder a sync client writes to, which means the
+// set of things that can put a file next to it is larger than the set of
+// things that can run code here: a shared folder, or a sync account someone
+// else got into. Every path that follows a vault reads the file entirely
+// into the main process to hash or open it, and the watcher does that again
+// on every change, with a countdown per file name so several can be in
+// flight at once. Nothing on the way there looked at how big the file was.
+//
+// Far above any real vault (kdbx attachments are keys and recovery kits),
+// and low enough that a file planted to be read cannot take the process with
+// it. Not derived from the vault's own size: a legitimate copy can be
+// larger, and a bound that moves with the thing it is bounding is one an
+// attacker with write access to the folder also moves
+export const MAX_VAULT_BYTES = 512 * 1024 * 1024;
+
+export class VaultTooLargeError extends Error {
+    constructor(readonly size: number) {
+        super(`The file is ${Math.round(size / 1024 / 1024)} MB, larger than a vault this app will read`);
+        this.name = 'VaultTooLargeError';
+    }
+}
+
+// One handle for the size and the bytes, so what is measured is what is then
+// read rather than whatever the path names at each of two moments
+export async function readBoundedFile(filePath: string, maxBytes = MAX_VAULT_BYTES): Promise<Buffer> {
+    const handle = await fs.promises.open(filePath, 'r');
+    try {
+        const { size } = await handle.stat();
+        if (size > maxBytes) throw new VaultTooLargeError(size);
+        return await handle.readFile();
+    } finally {
+        await handle.close();
+    }
+}
+
 export function hashFile(filePath: string): Promise<string> {
-    return fs.promises.readFile(filePath)
+    return readBoundedFile(filePath)
         .then(data => crypto.createHash('sha256').update(data).digest('hex'));
 }
 

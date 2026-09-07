@@ -10,6 +10,10 @@ import {
     nominateConflictCopy,
     isNominatedConflictCopy,
     resetNominationsForTests,
+    readBoundedFile,
+    hashFile,
+    MAX_VAULT_BYTES,
+    VaultTooLargeError,
 } from '../electron/src/conflict-copies';
 
 // A sync client that cannot merge keeps both versions under a name of its
@@ -190,5 +194,53 @@ describe('whether the vault folder can be listed', () => {
         const enoent = async () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); };
         expect(await probeVaultFolder('/somewhere/vault.kdbx', { readdir: enoent, platform: 'darwin' }))
             .toMatchObject({ listable: false, reason: 'other', code: 'ENOENT' });
+    });
+});
+
+// A vault normally sits in a folder a sync client writes to, so the set of
+// things that can put a file beside it is larger than the set of things that
+// can run code here. Every path that follows a vault reads the file whole to
+// hash or open it, and the watcher does that again on every change, so the
+// size has to be looked at before the bytes are
+describe('the bound on what counts as a vault-sized file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-bound-'));
+    afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    it('reads a file within the bound', async () => {
+        const file = path.join(dir, 'small.kdbx');
+        fs.writeFileSync(file, 'hello');
+        expect((await readBoundedFile(file)).toString()).toBe('hello');
+    });
+
+    it('refuses one past it rather than allocating for it', async () => {
+        const file = path.join(dir, 'big.kdbx');
+        fs.writeFileSync(file, Buffer.alloc(2048));
+        await expect(readBoundedFile(file, 1024)).rejects.toBeInstanceOf(VaultTooLargeError);
+    });
+
+    it('hashes through the same bound', async () => {
+        const file = path.join(dir, 'huge.kdbx');
+        // Sparse, so the test does not write half a gigabyte to say so
+        const handle = fs.openSync(file, 'w');
+        fs.ftruncateSync(handle, MAX_VAULT_BYTES + 1);
+        fs.closeSync(handle);
+        expect(fs.statSync(file).size).toBe(MAX_VAULT_BYTES + 1);
+        await expect(hashFile(file)).rejects.toBeInstanceOf(VaultTooLargeError);
+    });
+
+    // scanConflictCopies skips a candidate it cannot read rather than failing
+    // the scan, so an oversized one beside the vault costs the others nothing
+    it('drops an oversized copy from a scan and keeps the rest', async () => {
+        const vaultDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-scan-'));
+        fs.writeFileSync(path.join(vaultDir, 'vault.kdbx'), 'v');
+        fs.writeFileSync(path.join(vaultDir, 'vault 2.kdbx'), 'ok');
+        const oversized = path.join(vaultDir, 'vault 3.kdbx');
+        const handle = fs.openSync(oversized, 'w');
+        fs.ftruncateSync(handle, MAX_VAULT_BYTES + 1);
+        fs.closeSync(handle);
+
+        const found = await scanConflictCopies(path.join(vaultDir, 'vault.kdbx'));
+        expect(found.map(c => path.basename(c.copyPath))).toEqual(['vault 2.kdbx']);
+        fs.rmSync(vaultDir, { recursive: true, force: true });
     });
 });

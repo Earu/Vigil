@@ -54,6 +54,12 @@ export function setupIpcHandlers(): void {
         return await revealLogs();
     });
 
+    // Anything a channel is going to wrap in new Uint8Array, which reads a
+    // number as a length: without this a bad argument allocated whatever it
+    // named in the main process rather than failing the call
+    const isBytes = (value: unknown): boolean =>
+        value instanceof ArrayBuffer || ArrayBuffer.isView(value);
+
     // Crypto handlers. Serialized: the per-call memory cap means nothing if
     // N concurrent invokes each allocate up to it; one at a time bounds the
     // KDF's footprint to a single allocation. The cost of that is that every
@@ -65,13 +71,8 @@ export function setupIpcHandlers(): void {
     // slow enough to make even that unreasonable
     const ARGON2_TIMEOUT_MS = 10 * 60 * 1000;
     let argon2Chain: Promise<unknown> = Promise.resolve();
-    // The buffers are checked for being buffers, like every other channel's
-    // arguments: hashPassword wraps them in new Uint8Array, and that reads a
-    // number as a length, so a bad argument allocated whatever it named in
-    // the main process rather than failing the call. The numbers are left to
+    // The buffers are checked for being buffers; the numbers are left to
     // checkArgon2Params in crypto.ts, which is where the header's bounds live
-    const isBytes = (value: unknown): boolean =>
-        value instanceof ArrayBuffer || ArrayBuffer.isView(value);
     handle('argon2', (event, password: ArrayBuffer, salt: ArrayBuffer, memory: number, iterations: number, length: number, parallelism: number, type: number, version: number) => {
         if (!isBytes(password) || !isBytes(salt)) {
             throw new Error('Invalid key derivation input');
@@ -102,6 +103,12 @@ export function setupIpcHandlers(): void {
     });
 
     handle('hardware-key-challenge', async (event, serial: number | null, slot: number, challenge: ArrayBuffer) => {
+        // Checked for the same reason the key derivation input above is: the
+        // wrap below reads a number as a length, so a bad argument allocated
+        // whatever it named here rather than failing the call
+        if (!isBytes(challenge)) {
+            return { success: false, error: 'Invalid challenge' };
+        }
         // 'hardware-key-touch' opens the renderer's touch prompt; the paired
         // 'hardware-key-touch-done' closes it however the challenge ends
         let touchSignaled = false;
