@@ -7,7 +7,7 @@ import { isDevBuild } from './utils';
 import { APP_INDEX_URL } from './app-protocol';
 import { trackGestures } from './gesture';
 import { watchVault, unwatchWindow, WatchDeps } from './vault-watcher';
-import { nominateConflictCopy, probeVaultFolder, resolveVaultFile } from './conflict-copies';
+import { forgetNominations, nominateConflictCopy, probeVaultFolder, resolveVaultFile } from './conflict-copies';
 import { grantPath } from './path-authority';
 import { releaseWindow } from './ssh-agent';
 
@@ -44,6 +44,9 @@ function removeWindow(win: BrowserWindow): void {
     // The file is followed for exactly as long as a vault is open in the
     // window (see vault-watcher.ts); a lock or a close ends that
     unwatchWindow(win);
+    // And so does the standing of the copies found beside it: they were
+    // nominated as copies of the vault this window had open
+    forgetNominations(win.id);
 }
 
 // Changes made to the file by anything else (a sync client delivering
@@ -56,7 +59,7 @@ function watchDeps(win: BrowserWindow, filePath: string): WatchDeps {
     return {
         onConflictCopy: (copyPath, hash) => {
             if (win.isDestroyed()) return;
-            nominateConflictCopy(copyPath);
+            nominateConflictCopy(win.id, copyPath);
             grantPath(copyPath);
             win.webContents.send('vault-conflict-copy', { path: filePath, copyPath, hash });
         },

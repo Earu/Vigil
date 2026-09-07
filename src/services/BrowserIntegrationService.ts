@@ -338,7 +338,13 @@ export class BrowserIntegrationService {
         return at !== undefined && Date.now() - at <= RELEASE_TTL_MS;
     }
 
-    static resetReleasesForTests(): void {
+    // The vault closed, so what it released to the browser is released no
+    // longer. Without this a lock left the map standing: relock and reopen
+    // the same vault inside the TTL and entries the browser was handed
+    // before the lock still answered get-totp, without it having asked
+    // again. Every other piece of per-vault state is torn down on lock
+    // (App.handleLock); this one was only ever cleared by the tests
+    static forgetReleases(): void {
         this.released.clear();
     }
 

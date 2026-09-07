@@ -740,7 +740,7 @@ describe('get-totp', () => {
     };
     const login = (ctx: any) => Svc.handleRequest('get-logins', { url: 'https://live.example', keys: [{ id: 'FF', key: 'good' }] }, ctx);
 
-    beforeEach(() => Svc.resetReleasesForTests());
+    beforeEach(() => Svc.forgetReleases());
 
     it('refuses a code from an entry in the recycle bin', async () => {
         const { db, entry } = totpDb(db => {
@@ -794,6 +794,24 @@ describe('get-totp', () => {
         for (const uuid of [undefined, 42, 'abc', 'zz'.repeat(16), {}]) {
             expect(await Svc.handleRequest('get-totp', { uuid }, ctxFor(db))).toEqual({ errorCode: 18 });
         }
+    });
+
+    // Locking is the user saying what may be reached, and the release map was
+    // the one piece of per-vault state that did not hear it: relocking and
+    // reopening the same vault inside the TTL left entries released from
+    // before the lock still answering. App.handleLock calls this
+    it('forgets releases when the vault locks, whatever the TTL says', async () => {
+        const { db, entry } = totpDb();
+        const ctx = ctxFor(db);
+        await login(ctx);
+        expect((await Svc.handleRequest('get-totp', { uuid: hex(entry) }, ctx)).totp).toMatch(/^\d{6}$/);
+
+        Svc.forgetReleases();
+        expect(await Svc.handleRequest('get-totp', { uuid: hex(entry) }, ctx)).toEqual({ errorCode: 17 });
+
+        // And the browser can earn it back by asking again
+        await login(ctx);
+        expect((await Svc.handleRequest('get-totp', { uuid: hex(entry) }, ctx)).totp).toMatch(/^\d{6}$/);
     });
 });
 
