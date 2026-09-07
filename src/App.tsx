@@ -203,7 +203,13 @@ function App() {
 
 		const handler = async ({ id, action, payload }: { id: number; action: string; payload: any }) => {
 			const database = databaseRef.current;
-			if (!database) return;
+			// No model to answer from. Returning without a word left the main
+			// process waiting out its whole timeout, which is two minutes for
+			// a passkey ceremony; a locked database is what this actually is
+			if (!database) {
+				window.electron?.browserIntegrationRespond(id, { errorCode: 1 });
+				return;
+			}
 			try {
 				const result = await BrowserIntegrationService.handleRequest(action, payload, {
 					// A consent dialog can outlive the vault it was asked for: a lock

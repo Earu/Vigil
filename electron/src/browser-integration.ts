@@ -72,6 +72,18 @@ export interface Session {
 const b64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
 const unb64 = (text: string): Uint8Array => new Uint8Array(Buffer.from(text, 'base64'));
 
+// A base64 field off the socket, decoded only if it is a string of exactly the
+// length its role requires. tweetnacl throws on a key or nonce of the wrong
+// size, and a throw out of handleEnvelope reaches the connection's drain,
+// which swallows it and writes nothing: the client is then left waiting for a
+// reply that never comes, which is the one answer this protocol has no way to
+// recover from. Every other malformed input here is answered
+const decodeFixed = (value: unknown, length: number): Uint8Array | null => {
+    if (typeof value !== 'string') return null;
+    const bytes = unb64(value);
+    return bytes.length === length ? bytes : null;
+};
+
 const incrementNonce = (nonce: Uint8Array): Uint8Array => {
     const next = new Uint8Array(nonce);
     let carry = 1;
@@ -416,7 +428,11 @@ export async function handleEnvelope(envelope: any, sessions: Map<string, Sessio
     const clientId = envelope.clientID ?? '';
 
     if (action === 'change-public-keys') {
-        if (!envelope.publicKey || !envelope.nonce) {
+        // Checked before a session exists rather than after: a session built
+        // around an unusable key would throw on every message sent through it
+        const clientPublicKey = decodeFixed(envelope.publicKey, nacl.box.publicKeyLength);
+        const handshakeNonce = decodeFixed(envelope.nonce, nacl.box.nonceLength);
+        if (!clientPublicKey || !handshakeNonce) {
             return errorResponse(action, ERROR_CANNOT_DECRYPT);
         }
         const keyPair = nacl.box.keyPair();
@@ -426,23 +442,32 @@ export async function handleEnvelope(envelope: any, sessions: Map<string, Sessio
         }
         // A fresh handshake starts unassociated, so a client cannot inherit
         // the standing of whoever held this clientID before it
-        sessions.set(clientId, { clientPublicKey: unb64(envelope.publicKey), keyPair, associated: false });
+        sessions.set(clientId, { clientPublicKey, keyPair, associated: false });
         return {
             action,
             version: PROTOCOL_VERSION,
             publicKey: b64(keyPair.publicKey),
             success: 'true',
-            nonce: b64(incrementNonce(unb64(envelope.nonce))),
+            nonce: b64(incrementNonce(handshakeNonce)),
         };
     }
 
     const session = sessions.get(clientId);
-    if (!session || !envelope.message || !envelope.nonce) {
+    const nonce = decodeFixed(envelope.nonce, nacl.box.nonceLength);
+    if (!session || !nonce || typeof envelope.message !== 'string' || envelope.message.length === 0) {
         return errorResponse(action, ERROR_CANNOT_DECRYPT);
     }
 
-    const nonce = unb64(envelope.nonce);
-    const opened = nacl.box.open(unb64(envelope.message), nonce, session.clientPublicKey, session.keyPair.secretKey);
+    // The handshake above admits only a key tweetnacl will take, so the throw
+    // this catches has no route left through the protocol. It is caught anyway
+    // because every other refusal here is a value, and this function's answer
+    // is what the client is waiting on: a throw becomes silence on the socket
+    let opened: Uint8Array | null;
+    try {
+        opened = nacl.box.open(unb64(envelope.message), nonce, session.clientPublicKey, session.keyPair.secretKey);
+    } catch {
+        opened = null;
+    }
     if (!opened) {
         return errorResponse(action, ERROR_CANNOT_DECRYPT);
     }
@@ -600,7 +625,18 @@ export function startServer(): Promise<{ success: boolean; error?: string }> {
                             socket.destroy();
                             return;
                         }
-                        const response = await handleEnvelope(envelope, sessions);
+                        // Every refusal handleEnvelope knows how to phrase
+                        // comes back as a value. A throw is something it did
+                        // not anticipate, and dropping it silently leaves the
+                        // client waiting on a reply that will never arrive, so
+                        // it is answered too
+                        let response: any;
+                        try {
+                            response = await handleEnvelope(envelope, sessions);
+                        } catch (error) {
+                            console.error('Browser integration request failed:', error);
+                            response = errorResponse(envelope?.action ?? '', ERROR_CANNOT_DECRYPT);
+                        }
                         if (!socket.destroyed) {
                             socket.write(JSON.stringify(response) + '\n');
                         }

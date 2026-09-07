@@ -57,8 +57,21 @@ const RS256 = -257;
 
 // ---- encoding helpers ----
 
+// Chunked: spreading the whole array into fromCharCode overflows the call
+// stack somewhere past 130k arguments, and the clientDataJSON these encode
+// carries a challenge whose length the calling page chooses. Same reason
+// BreachCacheCrypto.toBase64 is written this way
+const base64 = (bytes: Uint8Array): string => {
+    const CHUNK = 0x8000;
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
+};
+
 export const b64urlEncode = (bytes: Uint8Array): string =>
-    btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    base64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
 export const b64urlDecode = (text: string): Uint8Array =>
     Uint8Array.from(atob(text.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
@@ -76,6 +89,21 @@ const safeString = (value: unknown): string | null => {
     }
 };
 
+// The page names the challenge and WebAuthn sets no maximum on it. Real ones
+// are 16 to 64 bytes, so this is far above anything an RP sends, including
+// the odd one that packs a signed token in there. The encoders above are what
+// make a long challenge safe rather than fatal; this is what keeps a page from
+// having Vigil hash, sign and base64 a megabyte on every ceremony
+const MAX_CHALLENGE_CHARS = 4096;
+
+// null for a challenge that is missing, unusable, too short or absurd. The
+// minimum is the caller's, since only registration insists on one
+const challengeText = (value: unknown, minimumChars = 0): string | null => {
+    const text = safeString(value);
+    if (text === null || text.length < minimumChars || text.length > MAX_CHALLENGE_CHARS) return null;
+    return text;
+};
+
 const hexToBytes = (hex: string): Uint8Array =>
     new Uint8Array(hex.match(/../g)!.map(b => parseInt(b, 16)));
 
@@ -87,7 +115,7 @@ const concat = (...parts: Uint8Array[]): Uint8Array => {
 };
 
 const pemEncode = (pkcs8: Uint8Array): string => {
-    const body = btoa(String.fromCharCode(...pkcs8)).match(/.{1,64}/g)!.join('\n');
+    const body = base64(pkcs8).match(/.{1,64}/g)!.join('\n');
     return `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----\n`;
 };
 
@@ -434,8 +462,8 @@ export class PasskeyService {
 
         if (!options || !options.challenge) return error(PASSKEY_ERRORS.EMPTY_PUBLIC_KEY);
         if (!originAllowed(origin, opts.allowLocalhost ?? false)) return error(PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED);
-        const challenge = safeString(options.challenge);
-        if (challenge === null || challenge.length < 16) return error(PASSKEY_ERRORS.INVALID_CHALLENGE);
+        const challenge = challengeText(options.challenge, 16);
+        if (challenge === null) return error(PASSKEY_ERRORS.INVALID_CHALLENGE);
 
         // The page chooses the user id; one that is not base64url is as
         // invalid as one of the wrong length
@@ -551,7 +579,7 @@ export class PasskeyService {
         opts: { allowLocalhost?: boolean; relatedOrigins?: string[] } = {},
     ): Promise<{ errorCode: number } | { rpId: string; entries: PasskeyEntryInfo[] }> {
         if (!options || !options.challenge) return { errorCode: PASSKEY_ERRORS.EMPTY_PUBLIC_KEY };
-        if (safeString(options.challenge) === null) return { errorCode: PASSKEY_ERRORS.INVALID_CHALLENGE };
+        if (challengeText(options.challenge) === null) return { errorCode: PASSKEY_ERRORS.INVALID_CHALLENGE };
         if (!originAllowed(origin, opts.allowLocalhost ?? false)) return { errorCode: PASSKEY_ERRORS.ORIGIN_NOT_ALLOWED };
 
         const domain = effectiveDomain(origin);
@@ -575,7 +603,7 @@ export class PasskeyService {
         const privateKeyPem = attr(selected.entry, PASSKEY_ATTRIBUTES.privateKeyPem);
         if (!privateKeyPem) return { errorCode: PASSKEY_ERRORS.UNKNOWN_ERROR };
 
-        const challenge = safeString(options.challenge);
+        const challenge = challengeText(options.challenge);
         if (challenge === null) return { errorCode: PASSKEY_ERRORS.INVALID_CHALLENGE };
 
         const authenticatorData = await buildAuthenticatorData(rpId);

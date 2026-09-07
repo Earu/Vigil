@@ -287,4 +287,41 @@ describe('session scope', () => {
             new Map());
         expect(result.errorCode).toBe(String(2));
     });
+
+    // tweetnacl throws on a key or nonce of the wrong size, and a throw out of
+    // handleEnvelope reaches the drain in startServer, which swallows it and
+    // writes nothing: the client then waits on a reply that never comes.
+    // A handshake carrying an unusable key opened a session all the same, so
+    // every message sent through it hit that. Refused at the handshake now
+    it('refuses a handshake whose key or nonce is the wrong size', async () => {
+        const short = Buffer.from(nacl.randomBytes(8)).toString('base64');
+        const good = handshake('c');
+        for (const bad of [{ ...good, publicKey: short }, { ...good, nonce: short }]) {
+            const sessions = new Map<string, any>();
+            const reply = await handleEnvelope(bad, sessions);
+            expect(reply.errorCode).toBe(String(2));
+            expect(sessions.size).toBe(0);
+        }
+    });
+
+    it('answers rather than throwing when a message names a key of the wrong size', async () => {
+        const sessions = new Map<string, any>();
+        await handleEnvelope(handshake('c'), sessions);
+        // A session that predates the check above, or any other route to a
+        // key tweetnacl will not take
+        sessions.get('c')!.clientPublicKey = new Uint8Array(8);
+        const reply = await handleEnvelope(
+            { action: 'get-logins', clientID: 'c', message: Buffer.from('x').toString('base64'), nonce: Buffer.from(nacl.randomBytes(24)).toString('base64') },
+            sessions);
+        expect(reply.errorCode).toBe(String(2));
+    });
+
+    it('refuses a message with no nonce of the right size', async () => {
+        const sessions = new Map<string, any>();
+        await handleEnvelope(handshake('c'), sessions);
+        const reply = await handleEnvelope(
+            { action: 'get-logins', clientID: 'c', message: Buffer.from('x').toString('base64'), nonce: 'short' },
+            sessions);
+        expect(reply.errorCode).toBe(String(2));
+    });
 });

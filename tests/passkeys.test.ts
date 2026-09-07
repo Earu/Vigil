@@ -117,6 +117,17 @@ describe('base64url', () => {
         const encoded = b64urlEncode(new Uint8Array([255, 255, 255]));
         expect(encoded).not.toMatch(/[+/=]/);
     });
+
+    // fromCharCode takes its input as arguments, so spreading a whole array
+    // into it overflows the call stack somewhere past 130k of them. What is
+    // encoded here is clientDataJSON, whose size follows a challenge the
+    // calling page chooses, so the ceiling has to be the heap's and not the
+    // stack's
+    it('encodes far more bytes than the argument limit', () => {
+        const big = new Uint8Array(500_000).fill(200);
+        const encoded = b64urlEncode(big);
+        expect([...b64urlDecode(encoded)]).toEqual([...big]);
+    });
 });
 
 describe('rpId validation', () => {
@@ -227,6 +238,29 @@ describe('register validation', () => {
         const db = makeDb();
         const res = await PasskeyService.register(db, creationOptions({ challenge: 'short' }), origin, undefined);
         expect(res.response.errorCode).toBe(PASSKEY_ERRORS.INVALID_CHALLENGE);
+    });
+
+    // The challenge is the page's to choose and WebAuthn names no maximum.
+    // It ends up inside clientDataJSON, which is base64'd on both ceremony
+    // paths, so an unbounded one had Vigil hash and sign a megabyte per
+    // ceremony. Refused on both paths, with the same code
+    it('rejects an absurdly long challenge on both ceremony paths', async () => {
+        const huge = 'A'.repeat(200_000);
+        const db = makeDb();
+        expect((await PasskeyService.register(db, creationOptions({ challenge: huge }), origin, undefined)).response.errorCode)
+            .toBe(PASSKEY_ERRORS.INVALID_CHALLENGE);
+        expect(await PasskeyService.allowedEntries(db, { challenge: huge, rpId, allowCredentials: [] }, origin))
+            .toEqual({ errorCode: PASSKEY_ERRORS.INVALID_CHALLENGE });
+    });
+
+    // A challenge an RP might really send: 64 random bytes is the top of the
+    // usual range, and some pack a signed token in instead. The bound has to
+    // sit above those, not just above the default
+    it('takes a challenge far larger than any real one', async () => {
+        const db = makeDb();
+        const long = b64urlEncode(new Uint8Array(1024).fill(3));
+        const res = await PasskeyService.register(db, creationOptions({ challenge: long }), origin, undefined);
+        expect(res.response.errorCode).toBeUndefined();
     });
     it('rejects an empty user id', async () => {
         const db = makeDb();
