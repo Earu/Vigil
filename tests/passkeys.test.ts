@@ -9,6 +9,9 @@ import {
     b64urlEncode,
     b64urlDecode,
     ecdsaRawToDer,
+    originMatchesRpId,
+    effectiveDomain,
+    validateRpId,
 } from '../src/services/PasskeyService';
 
 const origin = 'https://example.com';
@@ -473,6 +476,24 @@ describe('related origins', () => {
         });
         expect(res.response.errorCode).toBe(PASSKEY_ERRORS.DOMAIN_RPID_MISMATCH);
     });
+
+    // Naming the relying party describes the request while the page asking
+    // belongs to it. Once the related-origins branch is what let the pairing
+    // through, the page is some other site and the dialog has to say so
+    describe('whether the rpId alone describes the caller', () => {
+        it('says yes for the site itself and its subdomains', () => {
+            expect(originMatchesRpId('https://example.com', 'example.com')).toBe(true);
+            expect(originMatchesRpId('https://app.example.com', 'example.com')).toBe(true);
+            expect(originMatchesRpId('https://example.com:8443', 'example.com')).toBe(true);
+            expect(originMatchesRpId('https://EXAMPLE.com', 'example.com')).toBe(true);
+        });
+
+        it('says no for a related origin, and for a host that merely ends with the rpId', () => {
+            expect(originMatchesRpId(caller, 'example.com')).toBe(false);
+            expect(originMatchesRpId('https://example.com.evil.test', 'example.com')).toBe(false);
+            expect(originMatchesRpId('not a url', 'example.com')).toBe(false);
+        });
+    });
 });
 
 describe('algorithm selection', () => {
@@ -521,5 +542,26 @@ describe('ecdsaRawToDer', () => {
         expect(der[2]).toBe(0x02);
         // r integer body starts with 0x00 because the top bit was set
         expect(der[4]).toBe(0x00);
+    });
+});
+
+// The origin and the rpId are rendered in the consent dialog, and the URL
+// parser hands back a hostname of any length. A caller that could name one
+// could grow the dialog until the question scrolled off it
+describe('host length', () => {
+    const long = 'a'.repeat(300);
+
+    it('refuses an origin whose host is longer than a DNS name', async () => {
+        expect(effectiveDomain(`https://${long}.com`)).toBeNull();
+        const db = makeDb();
+        const res = await PasskeyService.register(db, creationOptions(), `https://${long}.com`, undefined);
+        expect(res.response.errorCode).toBe(PASSKEY_ERRORS.DOMAIN_IS_NOT_VALID);
+    });
+
+    // The related-origins branch returns the rpId without it having to be a
+    // suffix of the caller's domain, so its length is bounded on its own
+    it('refuses an overlong rpId even when the caller is a related origin', async () => {
+        const caller = 'https://app.other-brand.net';
+        expect(await validateRpId(`${long}.com`, 'other-brand.net', caller, [caller])).toBeNull();
     });
 });

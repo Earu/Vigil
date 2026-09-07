@@ -301,16 +301,27 @@ async function signWebAuthn(pem: string, authData: Uint8Array, clientDataJson: U
 
 // ---- rpId and origin validation ----
 
+// A DNS name cannot exceed 253 characters, and neither an origin nor an rpId
+// that names a real site comes near this. The bound is here because both
+// reach the consent dialog as text: the URL parser is happy to give back a
+// hostname of any length, so without it a caller can grow the dialog until
+// what it asks has scrolled off the top and only the sender's text sits above
+// the buttons. Same reason BrowserIntegrationService caps the get-logins url
+// and the set-login name
+const MAX_HOST_CHARS = 253;
+
 export function effectiveDomain(origin: string): string | null {
     try {
         const host = new URL(origin).hostname.toLowerCase();
-        return host || null;
+        return host && host.length <= MAX_HOST_CHARS ? host : null;
     } catch {
         return null;
     }
 }
 
-const normalizeOrigin = (origin: string): string | null => {
+// Scheme, host and port: what identifies the caller, without the path the
+// consent dialog has no use for and no bound on
+export const normalizeOrigin = (origin: string): string | null => {
     try {
         return new URL(origin).origin.toLowerCase();
     } catch {
@@ -335,6 +346,10 @@ export async function validateRpId(
     relatedOrigins?: string[],
 ): Promise<string | null> {
     if (!rpId) return domain;
+    // Bounded like the domain above. The related-origins branch below returns
+    // the rpId without it ever having to be a suffix of the caller's domain,
+    // so this is the only thing keeping its length to a name's
+    if (rpId.length > MAX_HOST_CHARS) return null;
     const suffix = rpId.toLowerCase();
     if (suffix === domain) return suffix;
     // Neither a public suffix nor the tail of an IP address is a
@@ -349,6 +364,19 @@ export async function validateRpId(
         }
     }
     return null;
+}
+
+// Whether the rpId is the caller's own domain or a parent of it, which is the
+// ordinary relationship and the one validateRpId's first two branches accept.
+// False means the pairing was only allowed by the related-origins branch: the
+// site asking is not part of the relying party it is asking for, which is the
+// one case where naming the rpId alone does not describe the request. The
+// consent dialog shows the origin when this says no
+export function originMatchesRpId(origin: string, rpId: string): boolean {
+    const domain = effectiveDomain(origin);
+    if (!domain) return false;
+    const suffix = rpId.toLowerCase();
+    return domain === suffix || domain.endsWith('.' + suffix);
 }
 
 export function originAllowed(origin: string, allowLocalhost: boolean): boolean {
