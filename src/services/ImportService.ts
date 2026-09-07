@@ -1,6 +1,7 @@
 import * as kdbxweb from 'kdbxweb';
 import { KeepassDatabaseService } from './KeepassDatabaseService';
 import { TotpService } from './TotpService';
+import { PASSKEY_ATTRIBUTES } from './PasskeyService';
 
 export interface ImportedEntry {
     title: string;
@@ -307,6 +308,33 @@ export class ImportService {
 
     // ---- Writing into the database ----
 
+    // An entry is one field map, so a custom field named like a standard one
+    // lands on top of it. A Bitwarden export may carry a field called
+    // "Password" (the name is the user's to choose), and writing it took the
+    // real password with it and left the value unprotected where a
+    // ProtectedValue had been. Both values are the user's, so the custom one
+    // is renamed rather than dropped. otp and the passkey attributes are
+    // reserved for the same reason: they are written from the entry's own
+    // data, here and by PasskeyService, and an import must not forge one.
+    // Names are compared exactly, as kdbx compares them: "password" is a
+    // different field from "Password" and needs no renaming
+    private static readonly RESERVED_FIELD_NAMES: readonly string[] = [
+        ...KeepassDatabaseService.STANDARD_FIELDS,
+        'otp',
+        ...Object.values(PASSKEY_ATTRIBUTES),
+    ];
+
+    // The first spelling of `key` that nothing on this entry has claimed.
+    // Also separates two custom fields that arrived under the same name,
+    // which used to mean the second silently replaced the first
+    private static freeFieldName(key: string, taken: Set<string>): string {
+        if (!taken.has(key)) return key;
+        for (let suffix = 2; ; suffix++) {
+            const candidate = `${key}_${suffix}`;
+            if (!taken.has(candidate)) return candidate;
+        }
+    }
+
     // Creates the imported groups and entries without saving; used both when
     // importing into an open database and when seeding a brand new one
     static writeEntries(result: ImportResult, kdbxDb: kdbxweb.Kdbx): void {
@@ -353,8 +381,19 @@ export class ImportService {
                 }
             }
 
+            const taken = new Set<string>(this.RESERVED_FIELD_NAMES);
             for (const field of imported.customFields ?? []) {
-                entry.fields.set(field.key, field.protected
+                const name = this.freeFieldName(field.key, taken);
+                taken.add(name);
+                // A field the source did not mark hidden but that was named
+                // after one of ours is protected anyway: whatever someone
+                // typed under the label "Password" is a secret far more often
+                // than it is not, and masking a value that turns out to be
+                // ordinary text costs the user nothing they cannot undo.
+                // Two custom fields sharing a name say nothing of the sort,
+                // so a rename for that reason leaves the flag alone
+                const protect = field.protected || this.RESERVED_FIELD_NAMES.includes(field.key);
+                entry.fields.set(name, protect
                     ? kdbxweb.ProtectedValue.fromString(field.value)
                     : field.value);
             }

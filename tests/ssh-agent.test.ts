@@ -75,7 +75,7 @@ describe.skipIf(!hasAgent)('the ssh-agent client', () => {
     });
 
     it('adds a key the agent then lists under the fingerprint ssh-keygen printed, and removes it', async () => {
-        const key = parsePrivateKey(load('ed25519_enc'), 'correct horse');
+        const key = await parsePrivateKey(load('ed25519_enc'), 'correct horse');
         await addIdentity(key, { comment: 'from vigil' });
 
         expect(sshAddList()).toHaveLength(1);
@@ -89,7 +89,7 @@ describe.skipIf(!hasAgent)('the ssh-agent client', () => {
 
     it('adds every supported key type', async () => {
         for (const [name, passphrase] of [['rsa_pem', ''], ['ecdsa256_enc', 'correct horse'], ['ecdsa384_pem', ''], ['rsa_openssh', '']] as const) {
-            const key = parsePrivateKey(load(name), passphrase);
+            const key = await parsePrivateKey(load(name), passphrase);
             await addIdentity(key, { comment: name });
         }
         const listed = sshAddList();
@@ -100,14 +100,14 @@ describe.skipIf(!hasAgent)('the ssh-agent client', () => {
     });
 
     it('passes lifetime and confirm constraints through', async () => {
-        const key = parsePrivateKey(load('ed25519_plain'));
+        const key = await parsePrivateKey(load('ed25519_plain'));
         await addIdentity(key, { comment: 'constrained', lifetimeSeconds: 600, confirm: true });
         expect(sshAddList()[0]).toContain(manifest.ed25519_plain.fingerprint);
     });
 
     it('takes a window\'s keys out on release, unless another window still holds them', async () => {
-        const shared = parsePrivateKey(load('ed25519_plain'));
-        const own = parsePrivateKey(load('rsa_pem'));
+        const shared = await parsePrivateKey(load('ed25519_plain'));
+        const own = await parsePrivateKey(load('rsa_pem'));
         await addKeyForWindow(fakeWindow(1), shared, { comment: 'shared' }, true);
         await addKeyForWindow(fakeWindow(2), shared, { comment: 'shared' }, true);
         await addKeyForWindow(fakeWindow(1), own, { comment: 'own' }, true);
@@ -123,7 +123,7 @@ describe.skipIf(!hasAgent)('the ssh-agent client', () => {
     });
 
     it('leaves a key in the agent when the entry asked for that', async () => {
-        const key = parsePrivateKey(load('ed25519_plain'));
+        const key = await parsePrivateKey(load('ed25519_plain'));
         await addKeyForWindow(fakeWindow(1), key, { comment: 'stays' }, false);
         expect(await releaseWindow(1)).toEqual([]);
         expect(sshAddList()).toHaveLength(1);
@@ -134,9 +134,9 @@ describe.skipIf(!hasAgent)('the ssh-agent client', () => {
     // meant to stay stay, and nothing is left registered for a re-issued
     // quit to wait on
     it('takes every window\'s keys out for a quit and leaves the ones meant to stay', async () => {
-        const goes = parsePrivateKey(load('rsa_pem'));
-        const alsoGoes = parsePrivateKey(load('ecdsa384_pem'));
-        const stays = parsePrivateKey(load('ed25519_plain'));
+        const goes = await parsePrivateKey(load('rsa_pem'));
+        const alsoGoes = await parsePrivateKey(load('ecdsa384_pem'));
+        const stays = await parsePrivateKey(load('ed25519_plain'));
         expect(hasKeysToRelease()).toBe(false);
         await addKeyForWindow(fakeWindow(1), goes, { comment: 'goes' }, true);
         await addKeyForWindow(fakeWindow(2), alsoGoes, { comment: 'also goes' }, true);
@@ -152,7 +152,7 @@ describe.skipIf(!hasAgent)('the ssh-agent client', () => {
     });
 
     it('has nothing to release for a quit when every key was added to stay', async () => {
-        const key = parsePrivateKey(load('ed25519_plain'));
+        const key = await parsePrivateKey(load('ed25519_plain'));
         await addKeyForWindow(fakeWindow(1), key, { comment: 'stays' }, false);
         expect(hasKeysToRelease()).toBe(false);
     });

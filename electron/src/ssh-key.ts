@@ -225,7 +225,11 @@ function readOpenSshHeader(text: string): OpenSshHeader {
     return { cipherName, kdfName, kdfOptions, publicBlob, privateSection, tag };
 }
 
-function decryptPrivateSection(header: OpenSshHeader, passphrase: string): Buffer {
+// Async for one reason: bcryptPbkdf hands the event loop back between rounds
+// rather than holding the main process for the whole derivation (see the
+// comment on tick() there). Everything from here up to parsePrivateKey is
+// async to carry that, and nothing else about the parse waits on anything
+async function decryptPrivateSection(header: OpenSshHeader, passphrase: string): Promise<Buffer> {
     if (header.cipherName === 'none') return header.privateSection;
     const spec = CIPHERS[header.cipherName];
     if (!spec) {
@@ -243,7 +247,7 @@ function decryptPrivateSection(header: OpenSshHeader, passphrase: string): Buffe
     if (rounds < 1 || rounds > MAX_KDF_ROUNDS) {
         throw new SshKeyError(`Unsupported KDF rounds ${rounds}; re-encrypt the key with -a ${MAX_KDF_ROUNDS} or fewer`, 'unsupported');
     }
-    const derived = bcryptPbkdf(Buffer.from(passphrase, 'utf8'), salt, spec.keyLength + spec.ivLength, rounds);
+    const derived = await bcryptPbkdf(Buffer.from(passphrase, 'utf8'), salt, spec.keyLength + spec.ivLength, rounds);
     const key = derived.subarray(0, spec.keyLength);
     const iv = derived.subarray(spec.keyLength);
 
@@ -261,12 +265,12 @@ function decryptPrivateSection(header: OpenSshHeader, passphrase: string): Buffe
     }
 }
 
-function parseOpenSsh(text: string, passphrase: string): ParsedSshKey {
+async function parseOpenSsh(text: string, passphrase: string): Promise<ParsedSshKey> {
     const header = readOpenSshHeader(text);
     const type = typeOfPublicBlob(header.publicBlob);
     requireSupportedType(type);
     const encrypted = header.cipherName !== 'none';
-    const plain = decryptPrivateSection(header, passphrase);
+    const plain = await decryptPrivateSection(header, passphrase);
 
     const reader = new WireReader(plain);
     if (reader.u32() !== reader.u32()) throw new SshKeyError('Wrong passphrase', 'passphrase');
@@ -405,28 +409,28 @@ export function looksLikePrivateKey(data: Uint8Array): boolean {
     return /-----BEGIN (OPENSSH |RSA |EC |DSA |ENCRYPTED )?PRIVATE KEY-----/.test(head) || head.startsWith('PuTTY-User-Key-File');
 }
 
-export function parsePrivateKey(data: Uint8Array, passphrase = ''): ParsedSshKey {
+export async function parsePrivateKey(data: Uint8Array, passphrase = ''): Promise<ParsedSshKey> {
     const text = asText(data);
     if (text.startsWith('PuTTY-User-Key-File')) {
         throw new SshKeyError('PuTTY keys are not supported; export the key in OpenSSH format from PuTTYgen', 'unsupported');
     }
-    if (/-----BEGIN OPENSSH PRIVATE KEY-----/.test(text)) return parseOpenSsh(text, passphrase);
+    if (/-----BEGIN OPENSSH PRIVATE KEY-----/.test(text)) return await parseOpenSsh(text, passphrase);
     if (/-----BEGIN (RSA |EC |DSA |ENCRYPTED )?PRIVATE KEY-----/.test(text)) return parsePem(text, passphrase);
     throw new SshKeyError('Not a private key file', 'format');
 }
 
 // The public blob, which removal from the agent is keyed on. An OpenSSH file
 // gives it up without the passphrase; a PEM file has to be opened
-export function publicBlobOf(data: Uint8Array, passphrase = ''): Buffer {
+export async function publicBlobOf(data: Uint8Array, passphrase = ''): Promise<Buffer> {
     const text = asText(data);
     if (/-----BEGIN OPENSSH PRIVATE KEY-----/.test(text)) return readOpenSshHeader(text).publicBlob;
-    return parsePrivateKey(data, passphrase).publicBlob;
+    return (await parsePrivateKey(data, passphrase)).publicBlob;
 }
 
 // What can be said about the key without its passphrase. An OpenSSH file
 // carries the public half in the clear; a PEM file gives nothing away until
 // it is opened, so it reads as encrypted with no type
-export function readPublicInfo(data: Uint8Array): SshKeyInfo {
+export async function readPublicInfo(data: Uint8Array): Promise<SshKeyInfo> {
     const text = asText(data);
     if (/-----BEGIN OPENSSH PRIVATE KEY-----/.test(text)) {
         const header = readOpenSshHeader(text);
@@ -435,13 +439,13 @@ export function readPublicInfo(data: Uint8Array): SshKeyInfo {
         let comment = '';
         if (header.cipherName === 'none') {
             try {
-                comment = parseOpenSsh(text, '').comment;
+                comment = (await parseOpenSsh(text, '')).comment;
             } catch { /* the public half still stands */ }
         }
         return { type, fingerprint: fingerprintOf(header.publicBlob), comment, encrypted: header.cipherName !== 'none' };
     }
     const encrypted = /-----BEGIN ENCRYPTED PRIVATE KEY-----|Proc-Type:\s*4,ENCRYPTED/i.test(text);
     if (encrypted) return { type: '', fingerprint: '', comment: '', encrypted: true };
-    const key = parsePrivateKey(data, '');
+    const key = await parsePrivateKey(data, '');
     return { type: key.type, fingerprint: key.fingerprint, comment: key.comment, encrypted: false };
 }

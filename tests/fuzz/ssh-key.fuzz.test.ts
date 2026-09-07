@@ -16,40 +16,43 @@ const OPENSSH = fixture('ed25519_enc');
 const PEM = fixture('rsa_pem');
 const PASSPHRASE = 'correct horse';
 
-const onlySshKeyErrors = (work: () => unknown) => {
+// The parse is async because the KDF yields between rounds (ssh-key.ts), so
+// a refusal arrives as a rejection; anything else reaching here is the crash
+// this suite exists to catch
+const onlySshKeyErrors = async (work: () => Promise<unknown>) => {
     try {
-        work();
+        await work();
     } catch (error) {
         expect(error).toBeInstanceOf(SshKeyError);
     }
 };
 
 describe('private key parsing under fuzz', () => {
-    it('answers arbitrary bytes and text with a key or an SshKeyError', () => {
-        fc.assert(fc.property(fc.oneof(bytes(2048), anyText().map(t => new TextEncoder().encode(t))), anyText(), (data, passphrase) => {
-            onlySshKeyErrors(() => parsePrivateKey(data, passphrase));
-            onlySshKeyErrors(() => readPublicInfo(data));
-            onlySshKeyErrors(() => publicBlobOf(data, passphrase));
+    it('answers arbitrary bytes and text with a key or an SshKeyError', async () => {
+        await fc.assert(fc.asyncProperty(fc.oneof(bytes(2048), anyText().map(t => new TextEncoder().encode(t))), anyText(), async (data, passphrase) => {
+            await onlySshKeyErrors(() => parsePrivateKey(data, passphrase));
+            await onlySshKeyErrors(() => readPublicInfo(data));
+            await onlySshKeyErrors(() => publicBlobOf(data, passphrase));
             expect(typeof looksLikePrivateKey(data)).toBe('boolean');
         }), settings());
     });
 
-    it('survives a real key with bytes flipped, truncated or inserted', () => {
+    it('survives a real key with bytes flipped, truncated or inserted', async () => {
         const mutate = fc.tuple(fc.constantFrom(OPENSSH, PEM), fc.array(fc.tuple(fc.nat(2000), fc.nat(255)), { maxLength: 8 }), fc.nat(2000))
             .map(([base, flips, cut]) => {
                 const out = new Uint8Array(base.subarray(0, Math.max(1, Math.min(base.length, cut + 1))));
                 for (const [at, value] of flips) if (at < out.length) out[at] = value;
                 return out;
             });
-        fc.assert(fc.property(mutate, fc.constantFrom('', PASSPHRASE, 'wrong'), (data, passphrase) => {
-            onlySshKeyErrors(() => parsePrivateKey(data, passphrase));
-            onlySshKeyErrors(() => readPublicInfo(data));
+        await fc.assert(fc.asyncProperty(mutate, fc.constantFrom('', PASSPHRASE, 'wrong'), async (data, passphrase) => {
+            await onlySshKeyErrors(() => parsePrivateKey(data, passphrase));
+            await onlySshKeyErrors(() => readPublicInfo(data));
         }), settings());
     });
 
-    it('never opens an encrypted key with anything but its passphrase', () => {
-        fc.assert(fc.property(anyText().filter(t => t !== PASSPHRASE), (passphrase) => {
-            expect(() => parsePrivateKey(OPENSSH, passphrase)).toThrow(SshKeyError);
+    it('never opens an encrypted key with anything but its passphrase', async () => {
+        await fc.assert(fc.asyncProperty(anyText().filter(t => t !== PASSPHRASE), async (passphrase) => {
+            await expect(parsePrivateKey(OPENSSH, passphrase)).rejects.toThrow(SshKeyError);
         }), settings({ numRuns: 40 }));
     });
 

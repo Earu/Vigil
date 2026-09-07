@@ -130,8 +130,8 @@ describe('private key parsing', () => {
     ];
 
     for (const [name, passphrase] of cases) {
-        it(`reads ${name} to the public key ssh-keygen wrote, and the private half signs`, () => {
-            const key = parsePrivateKey(load(name), passphrase);
+        it(`reads ${name} to the public key ssh-keygen wrote, and the private half signs`, async () => {
+            const key = await parsePrivateKey(load(name), passphrase);
             expect(key.type).toBe(manifest[name].type);
             expect(key.publicBlob.toString('base64')).toBe(manifest[name].publicBase64);
             expect(key.fingerprint).toBe(manifest[name].fingerprint);
@@ -140,26 +140,26 @@ describe('private key parsing', () => {
         });
     }
 
-    it('keeps the comment from an OpenSSH file and has none for PEM', () => {
-        expect(parsePrivateKey(load('ed25519_plain')).comment).toBe('vigil-test');
-        expect(parsePrivateKey(load('ed25519_enc'), PASSPHRASE).comment).toBe('vigil-enc');
-        expect(parsePrivateKey(load('rsa_pem')).comment).toBe('');
+    it('keeps the comment from an OpenSSH file and has none for PEM', async () => {
+        expect((await parsePrivateKey(load('ed25519_plain'))).comment).toBe('vigil-test');
+        expect((await parsePrivateKey(load('ed25519_enc'), PASSPHRASE)).comment).toBe('vigil-enc');
+        expect((await parsePrivateKey(load('rsa_pem'))).comment).toBe('');
     });
 
-    it('tells a missing passphrase from a wrong one', () => {
+    it('tells a missing passphrase from a wrong one', async () => {
         for (const name of ['ed25519_enc', 'ed25519_gcm', 'rsa_pem_enc', 'ecdsa521_pkcs8_enc']) {
-            expect(() => parsePrivateKey(load(name), '')).toThrow(expect.objectContaining({ code: 'passphrase' }));
-            expect(() => parsePrivateKey(load(name), 'wrong')).toThrow(expect.objectContaining({ code: 'passphrase' }));
+            await expect(parsePrivateKey(load(name), '')).rejects.toThrow(expect.objectContaining({ code: 'passphrase' }));
+            await expect(parsePrivateKey(load(name), 'wrong')).rejects.toThrow(expect.objectContaining({ code: 'passphrase' }));
         }
     });
 
-    it('refuses what it cannot handle with a reason rather than garbage', () => {
-        expect(() => parsePrivateKey(load('ed25519_chacha'), PASSPHRASE)).toThrow(expect.objectContaining({ code: 'unsupported' }));
-        expect(() => parsePrivateKey(Buffer.from('PuTTY-User-Key-File-3: ssh-ed25519\n'))).toThrow(expect.objectContaining({ code: 'unsupported' }));
-        expect(() => parsePrivateKey(Buffer.from('hello'))).toThrow(SshKeyError);
-        expect(() => parsePrivateKey(Buffer.from('-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n')))
-            .toThrow(expect.objectContaining({ code: 'format' }));
-        expect(() => parsePrivateKey(load('ed25519_plain.pub'))).toThrow(expect.objectContaining({ code: 'format' }));
+    it('refuses what it cannot handle with a reason rather than garbage', async () => {
+        await expect(parsePrivateKey(load('ed25519_chacha'), PASSPHRASE)).rejects.toThrow(expect.objectContaining({ code: 'unsupported' }));
+        await expect(parsePrivateKey(Buffer.from('PuTTY-User-Key-File-3: ssh-ed25519\n'))).rejects.toThrow(expect.objectContaining({ code: 'unsupported' }));
+        await expect(parsePrivateKey(Buffer.from('hello'))).rejects.toThrow(SshKeyError);
+        await expect(parsePrivateKey(Buffer.from('-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n')))
+            .rejects.toThrow(expect.objectContaining({ code: 'format' }));
+        await expect(parsePrivateKey(load('ed25519_plain.pub'))).rejects.toThrow(expect.objectContaining({ code: 'format' }));
     });
 
     // The PEM extractor used to be a regex whose lazy body backtracked
@@ -167,18 +167,18 @@ describe('private key parsing', () => {
     // end of the input from each one. At the 1 MiB an attachment may be
     // (ipc.ts MAX_KEY_BYTES) that measured 19 seconds per call, in the main
     // process, and selecting the entry is enough to fire it
-    it('refuses a file of repeated banners without stalling', () => {
+    it('refuses a file of repeated banners without stalling', async () => {
         const banner = '-----BEGIN OPENSSH PRIVATE KEY-----';
         const bytes = Buffer.from(banner.repeat(Math.floor((1024 * 1024) / banner.length)));
         const started = Date.now();
-        expect(() => parsePrivateKey(bytes)).toThrow(expect.objectContaining({ code: 'format' }));
-        expect(() => readPublicInfo(bytes)).toThrow(expect.objectContaining({ code: 'format' }));
+        await expect(parsePrivateKey(bytes)).rejects.toThrow(expect.objectContaining({ code: 'format' }));
+        await expect(readPublicInfo(bytes)).rejects.toThrow(expect.objectContaining({ code: 'format' }));
         // Generous next to the 19 seconds this used to take, and far enough
         // under it that a return of the backtracking cannot pass
         expect(Date.now() - started).toBeLessThan(1000);
     });
 
-    it('refuses a KDF round count it cannot afford, at once', () => {
+    it('refuses a KDF round count it cannot afford, at once', async () => {
         // The bcrypt round count sits in the file's kdf options. One flipped
         // byte there (which the fuzz suite eventually produced) asks for
         // billions of rounds, and the parser would sit in the KDF for years
@@ -199,18 +199,40 @@ describe('private key parsing', () => {
         };
         for (const rounds of [4227858436, 1025, 0]) {
             const start = performance.now();
-            expect(() => parsePrivateKey(withRounds(rounds), PASSPHRASE)).toThrow(expect.objectContaining({ code: 'unsupported' }));
+            await expect(parsePrivateKey(withRounds(rounds), PASSPHRASE)).rejects.toThrow(expect.objectContaining({ code: 'unsupported' }));
             expect(performance.now() - start).toBeLessThan(200);
         }
         // Rewritten with its real count, the file still opens
-        expect(parsePrivateKey(withRounds(4), PASSPHRASE).type).toBe('ssh-ed25519');
+        expect((await parsePrivateKey(withRounds(4), PASSPHRASE)).type).toBe('ssh-ed25519');
+    });
+
+    // The derivation runs in the main process, where holding the thread for
+    // its whole length stops every window, dialog, vault watcher and browser
+    // socket until it finishes: a second and a half for a key written with
+    // `ssh-keygen -a 100`, sixteen for one at the round cap. bcryptPbkdf hands
+    // the event loop back between rounds instead, so the longest the process
+    // is unavailable is one hash. This fixture carries 4 rounds over two
+    // output blocks, so the derivation yields six times; a straight-through
+    // one yields not at all
+    it('hands the event loop back while deriving the key', async () => {
+        let turns = 0;
+        let deriving = true;
+        const count = () => {
+            if (!deriving) return;
+            turns++;
+            setImmediate(count);
+        };
+        setImmediate(count);
+        await parsePrivateKey(load('ed25519_enc'), PASSPHRASE);
+        deriving = false;
+        expect(turns).toBeGreaterThanOrEqual(3);
     });
 
     // The blob in the header is outside the ciphertext, so on an encrypted key
     // anyone can rewrite it without the passphrase. It names the key in the UI
     // and is what removal sends to the agent, so a file whose halves disagree
     // would load one key and account for another
-    it('refuses a file whose header names a different key than its private half', () => {
+    it('refuses a file whose header names a different key than its private half', async () => {
         const text = Buffer.from(load('ed25519_enc')).toString('latin1');
         const raw = Buffer.from(text.split('\n').filter(l => l && !l.startsWith('-----')).join(''), 'base64');
         const reader = new WireReader(raw, 'openssh-key-v1\0'.length);
@@ -222,10 +244,10 @@ describe('private key parsing', () => {
         const body = patched.toString('base64').match(/.{1,70}/g)!.join('\n');
         const file = Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`);
 
-        expect(() => parsePrivateKey(file, PASSPHRASE)).toThrow(expect.objectContaining({ code: 'format' }));
+        await expect(parsePrivateKey(file, PASSPHRASE)).rejects.toThrow(expect.objectContaining({ code: 'format' }));
         // The untouched file still opens, so the check is reading the tamper
         // rather than refusing the fixture
-        expect(parsePrivateKey(load('ed25519_enc'), PASSPHRASE).fingerprint)
+        expect((await parsePrivateKey(load('ed25519_enc'), PASSPHRASE)).fingerprint)
             .toBe(manifest.ed25519_enc.fingerprint);
     });
 
@@ -235,7 +257,7 @@ describe('private key parsing', () => {
     // is gone from current OpenSSH entirely (`ssh -Q key` does not list it),
     // so the agent would reject whatever was handed to it. Refused in both
     // paths now, with the same words. No fixture: ssh-keygen will not make one
-    it('refuses a DSA key in either format, and says the same thing for both', () => {
+    it('refuses a DSA key in either format, and says the same thing for both', async () => {
         const part = (byte: number, length: number) => Buffer.alloc(length, byte);
         const [p, q, g, y, x] = [part(0x11, 32), part(0x22, 20), part(0x33, 32), part(0x44, 32), part(0x55, 20)];
         const publicBlob = Buffer.concat([wireString('ssh-dss'), ...[p, q, g, y].map(wireString)]);
@@ -252,24 +274,24 @@ describe('private key parsing', () => {
         const body = raw.toString('base64').match(/.{1,70}/g)!.join('\n');
         const file = Buffer.from(`-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`);
 
-        const refusesDsa = (run: () => unknown) => {
-            expect(run).toThrow(expect.objectContaining({ code: 'unsupported' }));
-            expect(run).toThrow('DSA keys are not supported');
+        const refusesDsa = async (run: () => Promise<unknown>) => {
+            await expect(run()).rejects.toThrow(expect.objectContaining({ code: 'unsupported' }));
+            await expect(run()).rejects.toThrow('DSA keys are not supported');
         };
-        refusesDsa(() => parsePrivateKey(file));
+        await refusesDsa(() => parsePrivateKey(file));
         // The public half alone is refused too, so the panel does not name a
         // key that cannot be loaded
-        refusesDsa(() => readPublicInfo(file));
+        await refusesDsa(() => readPublicInfo(file));
     });
 
-    it('reads the public half of an encrypted OpenSSH key without the passphrase', () => {
-        const info = readPublicInfo(load('ed25519_enc'));
+    it('reads the public half of an encrypted OpenSSH key without the passphrase', async () => {
+        const info = await readPublicInfo(load('ed25519_enc'));
         expect(info).toEqual({ type: 'ssh-ed25519', fingerprint: manifest.ed25519_enc.fingerprint, comment: '', encrypted: true });
-        const plain = readPublicInfo(load('ed25519_plain'));
+        const plain = await readPublicInfo(load('ed25519_plain'));
         expect(plain).toEqual({ type: 'ssh-ed25519', fingerprint: manifest.ed25519_plain.fingerprint, comment: 'vigil-test', encrypted: false });
         // An encrypted PEM gives nothing away
-        expect(readPublicInfo(load('rsa_pem_enc'))).toEqual({ type: '', fingerprint: '', comment: '', encrypted: true });
-        expect(readPublicInfo(load('ecdsa384_pem')).fingerprint).toBe(manifest.ecdsa384_pem.fingerprint);
+        expect(await readPublicInfo(load('rsa_pem_enc'))).toEqual({ type: '', fingerprint: '', comment: '', encrypted: true });
+        expect((await readPublicInfo(load('ecdsa384_pem'))).fingerprint).toBe(manifest.ecdsa384_pem.fingerprint);
     });
 
     it('recognises key files by their header', () => {

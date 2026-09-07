@@ -280,7 +280,18 @@ function bcryptHash(sha2pass: Uint8Array, sha2salt: Uint8Array, out: Uint8Array)
     }
 }
 
-export function bcryptPbkdf(pass: Uint8Array, salt: Uint8Array, keylen: number, rounds: number): Uint8Array {
+// One turn of the event loop. Each bcryptHash below costs about 8ms, and a
+// key written with `ssh-keygen -a 100` needs two hundred of them: run
+// straight through, that is a second and a half in which the main process
+// answers nothing, and the header may ask for up to MAX_KDF_ROUNDS (ssh-key.ts),
+// which is sixteen seconds. The work is the same either way, so this only
+// changes who waits: the loop hands the event loop back between hashes, and
+// the longest the process is unavailable becomes one hash rather than the
+// whole derivation. setImmediate rather than a timer: it runs in the check
+// phase, after the I/O callbacks that are the point of yielding at all
+const tick = (): Promise<void> => new Promise<void>(resolve => { setImmediate(resolve); });
+
+export async function bcryptPbkdf(pass: Uint8Array, salt: Uint8Array, keylen: number, rounds: number): Promise<Uint8Array> {
     if (rounds < 1) throw new Error('bcrypt_pbkdf: rounds must be at least 1');
     if (pass.length === 0 || salt.length === 0 || keylen === 0
         || keylen > BCRYPT_HASHSIZE * BCRYPT_HASHSIZE || salt.length > (1 << 20)) {
@@ -305,6 +316,7 @@ export function bcryptPbkdf(pass: Uint8Array, salt: Uint8Array, keylen: number, 
         bcryptHash(sha2pass, sha2salt, tmpout);
         out.set(tmpout);
         for (let i = 1; i < rounds; i++) {
+            await tick();
             sha2salt = sha512(tmpout);
             bcryptHash(sha2pass, sha2salt, tmpout);
             for (let j = 0; j < BCRYPT_HASHSIZE; j++) out[j] ^= tmpout[j];
