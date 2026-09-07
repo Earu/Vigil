@@ -5,6 +5,12 @@ interface OtpConfigBase {
     secret: string; // normalized base32, no padding or separators
     digits: number;
     algorithm: 'SHA-1' | 'SHA-256' | 'SHA-512';
+    // How the truncated HMAC becomes the code the user reads. Absent is the
+    // RFC 4226 decimal one; 'steam' is Steam Guard's five-character base-26
+    // alphabet. Optional rather than a required union so a config built
+    // without thinking about it is the ordinary kind, which is the safe way
+    // round to be wrong
+    encoder?: 'steam';
 }
 
 export interface TotpConfig extends OtpConfigBase {
@@ -51,6 +57,15 @@ const KEETRAY_FIELDS = ['TOTP Seed', 'TOTP Settings'];
 
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 
+// Steam Guard. Ordinary TOTP (HMAC-SHA1, 30 second step, RFC 4226 dynamic
+// truncation) up to the last step, where the 31 bit value becomes five
+// characters of this alphabet instead of decimal digits. Nothing else about
+// it varies, so a URI claiming other digits, another algorithm or another
+// period is contradicting itself and those values are not read from it.
+const STEAM_ALPHABET = '23456789BCDFGHJKMNPQRTVWXY';
+const STEAM_DIGITS = 5;
+const STEAM_PERIOD = 30;
+
 export class TotpService {
     static readonly TOTP_KEYS = [OTP_FIELD, ...KEEPASS_FIELDS, ...KEEPASS_HOTP_FIELDS, ...KEETRAY_FIELDS];
 
@@ -72,6 +87,36 @@ export class TotpService {
         return cleaned;
     }
 
+    static steamConfig(secret: string): TotpConfig {
+        return { type: 'totp', secret, period: STEAM_PERIOD, digits: STEAM_DIGITS, algorithm: 'SHA-1', encoder: 'steam' };
+    }
+
+    static isSteam(config: OtpConfig | null | undefined): boolean {
+        return config?.encoder === 'steam';
+    }
+
+    // The secret behind a steam:// input. A Steam authenticator tool writes a
+    // maFile holding both spellings: `shared_secret` is base64 and the `uri`
+    // field's secret is base32, and people paste whichever they found.
+    //
+    // Only the format decides, never the content: a 20 byte secret is 32
+    // base32 characters, or 27 of base64 plus exactly one '=' of padding.
+    // So '+', '/' and '=' are each impossible in the base32 form and settle
+    // it, and a real maFile secret always carries the padding. Anything with
+    // none of them is read as base32, which is the documented steam:// form.
+    // Guessing on likelihood instead would silently derive the wrong key
+    private static steamSecret(raw: string): string | null {
+        const cleaned = raw.replace(/\s/g, '');
+        if (!/[+/=]/.test(cleaned)) return this.normalizeSecret(cleaned);
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(cleaned)) return null;
+        try {
+            const bytes = Uint8Array.from(atob(cleaned), c => c.charCodeAt(0));
+            return bytes.length > 0 ? this.base32Encode(bytes) : null;
+        } catch {
+            return null;
+        }
+    }
+
     private static sanitizeCounter(raw: string | undefined): number {
         const counter = parseInt(raw ?? '0', 10);
         return Number.isSafeInteger(counter) && counter >= 0 ? counter : 0;
@@ -90,12 +135,14 @@ export class TotpService {
     static parseOtpAuthUri(uri: string): OtpConfig | null {
         // Parsed by hand: Chromium's URL treats non-special schemes as opaque
         // paths (host comes back empty), unlike Node, so new URL() is unusable
-        const match = uri.trim().match(/^otpauth:\/\/([^/?#]+)[^?#]*(?:\?([^#]*))?/i);
+        // The label is captured too: it is one of the places a URI says it is
+        // a Steam secret (see steamFromUri)
+        const match = uri.trim().match(/^otpauth:\/\/([^/?#]+)([^?#]*)(?:\?([^#]*))?/i);
         if (!match) return null;
         const host = match[1].toLowerCase();
-        if (host !== 'totp' && host !== 'hotp') return null;
+        if (host !== 'totp' && host !== 'hotp' && host !== 'steam') return null;
 
-        const params = new URLSearchParams(match[2] ?? '');
+        const params = new URLSearchParams(match[3] ?? '');
         const secret = this.normalizeSecret(params.get('secret') ?? '');
         if (!secret) return null;
 
@@ -103,10 +150,38 @@ export class TotpService {
         const algorithm = algoParam === 'SHA256' ? 'SHA-256' : algoParam === 'SHA512' ? 'SHA-512' : 'SHA-1';
         const digits = this.sanitizeDigits(params.get('digits') ?? undefined);
 
+        // Counter-based Steam does not exist, so the hotp host settles it
+        // before any of the Steam signals are consulted
         if (host === 'hotp') {
             return { type: 'hotp', secret, digits, algorithm, counter: this.sanitizeCounter(params.get('counter') ?? undefined) };
         }
+        if (this.steamFromUri(host, match[2], params)) return this.steamConfig(secret);
         return { type: 'totp', secret, digits, algorithm, period: this.sanitizePeriod(params.get('period') ?? undefined) };
+    }
+
+    // Whether an otpauth URI is a Steam one. Four signals, because no single
+    // spelling is standard:
+    //
+    //   otpauth://steam/...            some extractors
+    //   ...&encoder=steam              KeePassXC and Aegis exports
+    //   ...&issuer=Steam               the maFile's own `uri` field
+    //   otpauth://totp/Steam:user?...  the same URI's label
+    //
+    // The last two are inference rather than a declaration, and they are here
+    // because the URI a Steam tool actually writes carries no encoder at all:
+    // read literally it is an ordinary TOTP URI and yields six digits that
+    // Steam rejects. Guessing is safe in this one direction because Steam
+    // has exactly one OTP scheme, so an issuer of Steam cannot mean anything
+    // else. The entry panel names the result, and removing it is one click
+    private static steamFromUri(host: string, path: string, params: URLSearchParams): boolean {
+        if (host === 'steam') return true;
+        if ((params.get('encoder') ?? '').toLowerCase() === 'steam') return true;
+        if ((params.get('issuer') ?? '').trim().toLowerCase() === 'steam') return true;
+        let label = path;
+        try {
+            label = decodeURIComponent(path);
+        } catch { /* keep the raw form; a bad escape is not a Steam label */ }
+        return /^\/?steam:/i.test(label);
     }
 
     // Google Authenticator "Transfer accounts" QR:
@@ -221,11 +296,19 @@ export class TotpService {
         return fields;
     }
 
-    // Accepts an otpauth:// URI or a bare base32 secret (always time-based)
+    // Accepts an otpauth:// URI, Bitwarden's steam://<secret>, or a bare
+    // base32 secret (always time-based)
     static parseUserInput(input: string): OtpConfig | null {
         const trimmed = input.trim();
         if (trimmed.toLowerCase().startsWith('otpauth://')) {
             return this.parseOtpAuthUri(trimmed);
+        }
+        // The one marker a user can produce by hand. Nothing a Steam tool
+        // writes says "steam" on its own, so without this the only way to
+        // enter one is to already hold an export from another manager
+        if (trimmed.toLowerCase().startsWith('steam://')) {
+            const secret = this.steamSecret(trimmed.slice('steam://'.length));
+            return secret ? this.steamConfig(secret) : null;
         }
         const secret = this.normalizeSecret(trimmed);
         if (!secret) return null;
@@ -239,6 +322,10 @@ export class TotpService {
         else params.set('counter', String(config.counter));
         params.set('digits', String(config.digits));
         params.set('algorithm', config.algorithm.replace('-', ''));
+        // Without this a Steam entry exported to CSV and imported back is an
+        // ordinary six digit one, which is the silent failure this whole
+        // encoder exists to stop. Same spelling KeePassXC writes
+        if (config.encoder === 'steam') params.set('encoder', 'steam');
         return `otpauth://${config.type}/${encodeURIComponent(label || 'Vigil')}?${params.toString()}`;
     }
 
@@ -302,8 +389,12 @@ export class TotpService {
         if (seedField && seed) {
             // "30;6" period;digits
             const settings = (get('TOTP Settings') ?? '').split(';');
+            // KeeTrayTOTP writes the length where a digit count goes, and 'S'
+            // there means Steam. Read as a digit count it is NaN, which used
+            // to fall back to 6 and produce a confident, wrong code
+            const steam = (settings[1] ?? '').trim().toUpperCase() === 'S';
             return {
-                config: {
+                config: steam ? this.steamConfig(seed) : {
                     type: 'totp',
                     secret: seed,
                     period: this.sanitizePeriod(settings[0]),
@@ -406,6 +497,18 @@ export class TotpService {
             (hmac[offset + 1] << 16) |
             (hmac[offset + 2] << 8) |
             hmac[offset + 3];
+
+        // Everything above is RFC 4226. Steam differs only here: the same
+        // 31 bit value read as five base-26 digits, least significant first
+        if (config.encoder === 'steam') {
+            let value = binary;
+            let code = '';
+            for (let i = 0; i < STEAM_DIGITS; i++) {
+                code += STEAM_ALPHABET[value % STEAM_ALPHABET.length];
+                value = Math.floor(value / STEAM_ALPHABET.length);
+            }
+            return code;
+        }
 
         return String(binary % 10 ** config.digits).padStart(config.digits, '0');
     }

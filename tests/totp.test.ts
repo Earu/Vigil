@@ -229,3 +229,103 @@ describe('HOTP counter write-back', () => {
         expect(TotpService.withCounter(fields, 1)).toBe(fields);
     });
 });
+
+// Steam Guard. Ordinary TOTP until the last step, where the truncated value
+// becomes five characters of a 26 character alphabet instead of decimal
+// digits. The vectors below were produced by an implementation written
+// against Node's crypto alone, and its RFC 6238 output for the same secret
+// and times matches the published vectors, so the pipeline feeding the Steam
+// encoding is the verified one. The alphabet is steamguard-cli's
+// steam_guard_code_translations, byte for byte
+describe('Steam Guard', () => {
+    // 20 bytes, the reference maFile secret, in both spellings people paste
+    const STEAM_B64 = 'zvIayp3JPvtvX/QGHqsqKBk/44s=';
+    const STEAM_B32 = 'Z3ZBVSU5ZE7PW3276QDB5KZKFAMT7Y4L';
+
+    it('matches known vectors', async () => {
+        const config = TotpService.steamConfig(SHA1_SECRET);
+        for (const [seconds, expected] of [
+            [59, 'PV9M4'],
+            [1111111109, 'PY4YB'],
+            [1234567890, 'VHHQY'],
+            [2000000000, '9N776'],
+        ] as const) {
+            expect(await TotpService.generateCode(config, seconds * 1000)).toBe(expected);
+        }
+    });
+
+    it('produces five characters from the Steam alphabet only', async () => {
+        const config = TotpService.steamConfig(SHA1_SECRET);
+        for (let step = 0; step < 200; step++) {
+            const code = await TotpService.generateCode(config, step * 30_000);
+            expect(code).toMatch(/^[23456789BCDFGHJKMNPQRTVWXY]{5}$/);
+        }
+    });
+
+    it('takes the steam:// form in base32 and in a maFile\'s base64', () => {
+        for (const input of [`steam://${STEAM_B32}`, `steam://${STEAM_B64}`, `STEAM://${STEAM_B32}`]) {
+            const config = TotpService.parseUserInput(input);
+            expect(config).toMatchObject({ type: 'totp', secret: STEAM_B32, encoder: 'steam' });
+        }
+    });
+
+    it('reads every spelling that declares Steam', () => {
+        const uris = [
+            `otpauth://totp/Steam:bob?secret=${STEAM_B32}&encoder=steam`,
+            `otpauth://steam/bob?secret=${STEAM_B32}`,
+            // KeePassXC writes digits=5, which the digit sanitizer used to
+            // clamp back to 6
+            `otpauth://totp/x?secret=${STEAM_B32}&digits=5&encoder=steam`,
+        ];
+        for (const uri of uris) {
+            expect(TotpService.parseOtpAuthUri(uri)).toMatchObject({ encoder: 'steam', digits: 5, period: 30, algorithm: 'SHA-1' });
+        }
+    });
+
+    // The uri field in a steamguard-cli maFile carries no encoder, so read
+    // literally it is an ordinary TOTP URI that yields six digits Steam
+    // rejects. The issuer and the label are the only things that give it away
+    it('infers Steam from the maFile uri, which declares nothing', () => {
+        const fromMaFile = `otpauth://totp/Steam:bob?secret=${STEAM_B32}&issuer=Steam`;
+        expect(TotpService.parseUserInput(fromMaFile)).toMatchObject({ encoder: 'steam' });
+        expect(TotpService.parseUserInput(`otpauth://totp/Steam:bob?secret=${STEAM_B32}`)).toMatchObject({ encoder: 'steam' });
+    });
+
+    it('leaves an ordinary URI alone', () => {
+        const config = TotpService.parseUserInput(`otpauth://totp/GitHub:bob?secret=${SHA1_SECRET}&issuer=GitHub`);
+        expect(config).toMatchObject({ type: 'totp', digits: 6 });
+        expect(config?.encoder).toBeUndefined();
+        // A bare secret is never Steam: nothing about it says so
+        expect(TotpService.parseUserInput(STEAM_B32)?.encoder).toBeUndefined();
+    });
+
+    // Counter-based Steam does not exist, so the hotp host wins over an
+    // issuer that would otherwise infer it
+    it('never infers Steam for a counter-based URI', () => {
+        const config = TotpService.parseUserInput(`otpauth://hotp/Steam:bob?secret=${STEAM_B32}&issuer=Steam&counter=3`);
+        expect(config).toMatchObject({ type: 'hotp', counter: 3 });
+        expect(config?.encoder).toBeUndefined();
+    });
+
+    it('reads KeeTrayTOTP settings of 30;S', () => {
+        const fields = [field('TOTP Seed', STEAM_B32), field('TOTP Settings', '30;S')];
+        expect(TotpService.getConfig(fields)).toMatchObject({ encoder: 'steam', digits: 5 });
+        // and still reads an ordinary pair as before
+        const plain = TotpService.getConfig([field('TOTP Seed', SHA1_SECRET), field('TOTP Settings', '30;8')]);
+        expect(plain).toMatchObject({ digits: 8 });
+        expect(plain?.encoder).toBeUndefined();
+    });
+
+    // A CSV export rebuilds the URI; without the encoder the reimported entry
+    // is an ordinary six digit one
+    it('survives a round trip through the otpauth URI', () => {
+        const uri = TotpService.buildOtpAuthUri(TotpService.steamConfig(STEAM_B32), 'Steam:bob');
+        expect(uri).toContain('encoder=steam');
+        expect(TotpService.parseOtpAuthUri(uri)).toMatchObject({ secret: STEAM_B32, encoder: 'steam', digits: 5 });
+    });
+
+    it('refuses a steam:// input that is neither base32 nor base64', () => {
+        expect(TotpService.parseUserInput('steam://!!!!')).toBeNull();
+        expect(TotpService.parseUserInput('steam://')).toBeNull();
+    });
+});
