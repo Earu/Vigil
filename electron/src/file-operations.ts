@@ -5,6 +5,7 @@ import path from 'path';
 import { backupBeforeWrite, BackupRequest, DEFAULT_BACKUP_OPTIONS } from './backups';
 import { grantPath, grantPathPersistent } from './path-authority';
 import { materialize, isEvicted, describeReadFailure } from './cloud-files';
+import { readBoundedFile, VaultTooLargeError } from './conflict-copies';
 
 const LAST_DB_PATH = path.join(app.getPath('userData'), 'last_database.json');
 
@@ -339,10 +340,16 @@ export async function readFile(filePath: string): Promise<{ success: boolean, er
     try {
         const ready = await materialize(filePath);
         if (!ready.ok) return { success: false, error: ready.error };
-        const data = await fs.promises.readFile(filePath);
+        // Bounded, like every other path that follows a vault: a grant says
+        // the user pointed the app at this path, not that what sits there now
+        // is still a vault (see conflict-copies MAX_VAULT_BYTES)
+        const data = await readBoundedFile(filePath);
         return { success: true, data };
     } catch (error) {
         console.error('Failed to read file:', error);
+        // Worth saying out loud rather than reading as a generic failure:
+        // nothing the user can do to the file will make a retry work
+        if (error instanceof VaultTooLargeError) return { success: false, error: error.message };
         return { success: false, error: describeReadFailure(filePath, error) };
     }
 }

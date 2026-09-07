@@ -481,6 +481,16 @@ describe('hardware-key-challenge', () => {
         expect(await handler()(makeEvent(), null, 2, bytes)).toEqual({ success: false, error: 'no key present' });
     });
 
+    // new Uint8Array reads a number as a length, so an argument that is not
+    // a buffer allocated whatever it named in the main process
+    it('refuses a challenge that is not a buffer, without reaching the key', async () => {
+        challenge.mockClear();
+        for (const bad of [1024 * 1024 * 1024, '1073741824', null, undefined, {}, [1, 2, 3]]) {
+            expect(await handler()(makeEvent(), 123, 2, bad)).toEqual({ success: false, error: 'Invalid challenge' });
+        }
+        expect(challenge).not.toHaveBeenCalled();
+    });
+
     it('passes the challenge as bytes and coerces any slot but 1 to 2', async () => {
         challenge.mockResolvedValue(new Uint8Array(20));
         await handler()(makeEvent(), 123, 1, bytes);

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { isConflictCopyName, resolveVaultFile } from './conflict-copies';
+import { isConflictCopyName, readBoundedFile, resolveVaultFile } from './conflict-copies';
 
 // Follows the open vault's file on disk so a change made elsewhere (another
 // machine through a sync client, another app) reaches the renderer while the
@@ -99,7 +99,9 @@ export function watchVault(win: WatchTarget, filePath: string, deps: WatchDeps =
     const dir = path.dirname(target);
     const name = path.basename(target);
     const debounceMs = deps.debounceMs ?? DEBOUNCE_MS;
-    const readFile = deps.readFile ?? (p => fs.promises.readFile(p));
+    // Bounded: the watcher reads whatever the sync client dropped beside the
+    // vault, and a file named like a copy is not necessarily one
+    const readFile = deps.readFile ?? (p => readBoundedFile(p));
     const stat = deps.stat ?? (p => fs.promises.stat(p));
 
     const notify = async (active: ActiveWatch, fileName: string) => {
