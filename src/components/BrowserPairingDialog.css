@@ -7,14 +7,25 @@
     justify-content: center;
     z-index: 1200;
     backdrop-filter: blur(4px);
+    /* Room for the dialog to stop short of the viewport edges when it is at
+       its full height, so its own border still reads as its edge */
+    padding: 1.5rem;
 }
 
+/* Every dialog in this family asks the user to approve something a browser
+   requested, and several of them name values that came with the request (the
+   host, the account being saved, the site asking for a passkey). Those are
+   capped where they arrive, and the height cap is the second, independent
+   guard: whatever ends up inside, the dialog scrolls rather than growing
+   past the screen and carrying its own heading and buttons off it */
 .pairing-dialog {
     background-color: var(--bg-dark);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-md);
     width: 90%;
     max-width: 420px;
+    max-height: 100%;
+    overflow-y: auto;
     padding: 1.25rem;
     display: flex;
     flex-direction: column;
@@ -32,6 +43,10 @@
     font-size: 0.85rem;
     color: var(--text-tertiary);
     line-height: 1.4;
+    /* These sentences carry a host and an account name from the request, and
+       neither has to contain a space; without this an unbroken one runs out
+       of the dialog instead of wrapping inside it */
+    overflow-wrap: anywhere;
 }
 
 .pairing-name-input {

@@ -331,12 +331,22 @@ export class BrowserIntegrationService {
         this.released.clear();
     }
 
+    // The longest a URL and a login may be. Both are shown in a consent
+    // dialog, and the socket takes a message of up to a megabyte, so without
+    // these the dialog can be grown until what it asks scrolls off the
+    // screen and the text above the buttons is whoever sent it. Well past
+    // any real page URL or account name; a browser sending more than this is
+    // not describing a login the user is about to save
+    private static readonly MAX_URL_CHARS = 4096;
+    private static readonly MAX_LOGIN_CHARS = 256;
+
     // Payloads come off the socket from whatever holds the extension's
     // storage. A field of the wrong shape fails here, before anything is
     // looked up or created
     private static invalidPayload(action: string, payload: any): number | null {
         const optionalString = (value: unknown) => value === undefined || value === null || typeof value === 'string';
-        const url = () => typeof payload.url === 'string' && payload.url.length > 0 ? null : ERROR_NO_URL_PROVIDED;
+        const url = () => typeof payload.url === 'string' && payload.url.length > 0 && payload.url.length <= this.MAX_URL_CHARS
+            ? null : ERROR_NO_URL_PROVIDED;
         switch (action) {
             case 'associate':
                 return typeof payload.idKey === 'string' && payload.idKey.length > 0 && payload.idKey.length <= 128
@@ -350,6 +360,7 @@ export class BrowserIntegrationService {
                 if (payload.uuid !== undefined && payload.uuid !== null && !(typeof payload.uuid === 'string' && UUID_HEX.test(payload.uuid))) return ERROR_NO_VALID_UUID;
                 // The extension always sends both, empty or not
                 if (typeof payload.login !== 'string' || typeof payload.password !== 'string') return ERROR_INCORRECT_ACTION;
+                if (payload.login.length > this.MAX_LOGIN_CHARS) return ERROR_INCORRECT_ACTION;
                 return [payload.submitUrl, payload.group, payload.groupUuid].every(optionalString) ? null : ERROR_INCORRECT_ACTION;
             case 'get-totp':
                 return typeof payload.uuid === 'string' && UUID_HEX.test(payload.uuid) ? null : ERROR_NO_VALID_UUID;
