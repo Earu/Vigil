@@ -24,6 +24,9 @@ interface UserSettings {
     keyFilePaths?: Record<string, string>;
     // Remembered hardware key (YubiKey challenge-response) per database path
     hardwareKeys?: Record<string, HardwareKeyPreference>;
+    // Vaults whose weak key derivation the user chose to live with, so the
+    // warning at unlock stops asking. Keyed by database path
+    weakKdfAccepted?: Record<string, boolean>;
     // Fetching entry icons from Google's favicon service sends each entry's
     // domain to Google, so it is opt-in
     fetchFavicons?: boolean;
@@ -261,6 +264,15 @@ class UserSettingsService {
             delete keys[databasePath];
         }
         this.current.hardwareKeys = keys;
+        this.saveSettings();
+    }
+
+    isWeakKdfAccepted(databasePath: string): boolean {
+        return !!this.current.weakKdfAccepted?.[databasePath];
+    }
+
+    acceptWeakKdf(databasePath: string): void {
+        this.current.weakKdfAccepted = { ...(this.current.weakKdfAccepted ?? {}), [databasePath]: true };
         this.saveSettings();
     }
 

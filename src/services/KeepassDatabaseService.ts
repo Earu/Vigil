@@ -32,6 +32,15 @@ export interface SearchTerm {
     value: string;
 }
 
+// Why a vault's key derivation is too weak to leave alone: the old format,
+// which has no Argon2 at all, an Argon2-less kdbx4, or Argon2 tuned too low
+// to cost an attacker anything
+export type KdfWeakness =
+    | { code: 'old-format' }
+    | { code: 'aes-kdf' }
+    | { code: 'low-memory'; memoryMiB: number }
+    | { code: 'low-work'; memoryMiB: number; iterations: number };
+
 export interface KdfInfo {
     type: 'argon2d' | 'argon2id' | 'aes' | 'aes-kdbx3';
     iterations: number;
@@ -66,11 +75,15 @@ interface SaveContext {
 }
 
 // What a save should make the vault's credentials become, applied only once
-// the file has been read. An absent field is left as it is; keyFile null
-// removes the key file, which is why its absence and null differ
+// the file has been read. An absent field is left as it is; keyFile and
+// challengeResponse null remove that part of the key, which is why their
+// absence and null differ
 export interface PendingCredentialChange {
     password?: kdbxweb.ProtectedValue;
     keyFile?: ArrayBuffer | null;
+    // The hardware key's challenge-response callback; see
+    // VaultCredentials.hardwareKeyChallengeCallback
+    challengeResponse?: kdbxweb.KdbxChallengeResponseFn | null;
 }
 
 // What an attempt to fold the on-disk version into the live one came to.
@@ -2017,6 +2030,7 @@ export class KeepassDatabaseService {
         let writeLanded = false;
         let previousPasswordHash: kdbxweb.ProtectedValue | undefined;
         let previousKeyFileHash: kdbxweb.ProtectedValue | undefined;
+        let previousChallengeResponse: kdbxweb.KdbxChallengeResponseFn | undefined;
         try {
             if (!kdbxDb) {
                 throw new Error('Database not loaded');
@@ -2152,6 +2166,7 @@ export class KeepassDatabaseService {
             if (ctx.rekeyTo) {
                 previousPasswordHash = kdbxDb.credentials.passwordHash;
                 previousKeyFileHash = kdbxDb.credentials.keyFileHash;
+                previousChallengeResponse = this.challengeResponseOf(kdbxDb.credentials);
                 rekeyApplied = true;
                 if (ctx.rekeyTo.password) {
                     await kdbxDb.credentials.setPassword(ctx.rekeyTo.password);
@@ -2159,6 +2174,9 @@ export class KeepassDatabaseService {
                 // Presence, not truthiness: null is the request to remove it
                 if ('keyFile' in ctx.rekeyTo) {
                     await kdbxDb.credentials.setKeyFile(ctx.rekeyTo.keyFile);
+                }
+                if ('challengeResponse' in ctx.rekeyTo) {
+                    this.setChallengeResponse(kdbxDb.credentials, ctx.rekeyTo.challengeResponse ?? undefined);
                 }
             }
 
@@ -2264,6 +2282,7 @@ export class KeepassDatabaseService {
             if (rekeyApplied && !writeLanded) {
                 kdbxDb.credentials.passwordHash = previousPasswordHash;
                 kdbxDb.credentials.keyFileHash = previousKeyFileHash;
+                this.setChallengeResponse(kdbxDb.credentials, previousChallengeResponse);
             }
             if (err instanceof Error && err.message === 'SAVE_CANCELLED_CONFLICT') {
                 (window as any).showToast?.({
@@ -2292,6 +2311,27 @@ export class KeepassDatabaseService {
     }
 
     // ---- Database settings ----
+
+    // kdbxweb keeps the challenge-response callback in a private field with
+    // no public setter, and moving an open vault onto a different hardware
+    // key (or off one) means replacing it. Read and written through these two
+    // so the cast lives in one place
+    private static challengeResponseOf(credentials: kdbxweb.Credentials): kdbxweb.KdbxChallengeResponseFn | undefined {
+        return (credentials as unknown as { _challengeResponse?: kdbxweb.KdbxChallengeResponseFn })._challengeResponse;
+    }
+
+    private static setChallengeResponse(
+        credentials: kdbxweb.Credentials,
+        fn: kdbxweb.KdbxChallengeResponseFn | undefined
+    ): void {
+        (credentials as unknown as { _challengeResponse?: kdbxweb.KdbxChallengeResponseFn })._challengeResponse = fn;
+    }
+
+    // Whether the open vault's key includes a hardware key. The credentials
+    // hold a callback rather than a hash, so this is the only way to tell
+    static usesHardwareKey(kdbxDb: kdbxweb.Kdbx): boolean {
+        return !!this.challengeResponseOf(kdbxDb.credentials);
+    }
 
     static async verifyMasterPassword(kdbxDb: kdbxweb.Kdbx, password: string): Promise<boolean> {
         const expected = kdbxDb.credentials.passwordHash?.getBinary();
@@ -2430,6 +2470,51 @@ export class KeepassDatabaseService {
         params.set('I', VT.UInt64, kdbxweb.Int64.from(info.iterations));
         params.set('M', VT.UInt64, kdbxweb.Int64.from((info.memoryMiB ?? 64) * 1024 * 1024));
         params.set('P', VT.UInt32, info.parallelism ?? 1);
+    }
+
+    // What a vault Vigil creates is encrypted with, and what a weak one is
+    // offered. RFC 9106's second recommendation, and what KeePassXC's
+    // one-second benchmark lands near on current hardware
+    static readonly RECOMMENDED_KDF: KdfInfo = { type: 'argon2id', iterations: 3, memoryMiB: 64, parallelism: 4 };
+
+    // Below this an Argon2 vault is no harder to attack on a GPU than a
+    // plain hash: memory is what makes the work unparallelisable
+    static readonly MIN_ARGON2_MEMORY_MIB = 32;
+
+    // Memory times iterations, the other half of the cost. 64 puts a vault at
+    // 64 MiB for one pass, a quarter of the recommended work
+    static readonly MIN_ARGON2_WORK_MIB_PASSES = 64;
+
+    // What is wrong with this vault's key derivation, or null when it is
+    // sound. Read at unlock and offered as a re-encryption; the dialog does
+    // the wording, see applyRecommendedKdf
+    static kdfWeakness(info: KdfInfo): KdfWeakness | null {
+        if (info.type === 'aes-kdbx3') return { code: 'old-format' };
+        if (info.type === 'aes') return { code: 'aes-kdf' };
+        const memoryMiB = info.memoryMiB ?? 64;
+        if (memoryMiB < this.MIN_ARGON2_MEMORY_MIB) return { code: 'low-memory', memoryMiB };
+        if (memoryMiB * info.iterations < this.MIN_ARGON2_WORK_MIB_PASSES) {
+            return { code: 'low-work', memoryMiB, iterations: info.iterations };
+        }
+        return null;
+    }
+
+    static vaultWeakness(kdbxDb: kdbxweb.Kdbx): KdfWeakness | null {
+        return this.kdfWeakness(this.getKdfInfo(kdbxDb));
+    }
+
+    // Moves the vault onto RECOMMENDED_KDF, upgrading the file format first
+    // when it is old enough to have nowhere to put Argon2. The re-encryption
+    // itself is the save that follows: it writes the whole file under a fresh
+    // master seed, whatever changed here
+    static applyRecommendedKdf(kdbxDb: kdbxweb.Kdbx): void {
+        if (kdbxDb.header.versionMajor < 4) {
+            kdbxDb.setVersion(4);
+            // setVersion writes 4.0; 4.1 is what Vigil creates and what
+            // carries tags and previousParentGroup
+            kdbxDb.header.versionMinor = 1;
+        }
+        this.setKdf(kdbxDb, this.RECOMMENDED_KDF);
     }
 
     static getHistoryMaxItems(kdbxDb: kdbxweb.Kdbx): number {

@@ -475,7 +475,7 @@ export const PasswordForm = ({
             // 2.7 ignore the extra elements rather than refusing the file
             db.header.versionMinor = 1;
             // kdbxweb defaults to Argon2d with 1 MiB / 2 iterations, far too weak
-            KeepassDatabaseService.setKdf(db, { type: 'argon2id', iterations: 3, memoryMiB: 64, parallelism: 4 });
+            KeepassDatabaseService.setKdf(db, KeepassDatabaseService.RECOMMENDED_KDF);
 
             // Seed the new database with imported passwords if any
             if (browserPasswords && browserPasswords.entries.length > 0) {
