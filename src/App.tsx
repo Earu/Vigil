@@ -10,7 +10,7 @@ import { TitleBar } from './components/TitleBar';
 import { ToastContainer } from './components/Toast/Toast';
 import { FocusTooltip } from './components/FocusTooltip';
 import { AuthenticationView } from './components/Authentication/AuthenticationView';
-import { KeepassDatabaseService, PendingCredentialChange } from './services/KeepassDatabaseService';
+import { KeepassDatabaseService, KdfWeakness, PendingCredentialChange } from './services/KeepassDatabaseService';
 import { SshAgentService } from './services/SshAgentService';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { Settings } from './components/Settings/Settings';
@@ -33,6 +33,7 @@ import { HardwareKeyTouchDialog } from './components/HardwareKeyTouchDialog';
 import { SaveConflictDialog } from './components/SaveConflictDialog';
 import { ConflictCopyDialog, ConflictCopyRequest, hasChanges } from './components/ConflictCopyDialog';
 import { RekeyDialog, KeyMaterial } from './components/RekeyDialog';
+import { WeakVaultDialog } from './components/WeakVaultDialog';
 import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
 import { consentQueue } from './services/ConsentQueue';
 import { resealBiometrics } from './services/MasterPasswordChange';
@@ -47,6 +48,10 @@ function App() {
 	const [searchQuery, setSearchQuery] = useState('');
 	const [kdbxDb, setKdbxDb] = useState<kdbxweb.Kdbx | null>(null);
 	const [showInitialBreachReport, setShowInitialBreachReport] = useState(false);
+	// Why the vault that just opened is too weakly encrypted to leave alone,
+	// or null. Raised ahead of the security report: an offline attack on a
+	// weak key derivation gets at every entry the report could name
+	const [weakVault, setWeakVault] = useState<KdfWeakness | null>(null);
 	// Incremented each time the title bar shield button is clicked; PasswordView
 	// opens the security report whenever it changes
 	const [securityReportRequestId, setSecurityReportRequestId] = useState(0);
@@ -448,6 +453,8 @@ function App() {
 		// on top of the vault that just opened
 		setShowSettings(false);
 		setShowInitialBreachReport(!!showBreachReport);
+		const weakness = KeepassDatabaseService.vaultWeakness(kdbxDb);
+		setWeakVault(weakness && !(path && userSettingsService.isWeakKdfAccepted(path)) ? weakness : null);
 
 		// Entries carrying an SSH key that asked to be loaded at open go into
 		// the agent now; they leave it when the vault locks (main process,
@@ -548,6 +555,7 @@ function App() {
 		setShowSettings(false);
 		setSearchQuery('');
 		setShowInitialBreachReport(false);
+		setWeakVault(null);
 		FaviconService.reset();
 		KeepassDatabaseService.setPath(undefined);
 		BreachCheckService.cancelChecks();
@@ -612,6 +620,24 @@ function App() {
 		} finally {
 			savesInFlight.current--;
 		}
+	};
+
+	// Rewrites the vault under the recommended key derivation. Nothing about
+	// the master key changes, so no re-seal and no other device has to be told
+	// anything; the file is simply written again from scratch
+	const reencryptVault = async (): Promise<boolean> => {
+		if (!kdbxDb) return false;
+		KeepassDatabaseService.applyRecommendedKdf(kdbxDb);
+		const saved = await handleDatabaseChange(KeepassDatabaseService.convertKdbxToDatabase(kdbxDb))
+			.then(() => true, () => false);
+		if (!saved) return false;
+		setWeakVault(null);
+		(window as any).showToast?.({
+			message: 'The vault was re-encrypted with stronger protection',
+			type: 'success',
+			duration: 4000
+		});
+		return true;
 	};
 
 	const handleDatabaseChangeFromUi = (updatedDatabase: Database) => {
@@ -710,7 +736,7 @@ function App() {
 				database={database}
 				searchQuery={searchQuery}
 				onDatabaseChange={handleDatabaseChangeFromUi}
-				showInitialBreachReport={showInitialBreachReport}
+				showInitialBreachReport={showInitialBreachReport && !weakVault}
 				securityReportRequestId={securityReportRequestId}
 				entryDirty={entryDirty}
 				saveFailed={saveFailed}
@@ -757,6 +783,17 @@ function App() {
 					return handleDatabaseChange(updatedDatabase, rekeyTo).then(() => true, () => false);
 				}}
 			/>
+			{weakVault && (
+				<WeakVaultDialog
+					weakness={weakVault}
+					onReencrypt={reencryptVault}
+					onDismiss={(stopAsking) => {
+						const path = KeepassDatabaseService.getPath();
+						if (stopAsking && path) userSettingsService.acceptWeakKdf(path);
+						setWeakVault(null);
+					}}
+				/>
+			)}
 			<ToastContainer />
 			<FocusTooltip />
 			{/* Keyed on the item id: a different request is a different dialog,

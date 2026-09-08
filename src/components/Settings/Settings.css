@@ -534,25 +534,6 @@
     width: 1rem;
     height: 1rem;
 }
-.key-file-controls > label {
-    display: block;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.25rem;
-}
-
-.key-file-buttons {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-    flex-wrap: wrap;
-}
-
-.key-file-remove:hover {
-    color: var(--color-error);
-    border-color: var(--color-error);
-}
-
 .update-status-row {
     display: flex;
     align-items: center;
@@ -576,7 +557,7 @@
 }
 
 .db-details-controls > label,
-.master-password-controls > label,
+.master-key-controls > label,
 .kdf-controls > label,
 .history-retention-controls > label {
     display: block;
@@ -630,12 +611,6 @@ select.db-input {
 .db-apply-row button:disabled {
     opacity: 0.5;
     cursor: default;
-}
-
-.db-settings-error {
-    margin: 0.5rem 0 0 0;
-    font-size: 0.75rem;
-    color: var(--color-error);
 }
 
 .settings-tabs {
@@ -846,11 +821,3 @@ select.db-input {
     flex: 0 0 auto;
 }
 
-/* Advisory text under a settings label, for consequences the user should
-   know before acting rather than an error after */
-.db-settings-note {
-    margin: 0 0 0.625rem;
-    font-size: 0.75rem;
-    line-height: 1.5;
-    color: var(--text-tertiary);
-}

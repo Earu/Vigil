@@ -1,0 +1,47 @@
+/* Sits on the pairing-dialog shell; only the parts the unlock screen's chips
+   do not already cover are defined here */
+.master-key-dialog .master-key-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.master-key-dialog .master-key-field > span {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.master-key-dialog .master-key-field > input {
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    background-color: var(--overlay-light);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.master-key-dialog .master-key-field > input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.master-key-add-row {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.master-key-add-row .add-key-file {
+    flex: 1;
+}
+
+.master-key-dialog p.master-key-note {
+    font-size: 0.75rem;
+    color: var(--text-tertiary);
+}
+
+.master-key-dialog p.master-key-error {
+    font-size: 0.75rem;
+    color: var(--color-error);
+}

@@ -11,11 +11,11 @@ import { ImportService } from '../../services/ImportService';
 import { ExportService } from '../../services/ExportService';
 import { BrowserIntegrationService } from '../../services/BrowserIntegrationService';
 import { KeepassDatabaseService, PendingCredentialChange, KdfInfo } from '../../services/KeepassDatabaseService';
-import { changeMasterPassword } from '../../services/MasterPasswordChange';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
 import { Modal } from '../Modal';
+import { MasterKeyDialog } from '../MasterKeyDialog';
 import { TabStrip, tabPanelProps } from '../TabStrip';
 import { SHORTCUT_GROUPS, chordKeys } from '../../services/Shortcuts';
 import { confirmDialog } from '../../services/Dialogs';
@@ -64,7 +64,12 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             setBackupInfo(null);
             return;
         }
-        window.electron.getBackupInfo(vaultPath).then(setBackupInfo).catch(() => setBackupInfo(null));
+        const refresh = () => window.electron!.getBackupInfo(vaultPath).then(setBackupInfo).catch(() => setBackupInfo(null));
+        refresh();
+        // The master key change offers to delete the copies that still open
+        // with the old one
+        window.addEventListener('vigil-backups-changed', refresh);
+        return () => window.removeEventListener('vigil-backups-changed', refresh);
     }, [isOpen]);
 
     useEffect(() => {
@@ -89,10 +94,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
     const [dbName, setDbName] = useState('');
     const [dbDesc, setDbDesc] = useState('');
-    const [currentPw, setCurrentPw] = useState('');
-    const [newPw, setNewPw] = useState('');
-    const [confirmPw, setConfirmPw] = useState('');
-    const [pwError, setPwError] = useState('');
+    const [showMasterKey, setShowMasterKey] = useState(false);
     const [kdfInfo, setKdfInfo] = useState<KdfInfo | null>(null);
     const [historyMax, setHistoryMax] = useState(10);
     const [activeTab, setActiveTab] = useState<'general' | 'database' | 'security'>('general');
@@ -110,6 +112,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     // the database
     useEffect(() => {
         if (isOpen) setActiveTab('general');
+        setShowMasterKey(false);
     }, [isOpen]);
     const currentTab = activeTab === 'database' && !kdbxDb ? 'general' : activeTab;
 
@@ -120,10 +123,6 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         setDbDesc(kdbxDb.meta.desc ?? '');
         setKdfInfo(KeepassDatabaseService.getKdfInfo(kdbxDb));
         setHistoryMax(KeepassDatabaseService.getHistoryMaxItems(kdbxDb));
-        setCurrentPw('');
-        setNewPw('');
-        setConfirmPw('');
-        setPwError('');
     }, [isOpen, kdbxDb]);
 
     useEffect(() => {
@@ -379,83 +378,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     };
 
     const hasKeyFile = !!kdbxDb?.credentials.keyFileHash;
-
-    const applyKeyFile = async (keyFileData: ArrayBuffer | null, keyFilePath: string | undefined, successMessage: string) => {
-        if (!kdbxDb) return;
-
-        try {
-            // The save applies it, after it has read and merged the file. Set
-            // here instead and a failed save would leave the vault holding a
-            // composite key the file does not have, and the remembered path
-            // naming a key file it does not want
-            const saved = await saveAndReport(
-                successMessage,
-                'The key file was not changed',
-                { keyFile: keyFileData }
-            );
-            if (!saved) return;
-
-            const dbPath = KeepassDatabaseService.getPath();
-            if (dbPath) {
-                userSettingsService.setKeyFilePath(dbPath, keyFilePath);
-            }
-        } catch (err) {
-            console.error('Failed to update key file:', err);
-            (window as any).showToast?.({
-                message: 'Failed to update key file',
-                type: 'error',
-                duration: 5000
-            });
-        }
-    };
-
-    const handleUseExistingKeyFile = async () => {
-        const selected = await window.electron?.selectKeyFile();
-        if (!selected?.filePath) return;
-
-        const confirmed = await confirmDialog(
-            'The database will be re-encrypted so that unlocking it needs this key file as well as your password. Losing the key file means losing the database. Continue?',
-            'Continue'
-        );
-        if (!confirmed) return;
-
-        const result = await window.electron?.readFile(selected.filePath);
-        if (!result?.success || !result.data) {
-            (window as any).showToast?.({
-                message: 'Failed to read key file',
-                type: 'error',
-                duration: 5000
-            });
-            return;
-        }
-
-        await applyKeyFile(new Uint8Array(result.data).buffer, selected.filePath, hasKeyFile ? 'Key file changed' : 'Key file added');
-    };
-
-    const handleGenerateKeyFile = async () => {
-        const confirmed = await confirmDialog(
-            'A new random key file will be generated and the database re-encrypted so that unlocking it needs the key file as well as your password. Losing the key file means losing the database. Continue?',
-            'Continue'
-        );
-        if (!confirmed) return;
-
-        const keyFileBytes = await kdbxweb.Credentials.createRandomKeyFile(2);
-        const defaultName = `${kdbxDb?.meta.name || 'database'}.keyx`;
-        const saved = await window.electron?.saveKeyFile(defaultName, keyFileBytes);
-        if (!saved?.success || !saved.filePath) return;
-
-        await applyKeyFile(new Uint8Array(keyFileBytes).buffer, saved.filePath, `Key file generated at ${saved.filePath}`);
-    };
-
-    const handleRemoveKeyFile = async () => {
-        const confirmed = await confirmDialog(
-            'The database will be re-encrypted and protected by your password only. Continue?',
-            'Continue'
-        );
-        if (!confirmed) return;
-
-        await applyKeyFile(null, undefined, 'Key file removed');
-    };
+    const usesHardwareKey = !!kdbxDb && KeepassDatabaseService.usesHardwareKey(kdbxDb);
 
     const showSettingsToast = (message: string, type: 'success' | 'error' = 'success') => {
         (window as any).showToast?.({ message, type, duration: 3000 });
@@ -477,64 +400,6 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         kdbxDb.meta.name = dbName.trim();
         kdbxDb.meta.desc = dbDesc;
         void saveAndReport('Database details saved', 'The database details were not saved');
-    };
-
-    const handleChangePassword = async () => {
-        if (!kdbxDb) return;
-        setPwError('');
-
-        if (!newPw) {
-            setPwError('The new password cannot be empty');
-            return;
-        }
-        if (newPw !== confirmPw) {
-            setPwError('The new passwords do not match');
-            return;
-        }
-        if (!(await KeepassDatabaseService.verifyMasterPassword(kdbxDb, currentPw))) {
-            setPwError('The current password is incorrect');
-            return;
-        }
-
-        const outcome = await changeMasterPassword(newPw, async (rekeyTo) => (await onDatabaseChange?.(rekeyTo)) === true);
-
-        setCurrentPw('');
-        setNewPw('');
-        setConfirmPw('');
-        if (!outcome.saved) {
-            // The save path has already said what failed; the old password
-            // is back in force and biometric unlock, if any, still fits it
-            showSettingsToast('The master password was not changed', 'error');
-            return;
-        }
-        if (outcome.biometrics === 'off') {
-            showSettingsToast(`Master password changed. Biometric unlock was turned off: ${outcome.reason}. Turn it on again from the unlock screen`, 'error');
-        } else {
-            showSettingsToast('Master password changed');
-        }
-        await offerBackupPurge();
-    };
-
-    // The backups were taken under the old password and still open with it
-    const offerBackupPurge = async () => {
-        const dbPath = KeepassDatabaseService.getPath();
-        if (!dbPath || !window.electron) return;
-        let count = 0;
-        try {
-            count = (await window.electron.getBackupInfo(dbPath)).count;
-        } catch {
-            return;
-        }
-        if (count === 0) return;
-        const copies = count === 1 ? '1 backup copy of this database still opens' : `${count} backup copies of this database still open`;
-        if (!(await confirmDialog(`${copies} with the old password. Delete them? This cannot be undone.`, 'Delete'))) return;
-        const result = await window.electron.purgeBackups(dbPath);
-        if (result.success) {
-            showSettingsToast(`Deleted ${result.removed} backup ${result.removed === 1 ? 'copy' : 'copies'}`);
-        } else {
-            showSettingsToast(`Could not delete the backups: ${result.error}`, 'error');
-        }
-        window.electron.getBackupInfo(dbPath).then(setBackupInfo).catch(() => {});
     };
 
     const handleApplyKdf = () => {
@@ -654,70 +519,19 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                     </button>
                                 </div>
                             </div>
-                            <div className="master-password-controls">
-                                <label>Master password</label>
-                                <p className="db-settings-note">
-                                    Close this vault on your other devices first and let the file
-                                    finish syncing. A device that still has it open cannot read the
-                                    re-encrypted file and will have to be given the new password.
-                                </p>
-                                <div className="db-field-row">
-                                    <span>Current password</span>
-                                    <input
-                                        type="password"
-                                        className="db-input"
-                                        value={currentPw}
-                                        onChange={(e) => { setCurrentPw(e.target.value); setPwError(''); }}
-                                    />
-                                </div>
-                                <div className="db-field-row">
-                                    <span>New password</span>
-                                    <input
-                                        type="password"
-                                        className="db-input"
-                                        value={newPw}
-                                        onChange={(e) => { setNewPw(e.target.value); setPwError(''); }}
-                                    />
-                                </div>
-                                <div className="db-field-row">
-                                    <span>Confirm new password</span>
-                                    <input
-                                        type="password"
-                                        className="db-input"
-                                        value={confirmPw}
-                                        onChange={(e) => { setConfirmPw(e.target.value); setPwError(''); }}
-                                    />
-                                </div>
-                                {pwError && <p className="db-settings-error" role="alert">{pwError}</p>}
-                                <div className="db-apply-row">
-                                    <button
-                                        className="settings-secondary-button"
-                                        onClick={handleChangePassword}
-                                        disabled={!currentPw || !newPw || !confirmPw}
-                                    >
-                                        Change password
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="key-file-controls">
-                                <label>Key file protection</label>
+                            <div className="master-key-controls">
+                                <label>Master key</label>
                                 <p className="database-help">
-                                    {hasKeyFile
-                                        ? 'This database requires a key file to unlock.'
-                                        : 'This database is protected by password only.'}
+                                    Unlocked by {[
+                                        'password',
+                                        hasKeyFile ? 'key file' : null,
+                                        usesHardwareKey ? 'hardware key' : null
+                                    ].filter(Boolean).join(' + ')}.
                                 </p>
-                                <div className="key-file-buttons">
-                                    <button className="settings-secondary-button" onClick={handleUseExistingKeyFile}>
-                                        {hasKeyFile ? 'Change key file' : 'Use existing file'}
+                                <div className="db-apply-row">
+                                    <button className="settings-secondary-button" onClick={() => setShowMasterKey(true)}>
+                                        Change master key
                                     </button>
-                                    <button className="settings-secondary-button" onClick={handleGenerateKeyFile}>
-                                        Generate key file
-                                    </button>
-                                    {hasKeyFile && (
-                                        <button className="settings-secondary-button key-file-remove" onClick={handleRemoveKeyFile}>
-                                            Remove key file
-                                        </button>
-                                    )}
                                 </div>
                             </div>
                             {kdfInfo && (
@@ -1320,6 +1134,13 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                             </button>
                         </div>
                 </Modal>
+            )}
+            {showMasterKey && kdbxDb && (
+                <MasterKeyDialog
+                    kdbxDb={kdbxDb}
+                    onSave={(rekeyTo) => Promise.resolve(onDatabaseChange?.(rekeyTo)).then(saved => saved === true)}
+                    onClose={() => setShowMasterKey(false)}
+                />
             )}
         </Modal>
     );
