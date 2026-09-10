@@ -1,0 +1,333 @@
+.share-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.share-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.9rem;
+}
+
+/* Same shape as the history rows: the item clips, so the row's focus ring
+   follows the rounded box instead of drawing one of its own over the edge */
+.share-item {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.share-item-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.35rem 0.6rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.15s ease;
+}
+
+.share-item-head:hover {
+    background-color: var(--overlay-medium);
+}
+
+.share-item-chevron {
+    width: 0.8rem;
+    height: 0.8rem;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    transition: transform 0.15s ease;
+}
+
+.share-item-chevron-open {
+    transform: rotate(90deg);
+}
+
+.share-item-name {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.share-item-meta {
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+}
+
+.share-item-body {
+    padding: 0.5rem 0.6rem;
+    border-top: 1px solid var(--border-secondary);
+}
+
+.share-item-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.6rem;
+}
+
+.share-add-button {
+    padding: 0.35rem 0.9rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm, 2px);
+    background-color: var(--bg-dark);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.share-add-button:hover {
+    color: var(--text-primary);
+    border-color: var(--text-tertiary);
+}
+
+.share-code-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.share-code {
+    flex: 1;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm, 2px);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.9rem;
+    letter-spacing: 0.06em;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.share-code-next {
+    color: var(--text-secondary);
+}
+
+.share-code-copy,
+.share-stop-button {
+    padding: 0.3rem 0.8rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm, 2px);
+    background-color: var(--bg-primary);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.share-code-copy:hover,
+.share-stop-button:hover {
+    color: var(--text-primary);
+    border-color: var(--text-tertiary);
+}
+
+.share-panel-note {
+    margin: 0;
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    line-height: 1.45;
+}
+
+.share-panel-link {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.share-panel-link:hover {
+    color: var(--text-primary);
+}
+
+.share-words {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.share-words-label {
+    padding-top: 0.15rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.share-words-value {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8rem;
+    word-break: break-all;
+}
+
+.share-actions-split {
+    justify-content: space-between;
+}
+
+/* Dialog */
+
+.share-dialog {
+    max-width: 30rem;
+}
+
+.share-dialog-lead {
+    margin: 0 0 0.9rem;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.share-choice-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.9rem;
+}
+
+.share-choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    padding: 0.5rem 0.6rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm, 2px);
+    cursor: pointer;
+}
+
+.share-choice:hover {
+    border-color: var(--text-tertiary);
+}
+
+/* The generic full-width input rule would stretch a radio into a tall box */
+.share-choice input,
+.share-toggle input {
+    width: auto;
+    flex: none;
+    margin-top: 0.15rem;
+}
+
+.share-choice-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.share-choice-title {
+    color: var(--text-primary);
+    font-size: 0.85rem;
+}
+
+.share-choice-note {
+    display: block;
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.share-parts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    max-height: 13rem;
+    overflow-y: auto;
+    padding: 0.35rem 0.4rem;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm, 2px);
+    background-color: var(--bg-secondary);
+}
+
+.share-part {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.25rem;
+    border-radius: var(--radius-sm, 2px);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+.share-part:hover {
+    background-color: var(--overlay-medium);
+}
+
+.share-part input {
+    width: auto;
+    flex: none;
+}
+
+.share-part-label {
+    flex: 1;
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    text-transform: none;
+    letter-spacing: normal;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.share-part-detail {
+    flex-shrink: 0;
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
+}
+
+.share-parts-size {
+    margin: 0.35rem 0 0;
+}
+
+.share-field-row {
+    display: flex;
+    gap: 0.6rem;
+}
+
+.share-field {
+    flex: 1;
+    min-width: 0;
+    margin-bottom: 0.7rem;
+}
+
+.share-field .pairing-name-input,
+.share-field select {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.share-field > label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-tertiary);
+}
+
+.share-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin-bottom: 0.9rem;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
