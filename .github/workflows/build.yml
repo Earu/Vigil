@@ -225,9 +225,13 @@ jobs:
     # that only happens at runtime, so a build that dies before its first
     # window passes both. This fails unless the window exists, the unlock
     # screen rendered and the preload bridge answered an IPC call
+    # --disable-gpu: a runner has no GPU, and the software raster under xvfb
+    # fails to allocate staging buffers often enough to stall the renderer,
+    # which Electron logs as WebContents#unresponsive and this test reads as a
+    # failure. Nothing here tests the GPU path, so it does not run one
     - name: Boot smoke test
       if: runner.os == 'Linux'
-      run: xvfb-run -a node scripts/smoke-boot.mjs -- --ozone-platform=x11
+      run: xvfb-run -a node scripts/smoke-boot.mjs -- --ozone-platform=x11 --disable-gpu
 
     # Windows artifacts
     - name: Upload Windows artifacts
