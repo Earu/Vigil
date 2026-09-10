@@ -61,3 +61,8 @@ build/vigil.provisionprofile
 # scripts/fuzz-native.mjs: the built target, its corpus copy and any
 # reproducing input it finds
 native-fuzz-out/
+
+# The hosted share page: derived from src/services/sharePage.ts by
+# scripts/build-share-page.mjs and published by CI, never committed
+docs/
+_site/

@@ -10,7 +10,7 @@ import type { SshKeyInspection } from '../../types/electron';
 import { HaveIBeenPwnedService } from '../../services/HaveIBeenPwnedService';
 import { BreachWarningIcon, SecurityShieldIcon, ExpiredClockIcon } from '../../icons/status/StatusIcons';
 import { UsbKeyIcon } from '../../icons/actions/ActionIcons';
-import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon, LinkActionIcon, MoveActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, CopyActionIcon, EditActionIcon, OpenUrlActionIcon, GenerateActionIcon, AttachmentActionIcon, DownloadActionIcon, AddActionIcon, ChevronActionIcon, RefreshActionIcon, MonitorActionIcon, ClipboardActionIcon, ImageActionIcon, PasskeyActionIcon, LinkActionIcon, MoveActionIcon, ShareActionIcon } from '../../icons/actions/ActionIcons';
 import { PasskeyService } from '../../services/PasskeyService';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import './EntryDetails.css';
@@ -28,6 +28,9 @@ import { ClipboardService } from '../../services/ClipboardService';
 import { Modal } from '../Modal';
 import { matchesChord, dialogOpen, registerAction } from '../../services/Shortcuts';
 import { confirmDialog } from '../../services/Dialogs';
+import { SecretShareService, ShareOptions } from '../../services/SecretShareService';
+import { userSettingsService } from '../../services/UserSettingsService';
+import { ShareModal } from './ShareModal';
 
 interface EntryDetailsProps {
 	entry: Entry | null;
@@ -206,6 +209,8 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 	// SSH key on this entry (see SshAgentService): the record in the
 	// KeeAgent.settings attachment, what the main process can say about the
 	// chosen key, and whether the agent currently holds it
+	const [showShareModal, setShowShareModal] = useState(false);
+	const [sharing, setSharing] = useState(false);
 	const [sshKeyInfo, setSshKeyInfo] = useState<SshKeyInspection | null>(null);
 	const [sshLoaded, setSshLoaded] = useState<boolean | null>(null);
 	const [sshBusy, setSshBusy] = useState(false);
@@ -692,9 +697,88 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 		() => editedEntry.customFields
 			.map((field, index) => ({ field, index }))
 			.filter(({ field }) => !(otpConfig && TotpService.isTotpKey(field.key))
-				&& !(passkeyInfo && PasskeyService.isPasskeyFieldKey(field.key))),
+				&& !(passkeyInfo && PasskeyService.isPasskeyFieldKey(field.key))
+				&& !SecretShareService.isShareFieldKey(field.key)),
 		[editedEntry.customFields, otpConfig, passkeyInfo]
 	);
+
+	const activeShares = useMemo(
+		() => SecretShareService.sharesFromFields(editedEntry.customFields),
+		[editedEntry.customFields]
+	);
+
+	// The file is written first: a share recorded on an entry the user never
+	// managed to save anywhere would hand out codes for nothing
+	const handleShare = async (options: ShareOptions) => {
+		if (!window.electron || sharing) return;
+		setSharing(true);
+		try {
+			const { html, link, share } = await SecretShareService.create(editedEntry, options);
+
+			// The link that was actually built decides this, not a guess at
+			// what it would come to. A file only when the link would be too
+			// long for a mail client to carry in one piece
+			let where = '';
+			if (link.length > SecretShareService.LINK_BUDGET) {
+				const result = await window.electron.saveAttachment(SecretShareService.fileNameFor(editedEntry), html);
+				if (!result.success) {
+					if (result.error !== 'Save cancelled') {
+						(window as any).showToast?.({ message: result.error || 'Could not write the file', type: 'error', duration: 5000 });
+					}
+					return;
+				}
+				where = `Too much for a link, so it is a file. Saved to ${result.filePath}.`;
+			} else {
+				await ClipboardService.copy(link, 'Share link', 'share');
+				where = 'Link copied.';
+			}
+			userSettingsService.setShareSenderName(options.senderName);
+			const shared = {
+				...editedEntry,
+				customFields: [
+					...SecretShareService.withoutShareFields(editedEntry.customFields),
+					...SecretShareService.toFields([...activeShares, share]),
+				],
+			};
+			setEditedEntry(shared);
+			onSave(KeepassDatabaseService.prepareEntryForSave(shared));
+			(window as any).showToast?.({
+				message: `${where} They will need a code from you to open it.`,
+				type: 'success',
+				duration: 6000,
+			});
+		} catch (error) {
+			(window as any).showToast?.({
+				message: error instanceof Error ? error.message : 'Could not make the file',
+				type: 'error',
+				duration: 5000,
+			});
+		} finally {
+			setSharing(false);
+		}
+	};
+
+	const handleStopSharing = async (id: string) => {
+		const share = activeShares.find(candidate => candidate.id === id);
+		const who = share?.recipient ? ` with ${share.recipient}` : '';
+		const confirmed = await confirmDialog(
+			`Stop sharing this entry${who}? You will not be able to give out any more codes. `
+			+ 'Anyone who already opened the file still has the password, so change it as well.',
+			'Stop Sharing'
+		);
+		if (!confirmed) return;
+		const left = activeShares.filter(candidate => candidate.id !== id);
+		const stopped = {
+			...editedEntry,
+			customFields: [
+				...SecretShareService.withoutShareFields(editedEntry.customFields),
+				...SecretShareService.toFields(left),
+			],
+		};
+		setEditedEntry(stopped);
+		onSave(KeepassDatabaseService.prepareEntryForSave(stopped));
+		if (left.length === 0) setShowShareModal(false);
+	};
 
 	const handleRemovePasskey = async () => {
 		if (!(await confirmDialog('Remove the passkey from this entry? Remove it from the website\'s account settings too.', 'Remove Passkey'))) return;
@@ -994,6 +1078,16 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							title="Move to group" aria-label="Move to group"
 						>
 							<MoveActionIcon />
+						</button>
+					)}
+					{!isNew && !isEditing && (
+						<button
+							className="edit-button"
+							onClick={() => setShowShareModal(true)}
+							title={activeShares.length > 0 ? 'Sharing' : 'Share entry'}
+							aria-label={activeShares.length > 0 ? 'Sharing' : 'Share entry'}
+						>
+							<ShareActionIcon />
 						</button>
 					)}
 					<button className="entry-close-button" onClick={handleClose} aria-label="Close entry">
@@ -1934,6 +2028,18 @@ export const EntryDetails = ({ entry, onClose, onSave, isNew = false, onDirtyCha
 							setShowPasswordGenerator(false);
 						}}
 						currentPassword={KeepassDatabaseService.getPasswordString(editedEntry.password)}
+					/>
+				)}
+				{showShareModal && (
+					<ShareModal
+						entryTitle={editedEntry.title || 'this entry'}
+						parts={SecretShareService.partsOf(editedEntry)}
+						shares={activeShares}
+						defaultSenderName={userSettingsService.getShareSenderName()}
+						onShare={handleShare}
+						onStop={handleStopSharing}
+						onCancel={() => { if (!sharing) setShowShareModal(false); }}
+						busy={sharing}
 					/>
 				)}
 				{refWizardField && (

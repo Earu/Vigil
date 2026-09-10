@@ -49,6 +49,9 @@ interface UserSettings {
     backupKeep?: number;
     // How long a copied secret stays in the clipboard before it is wiped
     clipboardClearSeconds?: number;
+    // Name shown on share files this installation makes, so it is typed once
+    // rather than per share. Nothing is derived from it
+    shareSenderName?: string;
     // Names this installation in the history notes written into a vault; see
     // HistoryNotesService. Random and opaque on purpose: it is written into a
     // file that gets synced and shared, so it must say nothing about the
@@ -160,6 +163,15 @@ class UserSettingsService {
     setClipboardClearSeconds(seconds: number): void {
         this.current.clipboardClearSeconds = Math.min(MAX_CLIPBOARD_CLEAR_SECONDS,
             Math.max(MIN_CLIPBOARD_CLEAR_SECONDS, Math.round(seconds)));
+        this.saveSettings();
+    }
+
+    getShareSenderName(): string {
+        return this.current.shareSenderName ?? '';
+    }
+
+    setShareSenderName(name: string): void {
+        this.current.shareSenderName = name.slice(0, 64);
         this.saveSettings();
     }
 

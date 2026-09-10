@@ -213,6 +213,7 @@ button:hover {
 .group-header:focus-visible,
 [role="tab"]:focus-visible,
 .history-row:focus-visible,
+.share-item-head:focus-visible,
 .window-control:focus-visible {
 	outline-offset: -2px;
 }

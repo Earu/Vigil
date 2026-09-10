@@ -1,0 +1,70 @@
+name: Share Page
+
+# The page a shared entry opens in, built from the same source the app builds
+# share files from (src/services/sharePage.ts). Nothing is committed: the page
+# is derived here on every push that can change it, so the hosted copy and the
+# copy inside a share file cannot drift apart.
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/services/sharePage.ts'
+      - 'scripts/build-share-page.mjs'
+      - '.github/workflows/share-page.yml'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time, and a newer push wins rather than queueing behind
+# a page nobody will see
+concurrency:
+  group: share-page
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the page
+        run: node scripts/build-share-page.mjs _site
+
+      # A share opens in this page and types a code into it, so what ships has
+      # to be what this repository builds: no network access, the script and
+      # the stylesheet pinned by hash in its own CSP
+      - name: Check what was built
+        run: node scripts/check-share-page.mjs _site/share/index.html
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    # The only job in this repository that writes anything: it publishes the
+    # page and nothing else
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Publish to Pages
+        id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
