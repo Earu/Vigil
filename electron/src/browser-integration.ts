@@ -390,7 +390,7 @@ export async function handleDecryptedMessage(action: string, rawMessage: any, se
             const result = await askVaults('generate-password', {}, 5000);
             if (!result.errorCode && result.password) return result;
             const password = generatePassword();
-            return { password, entries: [{ password }] };
+            return { password };
         }
         case 'lock-database':
             for (const win of BrowserWindow.getAllWindows()) {

@@ -109,6 +109,16 @@ describe('association gate', () => {
     );
 });
 
+describe('generate-password with no vault open', () => {
+    beforeEach(() => { windows = []; });
+
+    it('answers with the password field alone, as KeePassXC does', async () => {
+        const result = await handleDecryptedMessage('generate-password', {}, Session());
+
+        expect(result).toEqual({ password: expect.stringMatching(/^.{32}$/) });
+    });
+});
+
 describe('where set-login lands', () => {
     // A window that answers per action: its own hash to get-databasehash,
     // and records every set-login it is asked to take

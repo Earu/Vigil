@@ -683,7 +683,7 @@ export class BrowserIntegrationService {
                 // Words mode needs the lazily loaded wordlist
                 if (settings.mode === 'words') await PassphraseService.preload();
                 const password = PasswordGeneratorService.generateFromSettings(settings);
-                return { password, entries: [{ password }] };
+                return { password };
             }
 
             case 'get-totp': {

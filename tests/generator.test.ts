@@ -219,6 +219,6 @@ describe('browser generate-password', () => {
         });
         const result = await BrowserIntegrationService.handleRequest('generate-password', {}, {} as any);
         expect(result.password).toMatch(/^[0-9]{10}$/);
-        expect(result.entries).toEqual([{ password: result.password }]);
+        expect(result).toEqual({ password: result.password });
     });
 });
