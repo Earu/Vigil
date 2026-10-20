@@ -28,7 +28,7 @@ check(csp.includes("base-uri 'none'") && csp.includes("form-action 'none'"), 'ba
 // a file:// copy of this same page, and a share carries no network access
 check(!/<script[^>]+src=/i.test(html), 'the page loads a script from somewhere else');
 check(!/<link[^>]+href=/i.test(html), 'the page loads a stylesheet from somewhere else');
-check((html.match(/<script/g) ?? []).length === 1, 'the page has more than one script');
+check((html.match(/<script/gi) ?? []).length === 1, 'the page has more than one script');
 check(!/\bfetch\s*\(|XMLHttpRequest|import\s*\(/.test(script), 'the script tries to fetch something');
 check(!/\.innerHTML|document\.write/.test(script), 'the script writes markup rather than text');
 
