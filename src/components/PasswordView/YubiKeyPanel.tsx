@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { OathAccount, OathFailure } from '../../types/electron';
 import { ClipboardService } from '../../services/ClipboardService';
-import { SpinnerIcon } from '../../icons/status/StatusIcons';
+import { InfoIcon, SpinnerIcon, WarningIcon } from '../../icons/status/StatusIcons';
 import { CloseActionIcon, CopyActionIcon, RefreshActionIcon, GenerateActionIcon } from '../../icons/actions/ActionIcons';
 import { Modal } from '../Modal';
 import { HardwareKeyTouchDialog } from '../HardwareKeyTouchDialog';
 import { OATH_FAILURES } from './oathFailures';
+import './PasswordView.css';
+import './EntryDetails.css';
 import './YubiKeyPanel.css';
 
 // Codes from the OATH application on a connected YubiKey.
@@ -52,6 +54,8 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
     // The account whose code is being calculated, so the row can say so
     const [busyId, setBusyId] = useState<string | null>(null);
     const [touchPending, setTouchPending] = useState(false);
+    const [query, setQuery] = useState('');
+    const [selectedId, setSelectedId] = useState<string | null>(null);
     const [platform, setPlatform] = useState<string | null>(null);
     useEffect(() => {
         let cancelled = false;
@@ -148,7 +152,7 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
     // HOTP and touch-required accounts hand back no code from the batch read,
     // because calculating one has a consequence: an HOTP counter moves on the
     // key and cannot be moved back, and a touch account lights up and waits
-    const generate = async (account: OathAccount) => {
+    const generate = async (account: OathAccount): Promise<string | null> => {
         calculating.current = true;
         setBusyId(account.id);
         // The key blinks and waits as soon as the command reaches it, so the
@@ -162,13 +166,54 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
         if (!result?.ok || !result.value) {
             setFailure(result?.error ?? 'failed');
             setDetail(result?.detail ?? null);
-            return;
+            return null;
         }
         const code = result.value;
         setAccounts(current => current?.map(a => (a.id === account.id ? { ...a, code } : a)) ?? current);
+        return code;
     };
 
     const copy = (code: string) => ClipboardService.copy(code, 'One-time code', 'yubikey-oath');
+
+    const activate = async (account: OathAccount) => {
+        if (calculating.current) return;
+        setSelectedId(account.id);
+        const code = account.code ?? await generate(account);
+        if (code) await copy(code);
+    };
+
+    const needle = query.trim().toLowerCase();
+    const visible = needle
+        ? accounts?.filter(a => a.name.toLowerCase().includes(needle) || (a.issuer ?? '').toLowerCase().includes(needle)) ?? []
+        : accounts ?? [];
+
+    const rowsRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        rowsRef.current?.querySelector<HTMLElement>('.yubikey-row.selected')?.scrollIntoView?.({ block: 'nearest' });
+    }, [selectedId]);
+
+    const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Escape' && query) {
+            event.preventDefault();
+            setQuery('');
+            return;
+        }
+        if (visible.length === 0) return;
+        const index = visible.findIndex(a => a.id === selectedId);
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            const step = event.key === 'ArrowDown' ? 1 : -1;
+            const next = index < 0
+                ? (step === 1 ? 0 : visible.length - 1)
+                : Math.min(visible.length - 1, Math.max(0, index + step));
+            setSelectedId(visible[next].id);
+            return;
+        }
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            void activate(visible[index < 0 ? 0 : index]);
+        }
+    };
 
     // An install command is not a secret, so it skips ClipboardService and the
     // auto-clear countdown that comes with it
@@ -181,67 +226,113 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
         }
     };
 
-    const renderRow = (account: OathAccount) => {
+    const renderRow = (account: OathAccount) => (
+        <div
+            className={`yubikey-row${selectedId === account.id ? ' selected' : ''}`}
+            key={account.id}
+            title={account.code ? 'Double-click to copy the code' : 'Double-click to generate and copy a code'}
+            onClick={() => setSelectedId(account.id)}
+            onMouseDown={event => { if (event.detail > 1) event.preventDefault(); }}
+            onDoubleClick={() => void activate(account)}
+        >
+            <span className="yubikey-row-title">{account.issuer || account.name}</span>
+            {account.issuer && <span className="yubikey-row-subtitle">{account.name}</span>}
+        </div>
+    );
+
+    const selected = accounts?.find(a => a.id === selectedId) ?? null;
+
+    const renderDetails = (account: OathAccount) => {
         const period = account.period * 1000;
         const secondsLeft = account.type === 'TOTP' && account.code
             ? Math.ceil((period - (now % period)) / 1000)
             : null;
+        const generateLabel = account.requiresTouch
+            ? 'Generate a code, then touch the key'
+            : 'Generate a code and advance the counter on the key';
         return (
-        <div className="yubikey-row" key={account.id}>
-            <div className="yubikey-row-main">
-                <div className="yubikey-row-labels">
-                    <span className="yubikey-row-name">{account.name}</span>
-                    {account.issuer && <span className="yubikey-row-issuer">{account.issuer}</span>}
+            <>
+                <div className="entry-details-header">
+                    <h2>{account.issuer || account.name}</h2>
                 </div>
-                <span className="yubikey-row-type">
-                    {account.type}
-                    {account.type === 'TOTP' && account.period !== 30 && ` ${account.period}s`}
-                </span>
-                {account.code ? (
-                    <span className="yubikey-row-code">
-                        {account.code.slice(0, Math.ceil(account.code.length / 2))}&thinsp;{account.code.slice(Math.ceil(account.code.length / 2))}
-                    </span>
-                ) : (
-                    <button
-                        className="generate-button"
-                        onClick={() => generate(account)}
-                        disabled={busyId !== null}
-                        title={account.requiresTouch ? 'Generate a code, then touch the key' : 'Generate a code and advance the counter on the key'}
-                        aria-label={account.requiresTouch ? 'Generate a code, then touch the key' : 'Generate a code and advance the counter on the key'}
-                        type="button"
-                    >
-                        {busyId === account.id ? <SpinnerIcon className="spinner" /> : <GenerateActionIcon />}
-                    </button>
-                )}
-                {secondsLeft !== null && (
-                    <span
-                        className={`yubikey-row-countdown ${secondsLeft <= 5 ? 'expiring' : ''}`}
-                        role="timer"
-                        aria-label={`Code changes in ${secondsLeft} seconds`}
-                    >
-                        {secondsLeft}s
-                    </span>
-                )}
-                <button
-                    className="copy-button"
-                    onClick={() => account.code && copy(account.code)}
-                    disabled={!account.code}
-                    title="Copy one-time code"
-                    aria-label="Copy one-time code"
-                    type="button"
-                >
-                    <CopyActionIcon />
-                </button>
-            </div>
-            {secondsLeft !== null && (
-                <div className="yubikey-row-progress">
-                    <div
-                        className="yubikey-row-progress-bar"
-                        style={{ width: `${(secondsLeft / account.period) * 100}%` }}
-                    />
+                <div className="entry-fields">
+                    {account.issuer && (
+                        <div className="field-group">
+                            <label htmlFor="yubikey-detail-account">Account</label>
+                            <div className="field-value-container">
+                                <input id="yubikey-detail-account" className="field-value" type="text" value={account.name} readOnly />
+                                <button
+                                    className="copy-button"
+                                    onClick={() => void ClipboardService.copy(account.name, 'Account', 'yubikey-oath')}
+                                    title="Copy account"
+                                    aria-label="Copy account"
+                                    type="button"
+                                >
+                                    <CopyActionIcon />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                    <div className="field-group">
+                        <label>One-Time Code</label>
+                        <div className="field-value-container">
+                            <div className="totp-display">
+                                {account.code
+                                    ? (
+                                        <span className="totp-code">
+                                            {account.code.slice(0, Math.ceil(account.code.length / 2))}&thinsp;{account.code.slice(Math.ceil(account.code.length / 2))}
+                                        </span>
+                                    )
+                                    : <span className="hotp-placeholder">{account.requiresTouch ? 'Touch the key to see a code' : 'Generated on demand'}</span>}
+                                {secondsLeft !== null && (
+                                    <span
+                                        className={`totp-countdown ${secondsLeft <= 5 ? 'expiring' : ''}`}
+                                        role="timer"
+                                        aria-label={`Code changes in ${secondsLeft} seconds`}
+                                    >
+                                        {secondsLeft}s
+                                    </span>
+                                )}
+                            </div>
+                            {!account.code && (
+                                <button
+                                    className="generate-button"
+                                    onClick={() => generate(account)}
+                                    disabled={busyId !== null}
+                                    title={generateLabel}
+                                    aria-label={generateLabel}
+                                    type="button"
+                                >
+                                    {busyId === account.id ? <SpinnerIcon className="spinner" /> : <GenerateActionIcon />}
+                                </button>
+                            )}
+                            <button
+                                className="copy-button"
+                                onClick={() => account.code && copy(account.code)}
+                                disabled={!account.code}
+                                title="Copy one-time code"
+                                aria-label="Copy one-time code"
+                                type="button"
+                            >
+                                <CopyActionIcon />
+                            </button>
+                        </div>
+                        {secondsLeft !== null && (
+                            <div className="totp-progress">
+                                <div className="totp-progress-bar" style={{ width: `${(secondsLeft / account.period) * 100}%` }} />
+                            </div>
+                        )}
+                    </div>
+                    {account.type === 'TOTP' && (
+                        <div className="field-group">
+                            <label>Touch</label>
+                            <div className="field-value yubikey-detail-value">
+                                {account.requiresTouch ? 'Required for every code' : 'Not required'}
+                            </div>
+                        </div>
+                    )}
                 </div>
-            )}
-        </div>
+            </>
         );
     };
 
@@ -250,12 +341,19 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
             overlayClassName="yubikey-panel-overlay"
             className="yubikey-panel"
             labelledBy="yubikey-panel-title"
-            describedBy="yubikey-panel-note"
             onClose={onClose}
             initialFocus="container"
         >
             <div className="yubikey-panel-header">
                 <h2 id="yubikey-panel-title">YubiKey</h2>
+                <button
+                    className="yubikey-panel-info"
+                    title="These accounts live on the key. Vigil shows their codes and nothing more."
+                    aria-label="About these accounts"
+                    type="button"
+                >
+                    <InfoIcon color="currentColor" />
+                </button>
                 <button
                     className="report-close-button"
                     onClick={() => void load(heldText())}
@@ -271,74 +369,103 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
                 </button>
             </div>
 
-            <p className="yubikey-panel-note" id="yubikey-panel-note">
-                These accounts live on the key. Vigil shows their codes and nothing more.
-            </p>
-
-            {loading && accounts === null && (
-                <div className="yubikey-panel-state yubikey-panel-loading">
-                    <SpinnerIcon className="spinner" /> Reading the key
-                </div>
-            )}
-
-            {failure && (
-                <div className="yubikey-panel-state yubikey-panel-error">
-                    <strong>{OATH_FAILURES[failure].message}</strong>
-                    <span>{OATH_FAILURES[failure].hint}</span>
-                    {detail && failure !== 'unavailable' && <code className="yubikey-panel-detail">{detail}</code>}
-                    {(failure === 'unavailable' || failure === 'no-pcscd') && INSTALL[platform ?? ''] && (
-                        <div className="yubikey-install">
-                            <span className="yubikey-install-label">{INSTALL[platform ?? ''].label}</span>
-                            {INSTALL[platform ?? ''].commands.map(command => (
-                                <div className="yubikey-install-row" key={command}>
-                                    <code className="yubikey-install-command">{command}</code>
-                                    <button
-                                        className="copy-button"
-                                        onClick={() => void copyCommand(command)}
-                                        title="Copy command"
-                                        aria-label={`Copy the command ${command}`}
-                                        type="button"
-                                    >
-                                        <CopyActionIcon />
-                                    </button>
-                                </div>
-                            ))}
-                            <button
-                                className="yubikey-install-link"
-                                onClick={() => void window.electron?.openExternal?.(PCSC_DOCS)}
-                                type="button"
-                            >
-                                Yubico's Linux smart card guide
-                            </button>
+            <div className="yubikey-panel-body">
+                <div className="yubikey-panel-main">
+                    {loading && accounts === null && (
+                        <div className="yubikey-panel-state yubikey-panel-loading">
+                            <SpinnerIcon className="spinner" /> Reading the key
                         </div>
                     )}
-                    {(failure === 'locked' || failure === 'wrong-password') && (
-                        <form
-                            className="yubikey-panel-unlock"
-                            onSubmit={event => { event.preventDefault(); void load(password); }}
-                        >
+
+                    {failure && (
+                        <div className="weak-password-warning-header yubikey-panel-warning">
+                            <WarningIcon className="weak-password-warning-icon" color="currentColor" />
+                            <div className="weak-password-warning-content yubikey-panel-warning-content">
+                                <h3>{OATH_FAILURES[failure].message}</h3>
+                                <p>{OATH_FAILURES[failure].hint}</p>
+                                {detail && failure !== 'unavailable' && <code className="yubikey-panel-detail">{detail}</code>}
+                                {(failure === 'unavailable' || failure === 'no-pcscd') && INSTALL[platform ?? ''] && (
+                                    <div className="yubikey-install">
+                                        <span className="yubikey-install-label">{INSTALL[platform ?? ''].label}</span>
+                                        {INSTALL[platform ?? ''].commands.map(command => (
+                                            <div className="yubikey-install-row" key={command}>
+                                                <code className="yubikey-install-command">{command}</code>
+                                                <button
+                                                    className="copy-button"
+                                                    onClick={() => void copyCommand(command)}
+                                                    title="Copy command"
+                                                    aria-label={`Copy the command ${command}`}
+                                                    type="button"
+                                                >
+                                                    <CopyActionIcon />
+                                                </button>
+                                            </div>
+                                        ))}
+                                        <button
+                                            className="yubikey-install-link"
+                                            onClick={() => void window.electron?.openExternal?.(PCSC_DOCS)}
+                                            type="button"
+                                        >
+                                            Yubico's Linux smart card guide
+                                        </button>
+                                    </div>
+                                )}
+                                {(failure === 'locked' || failure === 'wrong-password') && (
+                                    <form
+                                        className="yubikey-panel-unlock"
+                                        onSubmit={event => { event.preventDefault(); void load(password); }}
+                                    >
+                                        <input
+                                            type="password"
+                                            value={password}
+                                            onChange={event => setPassword(event.target.value)}
+                                            placeholder="OATH password"
+                                            aria-label="OATH password"
+                                        />
+                                        <button type="submit" disabled={!password}>Unlock</button>
+                                    </form>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {accounts?.length === 0 && !failure && (
+                        <div className="yubikey-panel-state">No accounts are stored on this key.</div>
+                    )}
+
+                    {accounts && accounts.length > 0 && (
+                        <div className="yubikey-panel-search">
                             <input
-                                type="password"
-                                value={password}
-                                onChange={event => setPassword(event.target.value)}
-                                placeholder="OATH password"
-                                aria-label="OATH password"
+                                type="text"
+                                value={query}
+                                onChange={event => setQuery(event.target.value)}
+                                onKeyDown={onSearchKeyDown}
+                                placeholder="Search accounts"
+                                aria-label="Search accounts"
+                                autoFocus
                             />
-                            <button type="submit" disabled={!password}>Unlock</button>
-                        </form>
+                        </div>
+                    )}
+
+                    {accounts && accounts.length > 0 && visible.length === 0 && (
+                        <div className="yubikey-panel-state">No account matches.</div>
+                    )}
+
+                    {visible.length > 0 && (
+                        <div ref={rowsRef} className={`yubikey-rows${loading ? ' yubikey-rows-stale' : ''}`} aria-busy={loading}>
+                            {visible.map(renderRow)}
+                        </div>
                     )}
                 </div>
-            )}
 
-            {accounts?.length === 0 && !failure && (
-                <div className="yubikey-panel-state">No accounts are stored on this key.</div>
-            )}
-
-            {accounts && accounts.length > 0 && (
-                <div className={`yubikey-rows${loading ? ' yubikey-rows-stale' : ''}`} aria-busy={loading}>
-                    {accounts.map(renderRow)}
-                </div>
-            )}
+                {accounts && accounts.length > 0 && (
+                    <aside className="entry-details yubikey-details" aria-label="Account details">
+                        {selected
+                            ? renderDetails(selected)
+                            : <p className="yubikey-details-hint">Select an account to see its details.</p>}
+                    </aside>
+                )}
+            </div>
 
             {touchPending && <HardwareKeyTouchDialog />}
         </Modal>

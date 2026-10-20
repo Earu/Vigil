@@ -28,7 +28,7 @@ export const OATH_FAILURES: Record<OathFailure, { message: string; hint: string 
     },
     timeout: {
         message: 'The key did not answer in time',
-        hint: 'A code that needs a touch was not touched, or the key stopped responding. Try again.',
+        hint: 'Try again, and touch the key when it blinks.',
     },
     'in-use': {
         message: 'The key is busy',
