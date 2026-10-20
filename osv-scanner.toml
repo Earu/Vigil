@@ -1,0 +1,9 @@
+[[IgnoredVulns]]
+id = "GHSA-ch52-4w7c-c8xp"
+ignoreUntil = 2027-01-20
+reason = "http-cache-semantics has no patched release. Build-time only, via electron-builder > @electron/get 3 > got 11, caching the Electron download for one user on one machine."
+
+[[IgnoredVulns]]
+id = "GHSA-hp3w-g68c-fv3c"
+ignoreUntil = 2027-01-20
+reason = "sprintf-js has no patched release. Build-time only, via electron-builder > @electron/get 3 > global-agent > roarr, formatting log strings Vigil does not supply."
