@@ -1,0 +1,15 @@
+.update-notes-link {
+    align-self: flex-start;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: 0.8rem;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.update-notes-link:hover {
+    color: var(--text-primary);
+}

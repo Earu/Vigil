@@ -138,8 +138,19 @@ describe('YubiKey panel details', () => {
         const panel = details(getByLabelText);
         expect(panel.querySelector('h2')!.textContent).toBe('Roberts Space Industries');
         expect((panel.querySelector('#yubikey-detail-account') as HTMLInputElement).value).toBe('Techbot121');
-        expect(panel.textContent).toContain('Required for every code');
-        expect(panel.textContent).toContain('Touch the key to see a code');
+        expect(panel.querySelector('.entry-details-header .yubikey-touch-status')!.textContent).toBe('Touch required');
+        expect(panel.querySelector('input:not(#yubikey-detail-account)')).toBeNull();
+        expect(panel.textContent).toContain('No code yet');
+    });
+
+    it('keeps the listing size while the search narrows to nothing', async () => {
+        const { search, baseElement } = await open();
+        const panel = baseElement.querySelector('.yubikey-panel')!;
+        expect(panel.classList.contains('yubikey-panel-listing')).toBe(true);
+
+        fireEvent.change(search, { target: { value: 'nothing' } });
+
+        expect(panel.classList.contains('yubikey-panel-listing')).toBe(true);
     });
 
     it('generates from the sidebar and shows the code with its countdown', async () => {
@@ -166,9 +177,21 @@ describe('YubiKey panel details', () => {
         expect(details(getByLabelText).querySelector('h2')!.textContent).toBe('GitHub');
     });
 
+    it('shows no touch status for an account that needs none', async () => {
+        const { getByText, getByLabelText } = await open();
+        fireEvent.click(rowOf(getByText('me@example.com')));
+        expect(details(getByLabelText).querySelector('.yubikey-touch-status')).toBeNull();
+    });
+
     it('has no accessibility violations with an account selected', async () => {
         const { getByText, baseElement } = await open();
         fireEvent.click(rowOf(getByText('me@example.com')));
+        await expectNoA11yViolations(baseElement);
+    });
+
+    it('has no accessibility violations with a touch account selected', async () => {
+        const { getByText, baseElement } = await open();
+        fireEvent.click(rowOf(getByText('GitHub')));
         await expectNoA11yViolations(baseElement);
     });
 });

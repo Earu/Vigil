@@ -160,10 +160,11 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         switch (updateStatus?.state) {
             case 'checking': return 'Checking for updates...';
             case 'up-to-date': return 'Vigil is up to date.';
+            case 'available': return `v${updateStatus.version} is available. Older versions may be missing security fixes.`;
             case 'downloading': return `Downloading v${updateStatus.version}...`;
             case 'downloaded': return `v${updateStatus.version} is ready to install.`;
             case 'error': return `Update check failed: ${updateStatus.message}`;
-            case 'disabled': return 'Automatic updates are not available in this build.';
+            case 'disabled': return 'Updates are not available in this build.';
             default: return 'Updates are checked when the app starts.';
         }
     })();
@@ -1054,6 +1055,13 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                         >
                                             Restart and install
                                         </button>
+                                    ) : updateStatus?.state === 'available' ? (
+                                        <button
+                                            className="settings-primary-button"
+                                            onClick={() => window.electron?.downloadUpdate()}
+                                        >
+                                            Update
+                                        </button>
                                     ) : (
                                         <button
                                             className="clear-cache-button"
@@ -1063,9 +1071,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                             Check for updates
                                         </button>
                                     )}
-                                </div>
-                                <p className="auto-lock-help">Downloaded updates install automatically when the app closes.</p>
-                            </div>
+                                </div>                            </div>
                         </div>
                     )}
 

@@ -3,7 +3,7 @@ import * as kdbxweb from 'kdbxweb';
 import { OathAccount, OathFailure } from '../../types/electron';
 import { ClipboardService } from '../../services/ClipboardService';
 import { InfoIcon, SpinnerIcon, WarningIcon } from '../../icons/status/StatusIcons';
-import { CloseActionIcon, CopyActionIcon, RefreshActionIcon, GenerateActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon, CopyActionIcon, RefreshActionIcon, GenerateActionIcon, UsbKeyIcon } from '../../icons/actions/ActionIcons';
 import { Modal } from '../Modal';
 import { HardwareKeyTouchDialog } from '../HardwareKeyTouchDialog';
 import { OATH_FAILURES } from './oathFailures';
@@ -254,6 +254,12 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
             <>
                 <div className="entry-details-header">
                     <h2>{account.issuer || account.name}</h2>
+                    {account.requiresTouch && (
+                        <span className="tag-chip yubikey-touch-status">
+                            <UsbKeyIcon />
+                            Touch required
+                        </span>
+                    )}
                 </div>
                 <div className="entry-fields">
                     {account.issuer && (
@@ -283,7 +289,7 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
                                             {account.code.slice(0, Math.ceil(account.code.length / 2))}&thinsp;{account.code.slice(Math.ceil(account.code.length / 2))}
                                         </span>
                                     )
-                                    : <span className="hotp-placeholder">{account.requiresTouch ? 'Touch the key to see a code' : 'Generated on demand'}</span>}
+                                    : <span className="hotp-placeholder">No code yet</span>}
                                 {secondsLeft !== null && (
                                     <span
                                         className={`totp-countdown ${secondsLeft <= 5 ? 'expiring' : ''}`}
@@ -323,14 +329,6 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
                             </div>
                         )}
                     </div>
-                    {account.type === 'TOTP' && (
-                        <div className="field-group">
-                            <label>Touch</label>
-                            <div className="field-value yubikey-detail-value">
-                                {account.requiresTouch ? 'Required for every code' : 'Not required'}
-                            </div>
-                        </div>
-                    )}
                 </div>
             </>
         );
@@ -339,7 +337,7 @@ export const YubiKeyPanel = ({ onClose }: YubiKeyPanelProps) => {
     return (
         <Modal
             overlayClassName="yubikey-panel-overlay"
-            className="yubikey-panel"
+            className={`yubikey-panel${accounts && accounts.length > 0 ? ' yubikey-panel-listing' : ''}`}
             labelledBy="yubikey-panel-title"
             onClose={onClose}
             initialFocus="container"

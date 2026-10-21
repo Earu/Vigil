@@ -8,6 +8,7 @@ export type UpdateStatus =
     | { state: 'idle' }
     | { state: 'checking' }
     | { state: 'up-to-date' }
+    | { state: 'available'; version: string }
     | { state: 'downloading'; version: string }
     | { state: 'downloaded'; version: string }
     | { state: 'error'; message: string };
@@ -98,8 +99,9 @@ async function fetchReleaseAsset(url: string): Promise<Uint8Array> {
 
 // The update electron-updater found is only a claim until the metadata it
 // came from is shown to carry the release key's signature and to name the
-// same version and digests. Only then does the download start
-async function verifyAndDownload(info: UpdateInfo): Promise<void> {
+// same version and digests. Only then is it offered, and the download waits
+// for the user to accept it (downloadUpdate)
+async function verifyUpdate(info: UpdateInfo): Promise<void> {
     // The GitHub provider tags the info with the release it read; the version
     // is the fallback for a provider that does not
     const tag = (info as UpdateInfo & { tag?: string }).tag ?? `v${info.version}`;
@@ -124,9 +126,15 @@ async function verifyAndDownload(info: UpdateInfo): Promise<void> {
         return;
     }
 
-    setStatus({ state: 'downloading', version: info.version });
+    setStatus({ state: 'available', version: info.version });
+}
+
+function downloadUpdate(): UpdateStatus {
+    if (status.state !== 'available') return status;
+    setStatus({ state: 'downloading', version: status.version });
     // Failures surface through the updater's own error event
     autoUpdater.downloadUpdate().catch(() => {});
+    return status;
 }
 
 async function checkForUpdates(): Promise<UpdateStatus> {
@@ -134,7 +142,7 @@ async function checkForUpdates(): Promise<UpdateStatus> {
     setStatus({ state: 'checking' });
     try {
         const result = await autoUpdater.checkForUpdates();
-        // An available update is handled by verifyAndDownload from the
+        // An available update is handled by verifyUpdate from the
         // update-available event; the status here is only for the case
         // where nothing was found and the event has not already said so
         if (result && !result.isUpdateAvailable && status.state === 'checking') {
@@ -152,6 +160,7 @@ async function checkForUpdates(): Promise<UpdateStatus> {
 export function setupAutoUpdater(): void {
     handle('get-update-status', () => status);
     handle('check-for-updates', () => checkForUpdates());
+    handle('download-update', () => downloadUpdate());
     handle('install-update', () => {
         if (status.state === 'downloaded') {
             autoUpdater.quitAndInstall();
@@ -161,11 +170,12 @@ export function setupAutoUpdater(): void {
     if (!updatesSupported() || !updateKeyConfigured()) return;
     status = { state: 'idle' };
 
-    // Nothing is downloaded until verifyAndDownload has vouched for it
+    // Nothing is downloaded until verifyUpdate has vouched for it and the
+    // user has accepted it
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
 
-    autoUpdater.on('update-available', info => { verifyAndDownload(info); });
+    autoUpdater.on('update-available', info => { verifyUpdate(info); });
     autoUpdater.on('update-not-available', () => setStatus({ state: 'up-to-date' }));
     autoUpdater.on('update-downloaded', info => setStatus({ state: 'downloaded', version: info.version }));
     autoUpdater.on('error', err => {

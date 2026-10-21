@@ -3,6 +3,7 @@ export type UpdateStatus =
 	| { state: 'idle' }
 	| { state: 'checking' }
 	| { state: 'up-to-date' }
+	| { state: 'available'; version: string }
 	| { state: 'downloading'; version: string }
 	| { state: 'downloaded'; version: string }
 	| { state: 'error'; message: string };
@@ -233,6 +234,7 @@ export interface IElectronAPI {
 	revealLogs: () => Promise<{ success: boolean; error?: string }>;
 	getUpdateStatus: () => Promise<UpdateStatus>;
 	checkForUpdates: () => Promise<UpdateStatus>;
+	downloadUpdate: () => Promise<UpdateStatus>;
 	installUpdate: () => Promise<void>;
 }
 

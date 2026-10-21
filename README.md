@@ -35,7 +35,7 @@ A modern, secure password manager with a beautiful user interface, built using E
 | Multiple vaults | Each database opens in its own window |
 | Large vaults | Virtualized entry list, fast unlock, search and save with thousands of entries |
 | Safe saves | Atomic writes, external changes to the file are merged, not clobbered |
-| Auto-updates | Self-updating builds on Windows, macOS and Linux |
+| Updates | Signed in-app updates on Windows, macOS and Linux, installed when you accept them |
 | Cross-platform | Windows, macOS, Linux |
 | Accessibility | Keyboard operation throughout, screen reader support, Windows High Contrast, reduced motion |
 

@@ -28,6 +28,10 @@
     margin-top: -24px;
 }
 
+.yubikey-panel-listing {
+    height: min(560px, calc(100vh - 64px - 40px));
+}
+
 .yubikey-panel-header {
     padding: 0 1rem;
     height: 48px;
@@ -114,10 +118,24 @@
     color: var(--text-tertiary);
 }
 
-.yubikey-detail-value {
-    box-sizing: border-box;
-    color: var(--text-secondary);
-    user-select: text;
+.yubikey-details .entry-details-header {
+    gap: 0.5rem;
+}
+
+.yubikey-details .entry-details-header h2 {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.yubikey-touch-status {
+    flex-shrink: 0;
+}
+
+.yubikey-touch-status svg {
+    width: 12px;
+    height: 12px;
 }
 
 .yubikey-panel-state {

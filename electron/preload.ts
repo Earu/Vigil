@@ -87,6 +87,7 @@ const api: IElectronAPI = {
 	revealLogs: () => ipcRenderer.invoke('reveal-logs'),
 	getUpdateStatus: () => ipcRenderer.invoke('get-update-status'),
 	checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+	downloadUpdate: () => ipcRenderer.invoke('download-update'),
 	installUpdate: () => ipcRenderer.invoke('install-update')
 }
 

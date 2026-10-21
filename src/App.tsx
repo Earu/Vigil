@@ -34,6 +34,8 @@ import { SaveConflictDialog } from './components/SaveConflictDialog';
 import { ConflictCopyDialog, ConflictCopyRequest, hasChanges } from './components/ConflictCopyDialog';
 import { RekeyDialog, KeyMaterial } from './components/RekeyDialog';
 import { WeakVaultDialog } from './components/WeakVaultDialog';
+import { UpdateDialog } from './components/UpdateDialog';
+import { UpdateStatus } from './types/electron';
 import { PasskeyConsentRequest, SetLoginConsentRequest, AccessConsentRequest, AccessConsentResponse } from './services/BrowserIntegrationService';
 import { consentQueue } from './services/ConsentQueue';
 import { resealBiometrics } from './services/MasterPasswordChange';
@@ -78,6 +80,9 @@ function App() {
 	// main process must keep treating the window as unsaved until it lands,
 	// or a close in that gap loses the edit without a prompt
 	const savesInFlight = useRef(0);
+	const [updateOffer, setUpdateOffer] = useState<string | null>(null);
+	const dismissedUpdate = useRef<string | null>(null);
+	const updateAccepted = useRef(false);
 
 	// The strength estimator (zxcvbn, roughly half the bundle) is split out
 	// and fetched after first paint, so it is ready by the time a password
@@ -107,15 +112,30 @@ function App() {
 	}, []);
 
 	useEffect(() => {
-		const handleUpdateStatus = (status: { state: string; version?: string }) => {
+		const handleUpdateStatus = (status: UpdateStatus) => {
+			if (status.state === 'available') {
+				if (dismissedUpdate.current !== status.version) setUpdateOffer(status.version);
+			} else {
+				setUpdateOffer(null);
+			}
 			if (status.state === 'downloaded') {
+				updateAccepted.current = false;
 				(window as any).showToast?.({
 					message: `Update v${status.version} downloaded; it will be installed when the app closes`,
 					type: 'success',
 					duration: 6000
 				});
 			}
+			if (status.state === 'error' && updateAccepted.current) {
+				updateAccepted.current = false;
+				(window as any).showToast?.({
+					message: `The update could not be downloaded: ${status.message}`,
+					type: 'error',
+					duration: 6000
+				});
+			}
 		};
+		window.electron?.getUpdateStatus?.().then(handleUpdateStatus).catch(() => {});
 		const unsubscribe = window.electron?.on('update-status', handleUpdateStatus);
 		return () => unsubscribe?.();
 	}, []);
@@ -853,6 +873,20 @@ function App() {
 					request={consent.payload as ConflictCopyRequest}
 					onTrash={() => consentQueue.settle(consent.id, true)}
 					onKeep={() => consentQueue.settle(consent.id, false)}
+				/>
+			)}
+			{updateOffer && !weakVault && !consent && !rekeyPrompt && (
+				<UpdateDialog
+					version={updateOffer}
+					onUpdate={() => {
+						updateAccepted.current = true;
+						setUpdateOffer(null);
+						void window.electron?.downloadUpdate();
+					}}
+					onDismiss={() => {
+						dismissedUpdate.current = updateOffer;
+						setUpdateOffer(null);
+					}}
 				/>
 			)}
 			{rekeyPrompt && kdbxDb && (
