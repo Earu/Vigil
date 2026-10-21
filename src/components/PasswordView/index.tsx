@@ -23,6 +23,7 @@ interface PasswordViewProps {
 	onDatabaseChange?: (database: Database) => void;
 	showInitialBreachReport?: boolean;
 	securityReportRequestId?: number;
+	onSecurityReportOpenChange?: (open: boolean) => void;
 	// Owned by App so locking can see the edit form's state; see entryDirty there
 	entryDirty: React.MutableRefObject<boolean>;
 	// Owned by App: true while a failed save leaves the in-memory vault ahead
@@ -37,7 +38,7 @@ interface PasswordViewProps {
 	onSearch?: (query: string) => void;
 }
 
-export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId, entryDirty, saveFailed, savesInFlight, onSearch }: PasswordViewProps) => {
+export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInitialBreachReport, securityReportRequestId, onSecurityReportOpenChange, entryDirty, saveFailed, savesInFlight, onSearch }: PasswordViewProps) => {
 	const [selectedGroup, setSelectedGroup] = useState<Group>(database.root);
 	const [selectedEntry, setSelectedEntry] = useState<Entry | null>(null);
 	const [isCreatingNew, setIsCreatingNew] = useState(false);
@@ -186,7 +187,12 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	// open edit with no prompt. The search box holds focus after unlock, so
 	// typing in it is the easiest way to reach that. Every other route out of a
 	// dirty form asks first; a dirty form stays put here instead
+	const revealing = useRef(false);
 	useEffect(() => {
+		if (revealing.current) {
+			revealing.current = false;
+			return;
+		}
 		if (entryDirty.current) return;
 		setSelectedEntry(null);
 		setIsCreatingNew(false);
@@ -290,6 +296,38 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 	const focusTree = () => {
 		setTimeout(() => treeRef.current?.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')?.focus(), 0);
 	};
+	const closeBreachReport = () => {
+		setShowBreachReport(false);
+		setReportOpenedManually(false);
+		setBreachedEntries([]);
+		setWeakEntries([]);
+		setBreachedEmailEntries([]);
+		setIsCheckingBreaches(false);
+		setIsCheckingEmails(false);
+	};
+	const focusGridAfterReport = useRef(false);
+	const handleRevealEntry = async (entry: Entry) => {
+		if (entry.id !== selectedEntry?.id && !(await confirmDiscardEdits())) return;
+		const [current, group] = KeepassDatabaseService.findEntry(entry.id, database.root);
+		if (!current || !group) return;
+		revealing.current = group.id !== selectedGroup.id || searchQuery !== '';
+		focusGridAfterReport.current = true;
+		closeBreachReport();
+		setEditingGroup(null);
+		setIsCreatingNew(false);
+		setSelectedGroup(group);
+		setSelectedEntry(current);
+		onSearch?.('');
+	};
+	const reportVisible = showBreachReport && (reportOpenedManually || breachedEntries.length > 0 || breachedEmailEntries.length > 0 || reusedPasswords.length > 0 || isCheckingBreaches || isCheckingEmails);
+	useEffect(() => {
+		onSecurityReportOpenChange?.(reportVisible);
+		if (!reportVisible && focusGridAfterReport.current) {
+			focusGridAfterReport.current = false;
+			focusGrid();
+		}
+	}, [reportVisible]);
+	useEffect(() => () => onSecurityReportOpenChange?.(false), []);
 	const handleCloseGroupEditor = () => {
 		setEditingGroup(null);
 		focusTree();
@@ -521,7 +559,7 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					onCancel={() => setMoveRequest(null)}
 				/>
 			)}
-			{(showBreachReport && (reportOpenedManually || breachedEntries.length > 0 || breachedEmailEntries.length > 0 || reusedPasswords.length > 0 || isCheckingBreaches || isCheckingEmails)) && (
+			{reportVisible && (
 				<BreachReport
 					database={database}
 					breachedEntries={breachedEntries}
@@ -533,15 +571,8 @@ export const PasswordView = ({ database, searchQuery, onDatabaseChange, showInit
 					isChecking={isCheckingBreaches}
 					isCheckingEmails={isCheckingEmails}
 					autoOpened={!reportOpenedManually}
-					onClose={() => {
-						setShowBreachReport(false);
-						setReportOpenedManually(false);
-						setBreachedEntries([]);
-						setWeakEntries([]);
-						setBreachedEmailEntries([]);
-						setIsCheckingBreaches(false);
-						setIsCheckingEmails(false);
-					}}
+					onClose={closeBreachReport}
+					onSelectEntry={handleRevealEntry}
 				/>
 			)}
 		</div>

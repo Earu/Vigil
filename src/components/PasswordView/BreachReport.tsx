@@ -1,5 +1,5 @@
 import { Database, Entry, Group } from '../../types/database';
-import { useState } from 'react';
+import { ReactNode, useState } from 'react';
 import { BreachedEntry, BreachedEmailEntry, ReusedPasswordGroup } from '../../services/BreachCheckService';
 import { PlaceholderService } from '../../services/PlaceholderService';
 import { VirtualList } from './VirtualList';
@@ -12,6 +12,7 @@ import './BreachReport.css';
 interface BreachReportProps {
     database: Database;
     onClose: () => void;
+    onSelectEntry: (entry: Entry) => void;
     breachedEntries: Array<BreachedEntry>;
     weakEntries: Array<BreachedEntry>;
     breachedEmailEntries: Array<BreachedEmailEntry>;
@@ -58,6 +59,7 @@ export const BreachReport = ({
     reusedEntryCount,
     expiredEntries,
     onClose,
+    onSelectEntry,
     isChecking,
     isCheckingEmails,
     autoOpened = false,
@@ -76,54 +78,38 @@ export const BreachReport = ({
     const waiting = (isChecking || isCheckingEmails) &&
         (activeTab === 'breached' || activeTab === 'weak' || activeTab === 'emails');
 
-    const renderBreachedEntry = ({ entry, group, count }: BreachedEntry) => (
-        <div key={entry.id} className="breached-entry">
-            <div className="report-entry-info">
-                <h3>{shown(entry.title, entry)}</h3>
-                <p className="username">{shown(entry.username, entry)}</p>
-                <p className="group-path">Group: {group.name}</p>
-            </div>
-            <div className="breach-info">
-                <span className="breach-count">
-                    Found in {count.toLocaleString()} {count === 1 ? 'breach' : 'breaches'}
-                </span>
-            </div>
-        </div>
+    const renderRow = (entry: Entry, group: Group, badge?: ReactNode) => (
+        <button key={entry.id} type="button" className="breached-entry" onClick={() => onSelectEntry(entry)}>
+            <span className="report-entry-info">
+                <span className="report-entry-title">{shown(entry.title, entry)}</span>
+                <span className="username">{shown(entry.username, entry)}</span>
+                <span className="group-path">Group: {group.name}</span>
+            </span>
+            {badge && <span className="breach-info">{badge}</span>}
+        </button>
     );
 
-    const renderWeakEntry = ({ entry, group, strength }: BreachedEntry) => (
-        <div key={entry.id} className="breached-entry">
-            <div className="report-entry-info">
-                <h3>{shown(entry.title, entry)}</h3>
-                <p className="username">{shown(entry.username, entry)}</p>
-                <p className="group-path">Group: {group.name}</p>
-            </div>
-            <div className="breach-info">
-                {strength && (
-                    <span
-                        className="strength-indicator"
-                        style={{ color: getStrengthColor(strength.score) }}
-                    >
-                        {getStrengthLabel(strength.score)}
-                    </span>
-                )}
-            </div>
-        </div>
+    const renderBreachedEntry = ({ entry, group, count }: BreachedEntry) => renderRow(entry, group,
+        <span className="breach-count">
+            Found in {count.toLocaleString()} {count === 1 ? 'breach' : 'breaches'}
+        </span>
     );
 
-    const renderEmailEntry = (entry: BreachedEmailEntry) => (
-        <div key={entry.entry.id} className="breached-entry">
-            <div className="report-entry-info">
-                <h3>{shown(entry.entry.title, entry.entry)}</h3>
-                <p className="username">{shown(entry.entry.username, entry.entry)}</p>
-                <p className="group-path">Group: {entry.group.name}</p>
-            </div>
-            <div className="breach-info">
-                <span className="strength-indicator" style={{ color: getStrengthColor(2) }}>
-                    Found in {entry.breaches.length} {entry.breaches.length === 1 ? 'breach' : 'breaches'}
-                </span>
-            </div>
-        </div>
+    const renderWeakEntry = ({ entry, group, strength }: BreachedEntry) => renderRow(entry, group,
+        strength && (
+            <span
+                className="strength-indicator"
+                style={{ color: getStrengthColor(strength.score) }}
+            >
+                {getStrengthLabel(strength.score)}
+            </span>
+        )
+    );
+
+    const renderEmailEntry = ({ entry, group, breaches }: BreachedEmailEntry) => renderRow(entry, group,
+        <span className="strength-indicator" style={{ color: getStrengthColor(2) }}>
+            Found in {breaches.length} {breaches.length === 1 ? 'breach' : 'breaches'}
+        </span>
     );
 
     const renderReusedCluster = (cluster: ReusedPasswordGroup) => (
@@ -132,32 +118,15 @@ export const BreachReport = ({
                 Shared by {cluster.count} entries
             </div>
             <div className="breached-entries">
-                {cluster.entries.map(({ entry, group }) => (
-                    <div key={entry.id} className="breached-entry">
-                        <div className="report-entry-info">
-                            <h3>{shown(entry.title, entry)}</h3>
-                            <p className="username">{shown(entry.username, entry)}</p>
-                            <p className="group-path">Group: {group.name}</p>
-                        </div>
-                    </div>
-                ))}
+                {cluster.entries.map(({ entry, group }) => renderRow(entry, group))}
             </div>
         </div>
     );
 
-    const renderExpiredEntry = ({ entry, group }: { entry: Entry; group: Group }) => (
-        <div key={entry.id} className="breached-entry">
-            <div className="report-entry-info">
-                <h3>{shown(entry.title, entry)}</h3>
-                <p className="username">{shown(entry.username, entry)}</p>
-                <p className="group-path">Group: {group.name}</p>
-            </div>
-            <div className="breach-info">
-                <span className="strength-indicator" style={{ color: getStrengthColor(0) }}>
-                    Expired {entry.expiryTime?.toLocaleDateString()}
-                </span>
-            </div>
-        </div>
+    const renderExpiredEntry = ({ entry, group }: { entry: Entry; group: Group }) => renderRow(entry, group,
+        <span className="strength-indicator" style={{ color: getStrengthColor(0) }}>
+            Expired {entry.expiryTime?.toLocaleDateString()}
+        </span>
     );
 
     return (

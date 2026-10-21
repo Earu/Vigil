@@ -1,9 +1,8 @@
 import { useTheme } from '../../contexts/ThemeContext';
-import { CloseActionIcon, DownloadActionIcon } from '../../icons/actions/ActionIcons';
+import { CloseActionIcon } from '../../icons/actions/ActionIcons';
 import { DarkThemeIcon, LightThemeIcon, SystemThemeIcon } from '../../icons/SettingsIcon';
 import { ShowPasswordIcon, HidePasswordIcon } from '../../icons/auth/AuthIcons';
 import { LockIcon } from '../../icons/actions/LockIcon';
-import { ImportAuthIcon } from '../../icons/auth/AuthIcons';
 import { userSettingsService, MIN_BACKUP_KEEP, MAX_BACKUP_KEEP, MIN_CLIPBOARD_CLEAR_SECONDS, MAX_CLIPBOARD_CLEAR_SECONDS, DEFAULT_CLIPBOARD_CLEAR_SECONDS } from '../../services/UserSettingsService';
 import { BreachStatusStore } from '../../services/BreachStatusStore';
 import { EmailBreachStatusStore } from '../../services/EmailBreachStatusStore';
@@ -17,6 +16,7 @@ import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
 import { Modal } from '../Modal';
 import { MasterKeyDialog } from '../MasterKeyDialog';
 import { TabStrip, tabPanelProps } from '../TabStrip';
+import { SettingRow, Toggle, helpId } from './SettingRow';
 import { SHORTCUT_GROUPS, chordKeys } from '../../services/Shortcuts';
 import { confirmDialog } from '../../services/Dialogs';
 import './Settings.css';
@@ -461,644 +461,644 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                 />
                 <div className="settings-content" {...tabPanelProps('settings', currentTab)}>
                     {currentTab === 'general' && (
-                    <div className="settings-section">
-                        <h3>Appearance</h3>
-                        <div className="theme-selector">
-                            <div className="theme-options">
-                                <button
-                                    className={`theme-option ${theme === 'dark' ? 'active' : ''}`}
-                                    onClick={() => setTheme('dark')}
-                                >
-                                    <DarkThemeIcon />
-                                    Dark Theme
-                                </button>
-                                <button
-                                    className={`theme-option ${theme === 'light' ? 'active' : ''}`}
-                                    onClick={() => setTheme('light')}
-                                >
-                                    <LightThemeIcon />
-                                    Light Theme
-                                </button>
-                                <button
-                                    className={`theme-option ${theme === 'system' ? 'active' : ''}`}
-                                    onClick={() => setTheme('system')}
-                                >
-                                    <SystemThemeIcon />
-                                    System Theme
-                                </button>
-                            </div>
+                        <div className="setting-groups">
+                            <section className="setting-group">
+                                <h3>Appearance</h3>
+                                <div className="setting-card">
+                                    <SettingRow label="Theme">
+                                        <div className="theme-options" role="group" aria-label="Theme">
+                                            <button
+                                                className={`theme-option ${theme === 'dark' ? 'active' : ''}`}
+                                                aria-pressed={theme === 'dark'}
+                                                onClick={() => setTheme('dark')}
+                                            >
+                                                <DarkThemeIcon />
+                                                Dark
+                                            </button>
+                                            <button
+                                                className={`theme-option ${theme === 'light' ? 'active' : ''}`}
+                                                aria-pressed={theme === 'light'}
+                                                onClick={() => setTheme('light')}
+                                            >
+                                                <LightThemeIcon />
+                                                Light
+                                            </button>
+                                            <button
+                                                className={`theme-option ${theme === 'system' ? 'active' : ''}`}
+                                                aria-pressed={theme === 'system'}
+                                                onClick={() => setTheme('system')}
+                                            >
+                                                <SystemThemeIcon />
+                                                System
+                                            </button>
+                                        </div>
+                                    </SettingRow>
+                                </div>
+                            </section>
+
+                            {kdbxDb && (
+                                <section className="setting-group">
+                                    <h3>Import and export</h3>
+                                    <div className="setting-card">
+                                        <SettingRow label="Import passwords" help="Import from Bitwarden (.json or .csv), KeePassXC, LastPass, 1Password, or a browser's CSV export; the format is detected automatically">
+                                            <button className="setting-row-button" onClick={() => setShowImportModal(true)}>
+                                                Import
+                                            </button>
+                                        </SettingRow>
+                                        {window.electron && (
+                                            <SettingRow label="Save encrypted copy" help="Writes the database to a .kdbx file, encrypted with the same credentials">
+                                                <button className="setting-row-button" onClick={handleKdbxExport}>
+                                                    Save copy
+                                                </button>
+                                            </SettingRow>
+                                        )}
+                                        {window.electron && (
+                                            <SettingRow label="Export to CSV" help="Writes an unencrypted CSV file with every password in plain text">
+                                                <button className="setting-row-button" onClick={handleCsvExport}>
+                                                    Export
+                                                </button>
+                                            </SettingRow>
+                                        )}
+                                    </div>
+                                </section>
+                            )}
+
+                            <section className="setting-group">
+                                <h3>About</h3>
+                                <div className="setting-card">
+                                    <SettingRow label={`Vigil ${__APP_VERSION__}`} help="A password manager for KeePass vaults. Free software under the GPL-3.0 licence.">
+                                        <div className="setting-row-buttons">
+                                            <button className="setting-row-button" onClick={() => openLink(ISSUES_URL)}>Report a bug</button>
+                                            <button className="setting-row-button" onClick={() => openLink(RELEASES_URL)}>Release notes</button>
+                                            <button className="setting-row-button" onClick={() => openLink(REPO_URL)}>Source code</button>
+                                        </div>
+                                    </SettingRow>
+                                    {window.electron && (
+                                        <SettingRow label="Updates" help={updateStatusText}>
+                                            {updateStatus?.state === 'downloaded' ? (
+                                                <button
+                                                    className="setting-row-button primary"
+                                                    onClick={() => window.electron?.installUpdate()}
+                                                >
+                                                    Restart and install
+                                                </button>
+                                            ) : updateStatus?.state === 'available' ? (
+                                                <button
+                                                    className="setting-row-button primary"
+                                                    onClick={() => window.electron?.downloadUpdate()}
+                                                >
+                                                    Update
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    className="setting-row-button"
+                                                    disabled={updateStatus?.state === 'checking' || updateStatus?.state === 'downloading' || updateStatus?.state === 'disabled'}
+                                                    onClick={() => window.electron?.checkForUpdates()}
+                                                >
+                                                    Check for updates
+                                                </button>
+                                            )}
+                                        </SettingRow>
+                                    )}
+                                </div>
+                            </section>
+
+                            <section className="setting-group">
+                                <h3>Keyboard shortcuts</h3>
+                                <div className="setting-card">
+                                    <div className="shortcut-groups">
+                                        {SHORTCUT_GROUPS.map((group) => (
+                                            <table className="shortcut-table" key={group.title}>
+                                                <caption>{group.title}</caption>
+                                                <tbody>
+                                                    {group.rows.map((row) => (
+                                                        <tr key={row.chord}>
+                                                            <th scope="row">
+                                                                {chordKeys(row.chord).map((key, i) => (
+                                                                    <span key={i}>{i > 0 && ' '}<kbd>{key}</kbd></span>
+                                                                ))}
+                                                            </th>
+                                                            <td>{row.label}</td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        ))}
+                                    </div>
+                                </div>
+                            </section>
                         </div>
-                    </div>
                     )}
 
                     {currentTab === 'database' && kdbxDb && (
-                        <div className="settings-section">
-                            <div className="db-details-controls">
-                                <label>Database details</label>
-                                <div className="db-field-row">
-                                    <span>Name</span>
-                                    <input
-                                        type="text"
-                                        className="db-input"
-                                        value={dbName}
-                                        onChange={(e) => setDbName(e.target.value)}
-                                    />
-                                </div>
-                                <div className="db-field-row">
-                                    <span>Description</span>
-                                    <input
-                                        type="text"
-                                        className="db-input"
-                                        value={dbDesc}
-                                        placeholder="Optional"
-                                        onChange={(e) => setDbDesc(e.target.value)}
-                                    />
-                                </div>
-                                <div className="db-apply-row">
-                                    <button className="settings-secondary-button" onClick={handleApplyDetails} disabled={!dbName.trim()}>
-                                        Save details
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="master-key-controls">
-                                <label>Master key</label>
-                                <p className="database-help">
-                                    Unlocked by {[
-                                        'password',
-                                        hasKeyFile ? 'key file' : null,
-                                        usesHardwareKey ? 'hardware key' : null
-                                    ].filter(Boolean).join(' + ')}.
-                                </p>
-                                <div className="db-apply-row">
-                                    <button className="settings-secondary-button" onClick={() => setShowMasterKey(true)}>
-                                        Change master key
-                                    </button>
-                                </div>
-                            </div>
-                            {kdfInfo && (
-                                <div className="kdf-controls">
-                                    <label>Key derivation</label>
-                                    {(kdfInfo.type === 'argon2d' || kdfInfo.type === 'argon2id') ? (
-                                        <>
-                                            <div className="db-field-row">
-                                                <span>Algorithm</span>
-                                                <select
-                                                    className="db-input"
-                                                    value={kdfInfo.type}
-                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, type: e.target.value as KdfInfo['type'] })}
-                                                >
-                                                    <option value="argon2d">Argon2d</option>
-                                                    <option value="argon2id">Argon2id</option>
-                                                </select>
-                                            </div>
-                                            <div className="db-field-row">
-                                                <span>Memory (MiB)</span>
-                                                <input
-                                                    type="number"
-                                                    className="db-input"
-                                                    min="8" max="4096"
-                                                    value={kdfInfo.memoryMiB ?? 64}
-                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, memoryMiB: Math.max(8, Math.min(4096, parseInt(e.target.value) || 64)) })}
-                                                />
-                                            </div>
-                                            <div className="db-field-row">
-                                                <span>Iterations</span>
-                                                <input
-                                                    type="number"
-                                                    className="db-input"
-                                                    min="1" max="1000"
-                                                    value={kdfInfo.iterations}
-                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, iterations: Math.max(1, Math.min(1000, parseInt(e.target.value) || 1)) })}
-                                                />
-                                            </div>
-                                            <div className="db-field-row">
-                                                <span>Parallelism</span>
-                                                <input
-                                                    type="number"
-                                                    className="db-input"
-                                                    min="1" max="16"
-                                                    value={kdfInfo.parallelism ?? 1}
-                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, parallelism: Math.max(1, Math.min(16, parseInt(e.target.value) || 1)) })}
-                                                />
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="db-field-row">
-                                            <span>Encryption rounds</span>
-                                            <input
-                                                type="number"
-                                                className="db-input"
-                                                min="1"
-                                                max={KeepassDatabaseService.MAX_AES_KDF_ROUNDS}
-                                                value={kdfInfo.iterations}
-                                                onChange={(e) => setKdfInfo({ ...kdfInfo, iterations: Math.max(1, Math.min(KeepassDatabaseService.MAX_AES_KDF_ROUNDS, parseInt(e.target.value) || 1)) })}
-                                            />
-                                        </div>
-                                    )}
-                                    <p className="database-help">Higher values are harder to brute-force and slower to unlock</p>
-                                    <div className="db-apply-row">
-                                        <button className="settings-secondary-button" onClick={handleApplyKdf}>
-                                            Apply key derivation
+                        <div className="setting-groups">
+                            <section className="setting-group">
+                                <h3>Database details</h3>
+                                <div className="setting-card">
+                                    <SettingRow label="Name" htmlFor="db-name">
+                                        <input
+                                            type="text"
+                                            id="db-name"
+                                            className="db-input"
+                                            value={dbName}
+                                            onChange={(e) => setDbName(e.target.value)}
+                                        />
+                                    </SettingRow>
+                                    <SettingRow label="Description" htmlFor="db-description">
+                                        <input
+                                            type="text"
+                                            id="db-description"
+                                            className="db-input"
+                                            value={dbDesc}
+                                            placeholder="Optional"
+                                            onChange={(e) => setDbDesc(e.target.value)}
+                                        />
+                                    </SettingRow>
+                                    <SettingRow>
+                                        <button className="setting-row-button" onClick={handleApplyDetails} disabled={!dbName.trim()}>
+                                            Save details
                                         </button>
+                                    </SettingRow>
+                                </div>
+                            </section>
+
+                            <section className="setting-group">
+                                <h3>Master key</h3>
+                                <div className="setting-card">
+                                    <SettingRow
+                                        label="Unlock method"
+                                        help={`Unlocked by ${[
+                                            'password',
+                                            hasKeyFile ? 'key file' : null,
+                                            usesHardwareKey ? 'hardware key' : null
+                                        ].filter(Boolean).join(' + ')}.`}
+                                    >
+                                        <button className="setting-row-button" onClick={() => setShowMasterKey(true)}>
+                                            Change master key
+                                        </button>
+                                    </SettingRow>
+                                </div>
+                            </section>
+
+                            {kdfInfo && (
+                                <section className="setting-group">
+                                    <h3>Key derivation</h3>
+                                    <div className="setting-card">
+                                        {(kdfInfo.type === 'argon2d' || kdfInfo.type === 'argon2id') ? (
+                                            <>
+                                                <SettingRow label="Algorithm" htmlFor="kdf-algorithm">
+                                                    <select
+                                                        id="kdf-algorithm"
+                                                        className="db-input"
+                                                        value={kdfInfo.type}
+                                                        onChange={(e) => setKdfInfo({ ...kdfInfo, type: e.target.value as KdfInfo['type'] })}
+                                                    >
+                                                        <option value="argon2d">Argon2d</option>
+                                                        <option value="argon2id">Argon2id</option>
+                                                    </select>
+                                                </SettingRow>
+                                                <SettingRow label="Memory (MiB)" htmlFor="kdf-memory">
+                                                    <input
+                                                        type="number"
+                                                        id="kdf-memory"
+                                                        className="db-input"
+                                                        min="8" max="4096"
+                                                        value={kdfInfo.memoryMiB ?? 64}
+                                                        onChange={(e) => setKdfInfo({ ...kdfInfo, memoryMiB: Math.max(8, Math.min(4096, parseInt(e.target.value) || 64)) })}
+                                                    />
+                                                </SettingRow>
+                                                <SettingRow label="Iterations" htmlFor="kdf-iterations">
+                                                    <input
+                                                        type="number"
+                                                        id="kdf-iterations"
+                                                        className="db-input"
+                                                        min="1" max="1000"
+                                                        value={kdfInfo.iterations}
+                                                        onChange={(e) => setKdfInfo({ ...kdfInfo, iterations: Math.max(1, Math.min(1000, parseInt(e.target.value) || 1)) })}
+                                                    />
+                                                </SettingRow>
+                                                <SettingRow label="Parallelism" htmlFor="kdf-parallelism">
+                                                    <input
+                                                        type="number"
+                                                        id="kdf-parallelism"
+                                                        className="db-input"
+                                                        min="1" max="16"
+                                                        value={kdfInfo.parallelism ?? 1}
+                                                        onChange={(e) => setKdfInfo({ ...kdfInfo, parallelism: Math.max(1, Math.min(16, parseInt(e.target.value) || 1)) })}
+                                                    />
+                                                </SettingRow>
+                                            </>
+                                        ) : (
+                                            <SettingRow label="Encryption rounds" htmlFor="kdf-rounds">
+                                                <input
+                                                    type="number"
+                                                    id="kdf-rounds"
+                                                    className="db-input"
+                                                    min="1"
+                                                    max={KeepassDatabaseService.MAX_AES_KDF_ROUNDS}
+                                                    value={kdfInfo.iterations}
+                                                    onChange={(e) => setKdfInfo({ ...kdfInfo, iterations: Math.max(1, Math.min(KeepassDatabaseService.MAX_AES_KDF_ROUNDS, parseInt(e.target.value) || 1)) })}
+                                                />
+                                            </SettingRow>
+                                        )}
+                                        <SettingRow help="Higher values are harder to brute-force and slower to unlock">
+                                            <button className="setting-row-button" onClick={handleApplyKdf}>
+                                                Apply key derivation
+                                            </button>
+                                        </SettingRow>
                                     </div>
-                                </div>
+                                </section>
                             )}
-                            <div className="history-retention-controls">
-                                <label>Entry history</label>
-                                <div className="db-field-row">
-                                    <span>Versions kept per entry</span>
-                                    <input
-                                        type="number"
-                                        className="db-input"
-                                        min="0" max="100"
-                                        value={historyMax}
-                                        onChange={(e) => setHistoryMax(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
-                                    />
+
+                            <section className="setting-group">
+                                <h3>Entry history</h3>
+                                <div className="setting-card">
+                                    <SettingRow label="Versions kept per entry" htmlFor="history-max">
+                                        <input
+                                            type="number"
+                                            id="history-max"
+                                            className="db-input"
+                                            min="0" max="100"
+                                            value={historyMax}
+                                            onChange={(e) => setHistoryMax(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                                        />
+                                    </SettingRow>
+                                    <SettingRow help="Older versions beyond this count are dropped on save">
+                                        <button className="setting-row-button" onClick={handleApplyHistory}>
+                                            Apply retention
+                                        </button>
+                                    </SettingRow>
                                 </div>
-                                <p className="database-help">Older versions beyond this count are dropped on save</p>
-                                <div className="db-apply-row">
-                                    <button className="settings-secondary-button" onClick={handleApplyHistory}>
-                                        Apply retention
-                                    </button>
-                                </div>
-                            </div>
+                            </section>
                         </div>
                     )}
 
                     {currentTab === 'security' && (
-                    <div className="settings-section">
-                                                <div className="auto-lock-controls">
-                            <div className="auto-lock-toggle">
-                                <label htmlFor="auto-lock-enabled">Enable automatic locking</label>
-                                <input
-                                    type="checkbox"
-                                    id="auto-lock-enabled"
-                                    checked={autoLockEnabled}
-                                    onChange={(e) => {
-                                        setAutoLockEnabled(e.target.checked);
-                                        userSettingsService.setAutoLockEnabled(e.target.checked);
-                                    }}
-                                />
-                            </div>
-                            <div className={`auto-lock-duration ${autoLockEnabled ? 'enabled' : ''}`}>
-                                <label htmlFor="auto-lock-duration">Duration (minutes)</label>
-                                <input
-                                    type="number"
-                                    id="auto-lock-duration"
-                                    value={autoLockDuration}
-                                    min="1"
-                                    max="480"
-                                    disabled={!autoLockEnabled}
-                                    onChange={(e) => {
-                                        const value = Math.max(1, Math.min(480, parseInt(e.target.value) || 20));
-                                        setAutoLockDuration(value);
-                                        userSettingsService.setAutoLockDuration(value);
-                                    }}
-                                />
-                            </div>
-                            <p className="auto-lock-help">Locks the database after this long without activity</p>
-                        </div>
-                        <div className="clipboard-clear-controls">
-                            <div className="auto-lock-duration enabled">
-                                <label htmlFor="clipboard-clear-seconds">Clear clipboard after (seconds)</label>
-                                <input
-                                    type="number"
-                                    id="clipboard-clear-seconds"
-                                    value={clipboardClearSeconds}
-                                    min={MIN_CLIPBOARD_CLEAR_SECONDS}
-                                    max={MAX_CLIPBOARD_CLEAR_SECONDS}
-                                    onChange={(e) => {
-                                        const value = Math.max(MIN_CLIPBOARD_CLEAR_SECONDS, Math.min(MAX_CLIPBOARD_CLEAR_SECONDS, parseInt(e.target.value) || DEFAULT_CLIPBOARD_CLEAR_SECONDS));
-                                        setClipboardClearSeconds(value);
-                                        userSettingsService.setClipboardClearSeconds(value);
-                                    }}
-                                />
-                            </div>
-                            <p className="auto-lock-help">A copied password or username is wiped from the clipboard after this long</p>
-                        </div>
-                        <div className="backup-controls">
-                            <div className="auto-lock-toggle">
-                                <label htmlFor="backups-enabled">Keep backups before saving</label>
-                                <input
-                                    type="checkbox"
-                                    id="backups-enabled"
-                                    checked={backupOptions.enabled}
-                                    onChange={(e) => {
-                                        userSettingsService.setBackupsEnabled(e.target.checked);
-                                        setBackupOptions(userSettingsService.getBackupOptions());
-                                    }}
-                                />
-                            </div>
-                            <div className={`auto-lock-duration ${backupOptions.enabled ? 'enabled' : ''}`}>
-                                <label htmlFor="backup-keep">Copies to keep</label>
-                                <input
-                                    type="number"
-                                    id="backup-keep"
-                                    value={backupOptions.keep}
-                                    min={MIN_BACKUP_KEEP}
-                                    max={MAX_BACKUP_KEEP}
-                                    disabled={!backupOptions.enabled}
-                                    onChange={(e) => {
-                                        userSettingsService.setBackupKeep(parseInt(e.target.value) || 5);
-                                        setBackupOptions(userSettingsService.getBackupOptions());
-                                    }}
-                                />
-                            </div>
-                            <p className="auto-lock-help">Keeps recent copies of your database so you can go back if a save goes wrong, at most one every 30 minutes</p>
-                            {backupInfo && (
-                                <div className="backup-status">
-                                    <span>
-                                        {backupInfo.count === 0
-                                            ? 'No backups yet'
-                                            : `${backupInfo.count} ${backupInfo.count === 1 ? 'copy' : 'copies'}, `
-                                              + `${KeepassDatabaseService.formatAttachmentSize(backupInfo.totalBytes)}`
-                                              + `${backupInfo.newest ? `, newest ${new Date(backupInfo.newest).toLocaleString()}` : ''}`}
-                                    </span>
-                                    <button
-                                        className="clear-cache-button"
-                                        onClick={() => {
-                                            const vaultPath = KeepassDatabaseService.getPath();
-                                            if (vaultPath) window.electron?.revealBackups(vaultPath);
-                                        }}
-                                    >
-                                        Open Folder
-                                    </button>
+                        <div className="setting-groups">
+                            <section className="setting-group">
+                                <h3>Locking</h3>
+                                <div className="setting-card">
+                                    <SettingRow label="Enable automatic locking" htmlFor="auto-lock-enabled" help="Locks the database after the duration below without activity">
+                                        <Toggle
+                                            id="auto-lock-enabled"
+                                            checked={autoLockEnabled}
+                                            onChange={(checked) => {
+                                                setAutoLockEnabled(checked);
+                                                userSettingsService.setAutoLockEnabled(checked);
+                                            }}
+                                        />
+                                    </SettingRow>
+                                    <SettingRow label="Duration (minutes)" htmlFor="auto-lock-duration" disabled={!autoLockEnabled}>
+                                        <input
+                                            type="number"
+                                            id="auto-lock-duration"
+                                            value={autoLockDuration}
+                                            min="1"
+                                            max="480"
+                                            disabled={!autoLockEnabled}
+                                            onChange={(e) => {
+                                                const value = Math.max(1, Math.min(480, parseInt(e.target.value) || 20));
+                                                setAutoLockDuration(value);
+                                                userSettingsService.setAutoLockDuration(value);
+                                            }}
+                                        />
+                                    </SettingRow>
+                                    {biometricsMethod && biometricsRestartLock !== null && (
+                                        <SettingRow
+                                            label="Require master password each time Vigil starts"
+                                            htmlFor="biometrics-restart-lock"
+                                            help={<>
+                                                Type your master password once each time you open Vigil. {biometricsMethod} then
+                                                unlocks it until you quit. Turning this off lets {biometricsMethod} work right
+                                                away, but Vigil has to keep an unlock key stored on this computer for that.
+                                            </>}
+                                        >
+                                            <Toggle
+                                                id="biometrics-restart-lock"
+                                                checked={biometricsRestartLock}
+                                                onChange={handleBiometricsRestartLockToggle}
+                                            />
+                                        </SettingRow>
+                                    )}
                                 </div>
-                            )}
-                        </div>
-                        {biometricsMethod && biometricsRestartLock !== null && (
-                            <div className="content-protection-controls">
-                                <div className="auto-lock-toggle">
-                                    <label htmlFor="biometrics-restart-lock">Require master password each time Vigil starts</label>
-                                    <input
-                                        type="checkbox"
-                                        id="biometrics-restart-lock"
-                                        checked={biometricsRestartLock}
-                                        onChange={(e) => handleBiometricsRestartLockToggle(e.target.checked)}
-                                    />
-                                </div>
-                                <p className="auto-lock-help">
-                                    Type your master password once each time you open Vigil. {biometricsMethod} then
-                                    unlocks it until you quit. Turning this off lets {biometricsMethod} work right
-                                    away, but Vigil has to keep an unlock key stored on this computer for that.
-                                </p>
-                            </div>
-                        )}
-                        {contentProtection?.supported && (
-                            <div className="content-protection-controls">
-                                <div className="auto-lock-toggle">
-                                    <label htmlFor="content-protection-enabled">Hide window from screen capture</label>
-                                    <input
-                                        type="checkbox"
-                                        id="content-protection-enabled"
-                                        checked={contentProtection.enabled}
-                                        onChange={(e) => handleContentProtectionToggle(e.target.checked)}
-                                    />
-                                </div>
-                                <p className="auto-lock-help">
-                                    Keeps the window out of screenshots and screen shares. Turn it off
-                                    if you need to screenshot or screen share Vigil itself.
-                                    {navigator.userAgent.includes('Mac') && ' On macOS this does not stop every recorder: apps built on ScreenCaptureKit can still capture the window.'}
-                                </p>
-                            </div>
-                        )}
-                        <div className="favicon-controls">
-                            <div className="auto-lock-toggle">
-                                <label htmlFor="fetch-favicons">Fetch website icons from Google</label>
-                                <input
-                                    type="checkbox"
-                                    id="fetch-favicons"
-                                    checked={fetchFavicons}
-                                    onChange={(e) => {
-                                        setFetchFavicons(e.target.checked);
-                                        userSettingsService.setFetchFavicons(e.target.checked);
-                                    }}
-                                />
-                            </div>
-                            <p className="auto-lock-help">Shows each entry's website icon, but sends the entry's domain to Google's favicon service</p>
-                        </div>
-                        <div className="favicon-controls">
-                            <div className="auto-lock-toggle">
-                                <label htmlFor="check-password-breaches">Check passwords against Have I Been Pwned</label>
-                                <input
-                                    type="checkbox"
-                                    id="check-password-breaches"
-                                    checked={checkPasswordBreaches}
-                                    onChange={(e) => {
-                                        setCheckPasswordBreaches(e.target.checked);
-                                        userSettingsService.setCheckPasswordBreaches(e.target.checked);
-                                    }}
-                                />
-                            </div>
-                            <p className="auto-lock-help">Runs on unlock using k-anonymity: only the first 5 characters of each password's SHA-1 hash leave the machine</p>
-                        </div>
-                        <div className="api-key-input">
-                            <label htmlFor="hibp-api-key">Have I Been Pwned API Key</label>
-                            <div className={`input-with-toggle${hibpKeyStored ? ' key-locked' : ''}`}>
-                                <input
-                                    type={showApiKey ? 'text' : 'password'}
-                                    id="hibp-api-key"
-                                    value={apiKey}
-                                    disabled={hibpKeyStored}
-                                    onChange={(e) => setApiKey(e.target.value)}
-                                    onBlur={() => void commitApiKey()}
-                                    onKeyDown={(e) => { if (e.key === 'Enter') void commitApiKey(); }}
-                                    placeholder={hibpKeyStored ? '***************************' : 'Enter your HIBP API key'}
-                                />
-                                {hibpKeyStored ? (
-                                    <div className="key-locked-overlay" title="Stored in the system keychain">
-                                        <LockIcon />
-                                    </div>
-                                ) : (
-                                    <button
-                                        className="toggle-visibility"
-                                        onClick={() => setShowApiKey(!showApiKey)}
-                                        type="button"
-                                    >
-                                        {showApiKey ? <HidePasswordIcon /> : <ShowPasswordIcon />}
-                                    </button>
-                                )}
-                            </div>
-                            {hibpKeyStored && (
-                                <button className="clear-cache-button" onClick={() => void removeApiKey()} type="button">
-                                    Remove API Key
-                                </button>
-                            )}
-                            <p className="api-key-help">
-                                Enables email breach checks. Get your API key from{' '}
-                                <a href="https://haveibeenpwned.com/API/Key" target="_blank" rel="noopener noreferrer" onClick={() => window.electron?.openExternal('https://haveibeenpwned.com/API/Key')}>
-                                    haveibeenpwned.com
-                                </a>
-                            </p>
-                            <div className="cache-controls">
-                                <button
-                                    className="clear-cache-button"
-                                    onClick={() => {
-                                        BreachStatusStore.clearAll();
-                                        EmailBreachStatusStore.clearAll();
-                                        (window as any).showToast?.({
-                                            message: 'Breach check cache cleared',
-                                            type: 'success',
-                                            duration: 3000
-                                        });
-                                    }}
-                                >
-                                    Clear Cache
-                                </button>
-                                <p className="cache-help">Clears security report cache</p>
-                            </div>
-                            {window.electron && (
-                                <div className="cache-controls">
-                                    <button
-                                        className="clear-cache-button"
-                                        onClick={() => {
-                                            window.electron?.revealLogs().then((result) => {
-                                                if (!result.success) {
-                                                    (window as any).showToast?.({
-                                                        message: result.error || 'Failed to open the log folder',
-                                                        type: 'error',
-                                                        duration: 3000
-                                                    });
-                                                }
-                                            });
-                                        }}
-                                    >
-                                        Show Logs
-                                    </button>
-                                    <p className="cache-help">Opens the diagnostic log folder, useful for bug reports</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                    )}
+                            </section>
 
-                    {currentTab === 'security' && window.electron && (
-                        <div className="settings-section">
-                            <h3>Browser Integration</h3>
-                            <div className="database-controls">
-                                <div className="auto-lock-toggle">
-                                    <label htmlFor="browser-integration-enabled">Enable KeePassXC-Browser support</label>
-                                    <input
-                                        type="checkbox"
-                                        id="browser-integration-enabled"
-                                        checked={!!browserIntegration?.enabled}
-                                        disabled={!browserIntegration?.supported}
-                                        onChange={(e) => handleBrowserIntegrationToggle(e.target.checked)}
-                                    />
+                            <section className="setting-group">
+                                <h3>Privacy</h3>
+                                <div className="setting-card">
+                                    <SettingRow label="Clear clipboard after (seconds)" htmlFor="clipboard-clear-seconds" help="A copied password or username is wiped from the clipboard after this long">
+                                        <input
+                                            type="number"
+                                            id="clipboard-clear-seconds"
+                                            aria-describedby={helpId('clipboard-clear-seconds')}
+                                            value={clipboardClearSeconds}
+                                            min={MIN_CLIPBOARD_CLEAR_SECONDS}
+                                            max={MAX_CLIPBOARD_CLEAR_SECONDS}
+                                            onChange={(e) => {
+                                                const value = Math.max(MIN_CLIPBOARD_CLEAR_SECONDS, Math.min(MAX_CLIPBOARD_CLEAR_SECONDS, parseInt(e.target.value) || DEFAULT_CLIPBOARD_CLEAR_SECONDS));
+                                                setClipboardClearSeconds(value);
+                                                userSettingsService.setClipboardClearSeconds(value);
+                                            }}
+                                        />
+                                    </SettingRow>
+                                    {contentProtection?.supported && (
+                                        <SettingRow
+                                            label="Hide window from screen capture"
+                                            htmlFor="content-protection-enabled"
+                                            help={<>
+                                                Keeps the window out of screenshots and screen shares. Turn it off
+                                                if you need to screenshot or screen share Vigil itself.
+                                                {navigator.userAgent.includes('Mac') && ' On macOS this does not stop every recorder: apps built on ScreenCaptureKit can still capture the window.'}
+                                            </>}
+                                        >
+                                            <Toggle
+                                                id="content-protection-enabled"
+                                                checked={contentProtection.enabled}
+                                                onChange={handleContentProtectionToggle}
+                                            />
+                                        </SettingRow>
+                                    )}
+                                    <SettingRow label="Fetch website icons from Google" htmlFor="fetch-favicons" help="Shows each entry's website icon, but sends the entry's domain to Google's favicon service">
+                                        <Toggle
+                                            id="fetch-favicons"
+                                            checked={fetchFavicons}
+                                            onChange={(checked) => {
+                                                setFetchFavicons(checked);
+                                                userSettingsService.setFetchFavicons(checked);
+                                            }}
+                                        />
+                                    </SettingRow>
                                 </div>
-                                <p className="database-help">
-                                    Lets the KeePassXC-Browser extension fill credentials from your vaults.
-                                    Enabling registers Vigil with the browsers on this machine
-                                    {browserIntegration?.running ? '; the connection server is running' : ''}
-                                </p>
-                                <div className="auto-lock-toggle">
-                                    <label htmlFor="always-allow-browser-access">Always allow access to entries</label>
-                                    <input
-                                        type="checkbox"
-                                        id="always-allow-browser-access"
-                                        checked={alwaysAllowBrowserAccess}
-                                        onChange={(e) => {
-                                            setAlwaysAllowBrowserAccess(e.target.checked);
-                                            userSettingsService.setAlwaysAllowBrowserAccess(e.target.checked);
-                                        }}
-                                    />
+                            </section>
+
+                            <section className="setting-group">
+                                <h3>Backups</h3>
+                                <div className="setting-card">
+                                    <SettingRow label="Keep backups before saving" htmlFor="backups-enabled" help="Keeps recent copies of your database so you can go back if a save goes wrong, at most one every 30 minutes">
+                                        <Toggle
+                                            id="backups-enabled"
+                                            checked={backupOptions.enabled}
+                                            onChange={(checked) => {
+                                                userSettingsService.setBackupsEnabled(checked);
+                                                setBackupOptions(userSettingsService.getBackupOptions());
+                                            }}
+                                        />
+                                    </SettingRow>
+                                    <SettingRow label="Copies to keep" htmlFor="backup-keep" disabled={!backupOptions.enabled}>
+                                        <input
+                                            type="number"
+                                            id="backup-keep"
+                                            value={backupOptions.keep}
+                                            min={MIN_BACKUP_KEEP}
+                                            max={MAX_BACKUP_KEEP}
+                                            disabled={!backupOptions.enabled}
+                                            onChange={(e) => {
+                                                userSettingsService.setBackupKeep(parseInt(e.target.value) || 5);
+                                                setBackupOptions(userSettingsService.getBackupOptions());
+                                            }}
+                                        />
+                                    </SettingRow>
+                                    {backupInfo && (
+                                        <SettingRow
+                                            label={backupInfo.count === 0
+                                                ? 'No backups yet'
+                                                : `${backupInfo.count} ${backupInfo.count === 1 ? 'copy' : 'copies'}, `
+                                                  + `${KeepassDatabaseService.formatAttachmentSize(backupInfo.totalBytes)}`}
+                                            help={backupInfo.newest ? `Newest ${new Date(backupInfo.newest).toLocaleString()}` : undefined}
+                                        >
+                                            <button
+                                                className="setting-row-button"
+                                                onClick={() => {
+                                                    const vaultPath = KeepassDatabaseService.getPath();
+                                                    if (vaultPath) window.electron?.revealBackups(vaultPath);
+                                                }}
+                                            >
+                                                Open Folder
+                                            </button>
+                                        </SettingRow>
+                                    )}
                                 </div>
-                                <p className="database-help">
-                                    Skips the confirmation when the extension requests credentials.
-                                    Anything holding a pairing key can then read matching entries
-                                    silently; entries you denied stay denied
-                                </p>
-                                <div className="auto-lock-toggle">
-                                    <label htmlFor="allow-passkeys-localhost">Allow passkeys on localhost</label>
-                                    <input
-                                        type="checkbox"
-                                        id="allow-passkeys-localhost"
-                                        checked={allowPasskeysLocalhost}
-                                        onChange={(e) => {
-                                            setAllowPasskeysLocalhost(e.target.checked);
-                                            userSettingsService.setAllowPasskeysLocalhost(e.target.checked);
-                                        }}
-                                    />
-                                </div>
-                                <p className="database-help">
-                                    Passkeys normally require https sites. Enable this only if you develop
-                                    against locally hosted sites
-                                </p>
-                                {kdbxDb && browserAssociations.length > 0 && (
-                                    <div className="browser-associations">
-                                        <label>Connected browsers (this database)</label>
-                                        {browserAssociations.map((association) => (
-                                            <div key={association.name} className="browser-association-row">
-                                                <span>{association.name}</span>
-                                                <button
-                                                    className="clear-cache-button"
-                                                    onClick={() => handleRemoveAssociation(association.name)}
-                                                >
+                            </section>
+
+                            <section className="setting-group">
+                                <h3>Breach checks</h3>
+                                <div className="setting-card">
+                                    <SettingRow label="Check passwords against Have I Been Pwned" htmlFor="check-password-breaches" help="Runs on unlock using k-anonymity: only the first 5 characters of each password's SHA-1 hash leave the machine">
+                                        <Toggle
+                                            id="check-password-breaches"
+                                            checked={checkPasswordBreaches}
+                                            onChange={(checked) => {
+                                                setCheckPasswordBreaches(checked);
+                                                userSettingsService.setCheckPasswordBreaches(checked);
+                                            }}
+                                        />
+                                    </SettingRow>
+                                    <SettingRow
+                                        label="Have I Been Pwned API Key"
+                                        htmlFor="hibp-api-key"
+                                        help={<>
+                                            Enables email breach checks. Get your API key from{' '}
+                                            <a href="https://haveibeenpwned.com/API/Key" target="_blank" rel="noopener noreferrer" onClick={() => window.electron?.openExternal('https://haveibeenpwned.com/API/Key')}>
+                                                haveibeenpwned.com
+                                            </a>
+                                        </>}
+                                    >
+                                        <div className="api-key-control">
+                                            <div className={`input-with-toggle${hibpKeyStored ? ' key-locked' : ''}`}>
+                                                <input
+                                                    type={showApiKey ? 'text' : 'password'}
+                                                    id="hibp-api-key"
+                                                    aria-describedby={helpId('hibp-api-key')}
+                                                    value={apiKey}
+                                                    disabled={hibpKeyStored}
+                                                    onChange={(e) => setApiKey(e.target.value)}
+                                                    onBlur={() => void commitApiKey()}
+                                                    onKeyDown={(e) => { if (e.key === 'Enter') void commitApiKey(); }}
+                                                    placeholder={hibpKeyStored ? '***************************' : 'Enter your HIBP API key'}
+                                                />
+                                                {hibpKeyStored ? (
+                                                    <div className="key-locked-overlay" title="Stored in the system keychain">
+                                                        <LockIcon />
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        className="toggle-visibility"
+                                                        onClick={() => setShowApiKey(!showApiKey)}
+                                                        type="button"
+                                                    >
+                                                        {showApiKey ? <HidePasswordIcon /> : <ShowPasswordIcon />}
+                                                    </button>
+                                                )}
+                                            </div>
+                                            {hibpKeyStored && (
+                                                <button className="setting-row-button" onClick={() => void removeApiKey()} type="button">
                                                     Remove
                                                 </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {currentTab === 'security' && window.electron && (
-                        <div className="settings-section">
-                            <h3>SSH Agent</h3>
-                            <div className="database-controls">
-                                <div className="auto-lock-toggle">
-                                    <label htmlFor="ssh-agent-enabled">Add stored SSH keys to the agent on unlock</label>
-                                    <input
-                                        type="checkbox"
-                                        id="ssh-agent-enabled"
-                                        checked={sshAgentEnabled}
-                                        onChange={(e) => {
-                                            setSshAgentEnabled(e.target.checked);
-                                            userSettingsService.setSshAgentEnabled(e.target.checked);
-                                        }}
-                                    />
+                                            )}
+                                        </div>
+                                    </SettingRow>
                                 </div>
-                                <p className="database-help">
-                                    Private keys attached to entries and marked for the agent are loaded into
-                                    the ssh-agent this machine already runs when a vault opens, and removed
-                                    when it locks. The entry password is the key passphrase. Entries are set
-                                    up in their SSH Agent field.
-                                    {sshAgent && (sshAgent.running
-                                        ? ` Agent found${sshAgent.socketPath ? ` at ${sshAgent.socketPath}` : ''}.`
-                                        : ' No agent found: SSH_AUTH_SOCK is not set or the socket is gone.')}
-                                </p>
-                                {sshAgent && sshAgent.identities.length > 0 && (
-                                    <div className="browser-associations">
-                                        <label>Keys in the agent</label>
-                                        {sshAgent.identities.map((identity) => (
-                                            <div key={identity.fingerprint} className="browser-association-row ssh-agent-identity">
-                                                <span title={identity.fingerprint}>{identity.comment || identity.type}</span>
-                                                {!sshAgent.addedByVigil.includes(identity.fingerprint) && (
-                                                    <span className="ssh-agent-origin" title="Loaded by something other than Vigil; a lock leaves it alone">not from Vigil</span>
-                                                )}
-                                                <span className="ssh-agent-fingerprint" title={identity.fingerprint}>{identity.fingerprint}</span>
+                            </section>
+
+                            {window.electron && (
+                                <section className="setting-group">
+                                    <h3>Browser Integration</h3>
+                                    <div className="setting-card">
+                                        <SettingRow
+                                            label="Enable KeePassXC-Browser support"
+                                            htmlFor="browser-integration-enabled"
+                                            disabled={!browserIntegration?.supported}
+                                            help={<>
+                                                Lets the KeePassXC-Browser extension fill credentials from your vaults.
+                                                Enabling registers Vigil with the browsers on this machine
+                                                {browserIntegration?.running ? '; the connection server is running' : ''}
+                                            </>}
+                                        >
+                                            <Toggle
+                                                id="browser-integration-enabled"
+                                                checked={!!browserIntegration?.enabled}
+                                                disabled={!browserIntegration?.supported}
+                                                onChange={handleBrowserIntegrationToggle}
+                                            />
+                                        </SettingRow>
+                                        <SettingRow
+                                            label="Always allow access to entries"
+                                            htmlFor="always-allow-browser-access"
+                                            help="Skips the confirmation when the extension requests credentials. Anything holding a pairing key can then read matching entries silently; entries you denied stay denied"
+                                        >
+                                            <Toggle
+                                                id="always-allow-browser-access"
+                                                checked={alwaysAllowBrowserAccess}
+                                                onChange={(checked) => {
+                                                    setAlwaysAllowBrowserAccess(checked);
+                                                    userSettingsService.setAlwaysAllowBrowserAccess(checked);
+                                                }}
+                                            />
+                                        </SettingRow>
+                                        <SettingRow
+                                            label="Allow passkeys on localhost"
+                                            htmlFor="allow-passkeys-localhost"
+                                            help="Passkeys normally require https sites. Enable this only if you develop against locally hosted sites"
+                                        >
+                                            <Toggle
+                                                id="allow-passkeys-localhost"
+                                                checked={allowPasskeysLocalhost}
+                                                onChange={(checked) => {
+                                                    setAllowPasskeysLocalhost(checked);
+                                                    userSettingsService.setAllowPasskeysLocalhost(checked);
+                                                }}
+                                            />
+                                        </SettingRow>
+                                        {kdbxDb && browserAssociations.length > 0 && (
+                                            <div className="browser-associations">
+                                                <label>Connected browsers (this database)</label>
+                                                {browserAssociations.map((association) => (
+                                                    <div key={association.name} className="browser-association-row">
+                                                        <span>{association.name}</span>
+                                                        <button
+                                                            className="setting-row-button"
+                                                            onClick={() => handleRemoveAssociation(association.name)}
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    </div>
+                                                ))}
                                             </div>
-                                        ))}
+                                        )}
                                     </div>
-                                )}
-                            </div>
-                        </div>
-                    )}
+                                </section>
+                            )}
 
-                    {currentTab === 'general' && kdbxDb && (
-                        <div className="settings-section">
-                            <h3>Import</h3>
-                            <div className="database-controls">
-                                <button
-                                    className="import-csv-button"
-                                    onClick={() => setShowImportModal(true)}
-                                >
-                                    <ImportAuthIcon className="import-icon" />
-                                    Import passwords
-                                </button>
-                                <p className="database-help">Import from Bitwarden (.json or .csv), KeePassXC, LastPass, 1Password, or a browser's CSV export; the format is detected automatically</p>
-                            </div>
-                        </div>
-                    )}
-
-                    {currentTab === 'general' && kdbxDb && window.electron && (
-                        <div className="settings-section">
-                            <h3>Export</h3>
-                            <div className="database-controls">
-                                <button
-                                    className="import-csv-button"
-                                    onClick={handleKdbxExport}
-                                >
-                                    <DownloadActionIcon className="import-icon" />
-                                    Save encrypted copy
-                                </button>
-                                <p className="database-help">Writes the database to a .kdbx file, encrypted with the same credentials</p>
-                                <button
-                                    className="import-csv-button"
-                                    onClick={handleCsvExport}
-                                >
-                                    <DownloadActionIcon className="import-icon" />
-                                    Export to CSV
-                                </button>
-                                <p className="database-help">Writes an unencrypted CSV file with every password in plain text</p>
-                            </div>
-                        </div>
-                    )}
-
-                    {currentTab === 'general' && (
-                        <div className="settings-section">
-                            <h3>About</h3>
-                            <div className="info-about">
-                                <p className="info-version">Vigil {__APP_VERSION__}</p>
-                                <p className="auto-lock-help">A password manager for KeePass vaults. Free software under the GPL-3.0 licence.</p>
-                                <div className="info-links">
-                                    <button className="clear-cache-button" onClick={() => openLink(ISSUES_URL)}>Report a bug</button>
-                                    <button className="clear-cache-button" onClick={() => openLink(RELEASES_URL)}>Release notes</button>
-                                    <button className="clear-cache-button" onClick={() => openLink(REPO_URL)}>Source code</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {currentTab === 'general' && window.electron && (
-                        <div className="settings-section">
-                            <h3>Updates</h3>
-                            <div className="update-controls">
-                                <div className="update-status-row">
-                                    <span className="update-status-text">{updateStatusText}</span>
-                                    {updateStatus?.state === 'downloaded' ? (
-                                        <button
-                                            className="settings-primary-button"
-                                            onClick={() => window.electron?.installUpdate()}
+                            {window.electron && (
+                                <section className="setting-group">
+                                    <h3>SSH Agent</h3>
+                                    <div className="setting-card">
+                                        <SettingRow
+                                            label="Add stored SSH keys to the agent on unlock"
+                                            htmlFor="ssh-agent-enabled"
+                                            help={<>
+                                                Private keys attached to entries and marked for the agent are loaded into
+                                                the ssh-agent this machine already runs when a vault opens, and removed
+                                                when it locks. The entry password is the key passphrase. Entries are set
+                                                up in their SSH Agent field.
+                                                {sshAgent && (sshAgent.running
+                                                    ? ` Agent found${sshAgent.socketPath ? ` at ${sshAgent.socketPath}` : ''}.`
+                                                    : ' No agent found: SSH_AUTH_SOCK is not set or the socket is gone.')}
+                                            </>}
                                         >
-                                            Restart and install
-                                        </button>
-                                    ) : updateStatus?.state === 'available' ? (
-                                        <button
-                                            className="settings-primary-button"
-                                            onClick={() => window.electron?.downloadUpdate()}
-                                        >
-                                            Update
-                                        </button>
-                                    ) : (
+                                            <Toggle
+                                                id="ssh-agent-enabled"
+                                                checked={sshAgentEnabled}
+                                                onChange={(checked) => {
+                                                    setSshAgentEnabled(checked);
+                                                    userSettingsService.setSshAgentEnabled(checked);
+                                                }}
+                                            />
+                                        </SettingRow>
+                                        {sshAgent && sshAgent.identities.length > 0 && (
+                                            <div className="browser-associations">
+                                                <label>Keys in the agent</label>
+                                                {sshAgent.identities.map((identity) => (
+                                                    <div key={identity.fingerprint} className="browser-association-row ssh-agent-identity">
+                                                        <span title={identity.fingerprint}>{identity.comment || identity.type}</span>
+                                                        {!sshAgent.addedByVigil.includes(identity.fingerprint) && (
+                                                            <span className="ssh-agent-origin" title="Loaded by something other than Vigil; a lock leaves it alone">not from Vigil</span>
+                                                        )}
+                                                        <span className="ssh-agent-fingerprint" title={identity.fingerprint}>{identity.fingerprint}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </section>
+                            )}
+
+                            <section className="setting-group">
+                                <h3>Maintenance</h3>
+                                <div className="maintenance-actions">
+                                    <div>
                                         <button
                                             className="clear-cache-button"
-                                            disabled={updateStatus?.state === 'checking' || updateStatus?.state === 'downloading' || updateStatus?.state === 'disabled'}
-                                            onClick={() => window.electron?.checkForUpdates()}
+                                            onClick={() => {
+                                                BreachStatusStore.clearAll();
+                                                EmailBreachStatusStore.clearAll();
+                                                (window as any).showToast?.({
+                                                    message: 'Breach check cache cleared',
+                                                    type: 'success',
+                                                    duration: 3000
+                                                });
+                                            }}
                                         >
-                                            Check for updates
+                                            Clear Cache
                                         </button>
+                                        <p className="cache-help">Clears security report cache</p>
+                                    </div>
+                                    {window.electron && (
+                                        <div>
+                                            <button
+                                                className="clear-cache-button"
+                                                onClick={() => {
+                                                    window.electron?.revealLogs().then((result) => {
+                                                        if (!result.success) {
+                                                            (window as any).showToast?.({
+                                                                message: result.error || 'Failed to open the log folder',
+                                                                type: 'error',
+                                                                duration: 3000
+                                                            });
+                                                        }
+                                                    });
+                                                }}
+                                            >
+                                                Show Logs
+                                            </button>
+                                            <p className="cache-help">Opens the diagnostic log folder, useful for bug reports</p>
+                                        </div>
                                     )}
-                                </div>                            </div>
+                                </div>
+                            </section>
                         </div>
                     )}
 
-                    {currentTab === 'general' && (
-                        <div className="settings-section">
-                            <h3>Keyboard shortcuts</h3>
-                            <div className="shortcut-groups">
-                                {SHORTCUT_GROUPS.map((group) => (
-                                    <table className="shortcut-table" key={group.title}>
-                                        <caption>{group.title}</caption>
-                                        <tbody>
-                                            {group.rows.map((row) => (
-                                                <tr key={row.chord}>
-                                                    <th scope="row">
-                                                        {chordKeys(row.chord).map((key, i) => (
-                                                            <span key={i}>{i > 0 && ' '}<kbd>{key}</kbd></span>
-                                                        ))}
-                                                    </th>
-                                                    <td>{row.label}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                ))}
-                            </div>
-                        </div>
-                    )}
                 </div>
 
             {showImportModal && (

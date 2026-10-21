@@ -57,6 +57,7 @@ function App() {
 	// Incremented each time the title bar shield button is clicked; PasswordView
 	// opens the security report whenever it changes
 	const [securityReportRequestId, setSecurityReportRequestId] = useState(0);
+	const [securityReportOpen, setSecurityReportOpen] = useState(false);
 	const [showYubiKeyPanel, setShowYubiKeyPanel] = useState(false);
 	// The OATH panel is only worth offering while there is a key to read
 	const yubikeyPresent = useYubiKeyPresence();
@@ -741,6 +742,8 @@ function App() {
 		return () => clearTimeout(timer);
 	}, [kdbxDb, database]);
 
+	const openPanel = showSettings ? 'settings' : showYubiKeyPanel ? 'yubikey' : securityReportOpen ? 'report' : undefined;
+
 	const content = database ? (
 		<>
 			<TitleBar
@@ -751,6 +754,7 @@ function App() {
 				onOpenSettings={() => setShowSettings(true)}
 				onOpenSecurityReport={() => setSecurityReportRequestId(id => id + 1)}
 				onOpenYubiKey={yubikeyPresent ? () => setShowYubiKeyPanel(true) : undefined}
+				openPanel={openPanel}
 			/>
 			<PasswordView
 				database={database}
@@ -758,6 +762,7 @@ function App() {
 				onDatabaseChange={handleDatabaseChangeFromUi}
 				showInitialBreachReport={showInitialBreachReport && !weakVault}
 				securityReportRequestId={securityReportRequestId}
+				onSecurityReportOpenChange={setSecurityReportOpen}
 				entryDirty={entryDirty}
 				saveFailed={saveFailed}
 				savesInFlight={savesInFlight}
@@ -770,6 +775,7 @@ function App() {
 			<TitleBar
 				onOpenSettings={() => setShowSettings(true)}
 				onOpenYubiKey={yubikeyPresent ? () => setShowYubiKeyPanel(true) : undefined}
+				openPanel={openPanel}
 			/>
 			<AuthenticationView
 				onDatabaseOpen={handleDatabaseOpen}

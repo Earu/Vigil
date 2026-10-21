@@ -14,9 +14,10 @@ interface TitleBarProps {
 	onOpenSettings?: () => void;
 	onOpenSecurityReport?: () => void;
 	onOpenYubiKey?: () => void;
+	openPanel?: 'yubikey' | 'report' | 'settings';
 }
 
-export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, onOpenSettings, onOpenSecurityReport, onOpenYubiKey }: TitleBarProps) {
+export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, onOpenSettings, onOpenSecurityReport, onOpenYubiKey, openPanel }: TitleBarProps) {
 	const [isMaximized, setIsMaximized] = useState(false);
 	const [isMacOS, setIsMacOS] = useState(false);
 	const [isFullscreen, setIsFullscreen] = useState(false);
@@ -70,6 +71,27 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 		window.electron?.closeWindow();
 	};
 
+	const panelButtonClass = (panel: TitleBarProps['openPanel']) =>
+		`settings-button ${openPanel === panel ? 'active' : ''}`;
+
+	const panelButtons = (
+		<>
+			{onOpenYubiKey && (
+				<button className={panelButtonClass('yubikey')} onClick={onOpenYubiKey} title="YubiKey codes" aria-label="YubiKey codes">
+					<UsbKeyIcon />
+				</button>
+			)}
+			{onOpenSecurityReport && (
+				<button className={panelButtonClass('report')} onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
+					<SecurityShieldIcon />
+				</button>
+			)}
+			<button className={panelButtonClass('settings')} onClick={onOpenSettings} title="Settings" aria-label="Settings">
+				<SettingsIcon />
+			</button>
+		</>
+	);
+
 	return (
 		<div className={`title-bar ${inPasswordView ? 'in-password-view' : ''} ${isMacOS ? 'macos' : ''} ${isFullscreen ? 'fullscreen' : ''}`}>
 			<div className="title-bar-drag-area">
@@ -111,45 +133,21 @@ export function TitleBar({ inPasswordView, onLock, searchQuery = '', onSearch, o
 			</div>
 			{!isMacOS && (
 				<div className="window-controls">
-					{onOpenYubiKey && (
-						<button className="settings-button" onClick={onOpenYubiKey} title="YubiKey codes" aria-label="YubiKey codes">
-							<UsbKeyIcon />
-						</button>
-					)}
-					{onOpenSecurityReport && (
-						<button className="settings-button" onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
-							<SecurityShieldIcon />
-						</button>
-					)}
-					<button className="settings-button" onClick={onOpenSettings} title="Settings" aria-label="Settings">
-						<SettingsIcon />
-					</button>
-					<button className="window-control minimize" onClick={handleMinimize} aria-label="Minimize">
+					{panelButtons}
+					<button className="window-control minimize" onClick={handleMinimize} aria-label="Minimize" data-modal-exempt="">
 						<MinimizeIcon />
 					</button>
-					<button className="window-control maximize" onClick={handleMaximize} aria-label={isMaximized ? 'Restore' : 'Maximize'}>
+					<button className="window-control maximize" onClick={handleMaximize} aria-label={isMaximized ? 'Restore' : 'Maximize'} data-modal-exempt="">
 						<MaximizeIcon isMaximized={isMaximized} />
 					</button>
-					<button className="window-control close" onClick={handleClose} aria-label="Close window">
+					<button className="window-control close" onClick={handleClose} aria-label="Close window" data-modal-exempt="">
 						<CloseIcon />
 					</button>
 				</div>
 			)}
 			{isMacOS && (
 				<div className="macos-actions">
-					{onOpenYubiKey && (
-						<button className="settings-button" onClick={onOpenYubiKey} title="YubiKey codes" aria-label="YubiKey codes">
-							<UsbKeyIcon />
-						</button>
-					)}
-					{onOpenSecurityReport && (
-						<button className="settings-button" onClick={onOpenSecurityReport} title="Security report" aria-label="Security report">
-							<SecurityShieldIcon />
-						</button>
-					)}
-					<button className="settings-button" onClick={onOpenSettings} title="Settings" aria-label="Settings">
-						<SettingsIcon />
-					</button>
+					{panelButtons}
 				</div>
 			)}
 		</div>

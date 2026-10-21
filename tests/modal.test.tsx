@@ -63,6 +63,28 @@ describe('a dialog', () => {
         expect(getByTestId('bg').hasAttribute('inert')).toBe(false);
     });
 
+    it('keeps an exempt control live inside a container that otherwise goes inert', () => {
+        const page = (open: boolean) => (
+            <div>
+                <div data-testid="bar">
+                    <input data-testid="search" />
+                    <button data-testid="close" data-modal-exempt="">Close window</button>
+                </div>
+                {open && (
+                    <Modal overlayClassName="pairing-overlay" className="pairing-dialog" labelledBy="t">
+                        <h3 id="t">Title</h3>
+                        <button>OK</button>
+                    </Modal>
+                )}
+            </div>
+        );
+        const { getByTestId, rerender, container } = render(page(true));
+        expect(getByTestId('search').closest('[inert]')).not.toBeNull();
+        expect(getByTestId('close').closest('[inert]')).toBeNull();
+        rerender(page(false));
+        expect(container.querySelector('[inert]')).toBeNull();
+    });
+
     it('wraps Tab and Shift+Tab', () => {
         const { getByText } = render(<Harness />);
         openIt(getByText);

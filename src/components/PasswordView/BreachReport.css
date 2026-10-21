@@ -110,9 +110,15 @@
     display: flex;
     align-items: center;
     gap: 1rem;
+    width: 100%;
     padding: 0.75rem;
+    font: inherit;
+    text-align: left;
+    color: inherit;
     background-color: var(--overlay-light);
+    border: none;
     border-radius: var(--radius-md);
+    cursor: pointer;
     transition: background-color 0.2s ease;
 }
 
@@ -125,8 +131,11 @@
     min-width: 0;
 }
 
-.report-entry-info h3 {
-    margin: 0;
+.report-entry-info > span {
+    display: block;
+}
+
+.report-entry-info .report-entry-title {
     font-size: 0.875rem;
     font-weight: 500;
     color: var(--text-secondary);
@@ -134,13 +143,11 @@
 }
 
 .report-entry-info .username {
-    margin: 0;
     font-size: 0.75rem;
     color: var(--text-tertiary);
 }
 
 .report-entry-info .group-path {
-    margin: 0;
     font-size: 0.75rem;
     color: var(--text-muted);
 }

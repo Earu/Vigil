@@ -32,6 +32,12 @@ describe('the title bar', () => {
         expect(getByLabelText('Search passwords')).toBeTruthy();
         await expectNoA11yViolations(container);
     });
+
+    it('lights only the button of the open panel', () => {
+        const { getByRole } = render(<TitleBar inPasswordView onLock={noop} onOpenSettings={noop} onOpenSecurityReport={noop} openPanel="report" />);
+        expect(getByRole('button', { name: 'Security report' }).classList.contains('active')).toBe(true);
+        expect(getByRole('button', { name: 'Settings' }).classList.contains('active')).toBe(false);
+    });
 });
 
 describe('the password generator', () => {

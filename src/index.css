@@ -16,6 +16,7 @@
 	--bg-tertiary: #0d0d0d;
 	--bg-dark: #000000;
 	--bg-light: #222222;
+	--bg-card: #080808;
 
 	/* Text colors */
 	--text-primary: #ededed;
@@ -81,6 +82,7 @@
 	--bg-tertiary: #f7f7f7;
 	--bg-dark: #ffffff;
 	--bg-light: #ededed;
+	--bg-card: #fafafa;
 
 	/* Text colors - Light theme */
 	--text-primary: #1a1a1a;

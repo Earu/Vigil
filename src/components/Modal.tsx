@@ -43,6 +43,16 @@ const isVisible = (el: HTMLElement): boolean => {
 const tabbables = (root: HTMLElement): HTMLElement[] =>
     Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(isVisible);
 
+const markInert = (el: Element, marked: Element[]) => {
+    if (el.hasAttribute('inert') || el.hasAttribute('data-modal-exempt')) return;
+    if (!el.querySelector('[data-modal-exempt]')) {
+        el.setAttribute('inert', '');
+        marked.push(el);
+        return;
+    }
+    for (const child of Array.from(el.children)) markInert(child, marked);
+};
+
 // Everything behind the dialog is made inert (unfocusable, unclickable and
 // hidden from assistive technology) for as long as it is open, and focus
 // goes back to the opener when it closes. Nested dialogs compose: each one
@@ -80,10 +90,7 @@ export const Modal = ({
             const parent: Element | null = node.parentElement;
             if (!parent) break;
             for (const sibling of Array.from(parent.children)) {
-                if (sibling === node) continue;
-                if (sibling.hasAttribute('inert') || sibling.hasAttribute('data-modal-exempt')) continue;
-                sibling.setAttribute('inert', '');
-                marked.push(sibling);
+                if (sibling !== node) markInert(sibling, marked);
             }
             node = parent;
         }

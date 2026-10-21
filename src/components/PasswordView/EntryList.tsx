@@ -103,11 +103,6 @@ export const EntryList = ({
 	const activeIndex = activeId ? sortedEntries.findIndex((e) => e.id === activeId) : -1;
 	if (activeIndex >= 0) lastActiveIndex.current = activeIndex;
 
-	// A click selects through the parent; the active row follows
-	useEffect(() => {
-		if (selectedEntry) setActiveId(selectedEntry.id);
-	}, [selectedEntry?.id]);
-
 	// After a removal the active row is gone; land on its neighbour
 	useEffect(() => {
 		if (activeId && activeIndex < 0) {
@@ -148,21 +143,32 @@ export const EntryList = ({
 	// The scroll and the active row change in the same event, so the row
 	// referenced by aria-activedescendant is rendered in the same commit.
 	// Nothing else sets the active row by index
+	const scrollToIndex = (i: number) => {
+		const el = entriesRef.current;
+		if (!el) return;
+		const top = i * rowHeight;
+		const bottom = top + rowHeight;
+		let next = el.scrollTop;
+		if (top < next) next = top;
+		else if (bottom > next + viewportHeight) next = bottom - viewportHeight;
+		if (next !== el.scrollTop) {
+			el.scrollTop = next;
+			setScrollTop(next);
+		}
+	};
+
+	// A click selects through the parent; the active row follows
+	useEffect(() => {
+		if (!selectedEntry) return;
+		const i = sortedEntries.findIndex((e) => e.id === selectedEntry.id);
+		if (i >= 0) scrollToIndex(i);
+		setActiveId(selectedEntry.id);
+	}, [selectedEntry?.id]);
+
 	const moveTo = (index: number) => {
 		if (sortedEntries.length === 0) return;
 		const i = Math.max(0, Math.min(sortedEntries.length - 1, index));
-		const el = entriesRef.current;
-		if (el) {
-			const top = i * rowHeight;
-			const bottom = top + rowHeight;
-			let next = el.scrollTop;
-			if (top < next) next = top;
-			else if (bottom > next + viewportHeight) next = bottom - viewportHeight;
-			if (next !== el.scrollTop) {
-				el.scrollTop = next;
-				setScrollTop(next);
-			}
-		}
+		scrollToIndex(i);
 		const entry = sortedEntries[i];
 		snapToActive.current = true;
 		setActiveId(entry.id);
