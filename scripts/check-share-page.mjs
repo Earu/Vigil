@@ -15,7 +15,7 @@ const failures = [];
 const check = (ok, what) => { if (!ok) failures.push(what); };
 
 const csp = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1] ?? '';
-const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? '';
+const script = html.match(/<script>([\s\S]*?)<\/script[^>]*>/i)?.[1] ?? '';
 const style = html.match(/<style>([\s\S]*?)<\/style>/)?.[1] ?? '';
 const digest = value => `sha256-${crypto.createHash('sha256').update(value, 'utf8').digest('base64')}`;
 
