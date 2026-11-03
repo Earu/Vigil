@@ -33,7 +33,8 @@ module.exports = {
         "buildResources": "build"
     },
     "files": [
-        "dist/**/*",
+        "dist/index.html",
+        "dist/assets/**/*",
         "dist-electron/**/*",
         "package.json",
         // Every native module the app uses is loaded from dist-electron,
@@ -49,7 +50,15 @@ module.exports = {
         "!node_modules/node-hid/**",
         "!node_modules/@node-rs/**",
         "!node_modules/passport-desktop/**",
-        "!node_modules/passport-desktop-*/**"
+        "!node_modules/passport-desktop-*/**",
+        "!dist-electron/vigil_*.node"
+    ],
+    "extraResources": [
+        {
+            "from": "dist-electron",
+            "to": "native",
+            "filter": ["vigil_*.node"]
+        }
     ],
     // Off: the prebuilt binaries are chosen, checked and copied by
     // copy-native-modules.mjs, and nothing in the archive is compiled. The
@@ -63,8 +72,9 @@ module.exports = {
         "**/*.node"
     ],
     // The pin check again, on what was actually packed: every .node under
-    // app.asar.unpacked must be a pinned copy or an addon from this
-    // repository (electron/verify-unpacked-natives.mjs)
+    // app.asar.unpacked must be a pinned copy, and resources/native must
+    // hold only the addons from this repository
+    // (electron/verify-unpacked-natives.mjs)
     "afterPack": async (context) => {
         const { afterPack } = await import(pathToFileURL(path.join(__dirname, 'electron', 'verify-unpacked-natives.mjs')).href);
         await afterPack(context);

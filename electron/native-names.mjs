@@ -19,6 +19,7 @@ export const OUTPUT_NAMES = {
 // not pinned, since a compiled binary is not reproducible, and covered by
 // build provenance
 export const OWN_ADDONS = ['vigil_touchid.node', 'vigil_pcsc.node'];
+export const OWN_ADDONS_DIR = 'native';
 
 // What the copy step shipped and against which pin, for the check that runs
 // again on the packaged app. Written inside dist-electron, so it travels in

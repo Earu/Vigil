@@ -20,11 +20,12 @@ const STATUS = {
 // LABiometryType, for telling the user which sensor they will be asked for
 const BIOMETRY = { 0: 'none', 1: 'touch-id', 2: 'face-id', 4: 'optic-id' };
 
-// Where the .node ends up differs between `npx node-gyp rebuild` in this
-// directory (dev) and the packaged app, where it sits next to the bundled
-// main process like the other native modules
+// Where the .node ends up differs between the packaged app, where it sits
+// in resources/native outside app.asar, `npx node-gyp rebuild` in this
+// directory, and electron:dev, where it sits next to the bundled main process
 function candidatePaths() {
     return [
+        ...(process.resourcesPath ? [path.join(process.resourcesPath, 'native', 'vigil_touchid.node')] : []),
         path.join(__dirname, 'build', 'Release', 'vigil_touchid.node'),
         path.join(__dirname, 'vigil_touchid.node'),
         path.join(__dirname, 'native_modules', 'vigil_touchid.node'),

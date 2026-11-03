@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { checkNativeModule, UNPINNED_OVERRIDE } from './native-pins.mjs';
-import { MANIFEST_NAME, OWN_ADDONS } from './native-names.mjs';
+import { MANIFEST_NAME, OWN_ADDONS, OWN_ADDONS_DIR } from './native-names.mjs';
 
 // The pin check on the packaged app, run from electron-builder's afterPack
 // hook. copy-native-modules.mjs checks each binary as it copies it, but
@@ -12,10 +12,12 @@ import { MANIFEST_NAME, OWN_ADDONS } from './native-names.mjs';
 // them if anything between the two touched dist-electron or node_modules.
 //
 // Two things are established here. Every binary the copy step recorded in
-// its manifest is in the package with the pinned bytes. And no other .node
-// file is in the package at all: a native binary that reached the unpacked
-// directory some other way (a dependency's build output the file list
-// failed to exclude, say) would run with the same privileges and no pin.
+// its manifest is in the package with the pinned bytes. And no other native
+// binary is in the package at all: under app.asar.unpacked only the pinned
+// files, under resources/native only the addons built from this repository.
+// A native binary that reached either some other way (a dependency's build
+// output the file list failed to exclude, say) would run with the same
+// privileges and no pin.
 //
 // Pure apart from reading the files it is given, so the tests can run it
 // over a scratch directory with a check of their own. A problem is
@@ -23,21 +25,22 @@ import { MANIFEST_NAME, OWN_ADDONS } from './native-names.mjs';
 
 const sha256 = (file) => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 
-function walk(dir, found = []) {
+function walk(dir, keep, found = []) {
     for (const name of fs.readdirSync(dir)) {
         const full = path.join(dir, name);
         const stat = fs.lstatSync(full);
-        if (stat.isDirectory()) walk(full, found);
-        else if (stat.isFile() && name.endsWith('.node')) found.push(full);
+        if (stat.isDirectory()) walk(full, keep, found);
+        else if (keep(name, stat)) found.push(full);
     }
     return found;
 }
 
-// unpackedRoot is app.asar.unpacked; the manifest is what the copy step
-// wrote. Returns every problem found, or none for a package whose unpacked
-// native binaries are exactly the manifest's, byte for byte, plus the
-// addons built from this repository
-export function auditUnpacked({ unpackedRoot, manifest, check = checkNativeModule, ownAddons = OWN_ADDONS }) {
+// unpackedRoot is app.asar.unpacked, ownRoot is resources/native; the
+// manifest is what the copy step wrote. Returns every problem found, or none
+// for a package whose unpacked native binaries are exactly the manifest's,
+// byte for byte, and whose ownRoot holds nothing but the addons built from
+// this repository
+export function auditUnpacked({ unpackedRoot, ownRoot, manifest, check = checkNativeModule, ownAddons = OWN_ADDONS }) {
     const problems = [];
     const nativeDir = path.join(unpackedRoot, 'dist-electron');
     const expected = new Set();
@@ -51,10 +54,15 @@ export function auditUnpacked({ unpackedRoot, manifest, check = checkNativeModul
         const result = check({ module: entry.module, version: entry.version, target: entry.target, sha256: sha256(file) });
         if (!result.ok) problems.push({ file, reason: result.reason });
     }
-    for (const name of ownAddons) expected.add(path.resolve(path.join(nativeDir, name)));
     if (fs.existsSync(unpackedRoot)) {
-        for (const file of walk(unpackedRoot)) {
+        for (const file of walk(unpackedRoot, (name, stat) => stat.isFile() && name.endsWith('.node'))) {
             if (!expected.has(path.resolve(file))) problems.push({ file, reason: 'a native binary the copy step did not ship' });
+        }
+    }
+    if (ownRoot && fs.existsSync(ownRoot)) {
+        const own = new Set(ownAddons.map(name => path.resolve(path.join(ownRoot, name))));
+        for (const file of walk(ownRoot, (_, stat) => !stat.isDirectory())) {
+            if (!own.has(path.resolve(file))) problems.push({ file, reason: 'a file that is not an addon built from this repository' });
         }
     }
     return problems;
@@ -81,7 +89,7 @@ export async function afterPack(context) {
     const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
     const resources = resourcesDir(context.appOutDir, context.electronPlatformName, context.packager.appInfo.productFilename);
     const unpackedRoot = path.join(resources, 'app.asar.unpacked');
-    const problems = auditUnpacked({ unpackedRoot, manifest });
+    const problems = auditUnpacked({ unpackedRoot, ownRoot: path.join(resources, OWN_ADDONS_DIR), manifest });
     for (const [fileName, entry] of Object.entries(manifest)) {
         if (!problems.some(problem => problem.file.endsWith(fileName))) {
             console.log(`${entry.module} ${entry.version} in the package matches its pin for ${entry.target}`);
@@ -93,5 +101,5 @@ export async function afterPack(context) {
         console.warn(`WARNING: packaged native binaries do not match their pins (${UNPINNED_OVERRIDE}=1):\n${lines}`);
         return;
     }
-    throw new Error(`Refusing to package: native binaries in app.asar.unpacked do not match their pins\n${lines}`);
+    throw new Error(`Refusing to package: native binaries in the package do not match their pins\n${lines}`);
 }

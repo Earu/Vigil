@@ -33,11 +33,12 @@ const RV = {
     REMOVED_CARD: 0x80100069,
 };
 
-// Where the .node ends up differs between `npx node-gyp rebuild` in this
-// directory (dev) and the packaged app, where it sits next to the bundled
-// main process like the other native modules
+// Where the .node ends up differs between the packaged app, where it sits
+// in resources/native outside app.asar, `npx node-gyp rebuild` in this
+// directory, and electron:dev, where it sits next to the bundled main process
 function candidatePaths() {
     return [
+        ...(process.resourcesPath ? [path.join(process.resourcesPath, 'native', 'vigil_pcsc.node')] : []),
         path.join(__dirname, 'build', 'Release', 'vigil_pcsc.node'),
         path.join(__dirname, 'vigil_pcsc.node'),
     ];

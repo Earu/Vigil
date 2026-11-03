@@ -91,12 +91,13 @@ describe('native pins', () => {
 });
 
 // The check that runs on the packaged app: the unpacked native binaries
-// must be exactly the manifest's files with the pinned bytes, plus the
-// addons built here, and nothing else
+// must be exactly the manifest's files with the pinned bytes, resources/native
+// only the addons built here, and nothing else
 describe('packaged native binaries', () => {
     const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'vigil-unpacked-'));
     const unpackedRoot = path.join(scratch, 'app.asar.unpacked');
     const nativeDir = path.join(unpackedRoot, 'dist-electron');
+    const ownRoot = path.join(scratch, 'native');
     const good = Buffer.from('the pinned bytes');
     const manifest = {
         'argon2.node': { module: '@node-rs/argon2', version: '2.0.2', target: 'test-x64', sha256: sha256Of(good) },
@@ -113,7 +114,9 @@ describe('packaged native binaries', () => {
 
     const reset = () => {
         fs.rmSync(unpackedRoot, { recursive: true, force: true });
+        fs.rmSync(ownRoot, { recursive: true, force: true });
         fs.mkdirSync(nativeDir, { recursive: true });
+        fs.mkdirSync(ownRoot, { recursive: true });
         fs.writeFileSync(path.join(nativeDir, 'argon2.node'), good);
     };
 
@@ -121,8 +124,31 @@ describe('packaged native binaries', () => {
 
     it('passes a package holding exactly the pinned files and the addons built here', () => {
         reset();
-        for (const addon of OWN_ADDONS) fs.writeFileSync(path.join(nativeDir, addon), 'compiled here');
-        expect(auditUnpacked({ unpackedRoot, manifest, check })).toEqual([]);
+        for (const addon of OWN_ADDONS) fs.writeFileSync(path.join(ownRoot, addon), 'compiled here');
+        expect(auditUnpacked({ unpackedRoot, ownRoot, manifest, check })).toEqual([]);
+    });
+
+    it('passes a package whose addons could not be built', () => {
+        reset();
+        expect(auditUnpacked({ unpackedRoot, ownRoot, manifest, check })).toEqual([]);
+    });
+
+    it('fails an addon built here that landed under app.asar.unpacked', () => {
+        reset();
+        fs.writeFileSync(path.join(nativeDir, OWN_ADDONS[1]), 'compiled here');
+        const problems = auditUnpacked({ unpackedRoot, ownRoot, manifest, check });
+        expect(problems.map(problem => path.basename(problem.file))).toEqual([OWN_ADDONS[1]]);
+    });
+
+    it('fails any other file in resources/native', () => {
+        reset();
+        fs.writeFileSync(path.join(ownRoot, OWN_ADDONS[1]), 'compiled here');
+        fs.writeFileSync(path.join(ownRoot, 'keytar.node'), 'dropped in beside the addons');
+        fs.mkdirSync(path.join(ownRoot, 'sub'));
+        fs.writeFileSync(path.join(ownRoot, 'sub', 'loader.js'), 'not a binary, still not ours');
+        const problems = auditUnpacked({ unpackedRoot, ownRoot, manifest, check });
+        expect(problems.map(problem => path.basename(problem.file)).sort()).toEqual(['keytar.node', 'loader.js']);
+        for (const problem of problems) expect(problem.reason).toContain('not an addon built from this repository');
     });
 
     it('fails a pinned file whose bytes changed after the copy step', () => {
