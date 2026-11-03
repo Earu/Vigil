@@ -7,3 +7,8 @@ reason = "http-cache-semantics has no patched release. Build-time only, via elec
 id = "GHSA-hp3w-g68c-fv3c"
 ignoreUntil = 2027-01-20
 reason = "sprintf-js has no patched release. Build-time only, via electron-builder > @electron/get 3 > global-agent > roarr, formatting log strings Vigil does not supply."
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+ignoreUntil = 2027-02-03
+reason = "minimatch is patched only in 11, which breaks the semver ranges and matching semantics electron-builder relies on. Build-time only, via electron-builder, matching glob patterns from Vigil's own config. The vulnerable code is absent from 3.x and 5.x and runs in 9.x and 10.x only at optimizationLevel >= 2, which nothing in the tree sets."
