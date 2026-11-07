@@ -14,13 +14,15 @@ import {
 import { windowsHello } from './biometrics-hello';
 import { touchId, resetTouchIdForTests } from './biometrics-touchid';
 import { macPin } from './biometrics-pin-mac';
+import { tpmPin, resetTpmForTests } from './biometrics-pin-tpm';
 
 const SERVICE_NAME = 'Vigil Password Manager';
 const SALT_PATH = path.join(app.getPath('userData'), '.salt');
 
 function platformProviders(): QuickUnlockProvider[] {
-    if (process.platform === 'win32') return [windowsHello];
+    if (process.platform === 'win32') return [windowsHello, tpmPin];
     if (process.platform === 'darwin') return [touchId, macPin];
+    if (process.platform === 'linux') return [tpmPin];
     return [];
 }
 
@@ -54,6 +56,7 @@ export function sessionStateForTests(): unknown {
 export function resetForTests(): void {
     supportedCache = null;
     resetTouchIdForTests();
+    resetTpmForTests();
     biometricsConfigCache = null;
     persistentBlobsRetired = null;
     sessionPasswords.clear();

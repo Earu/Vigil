@@ -37,6 +37,10 @@
 
 namespace {
 
+__attribute__((no_sanitize("address"))) uint8_t ReadRetained(const uint8_t* storage, size_t index) {
+    return static_cast<const volatile uint8_t*>(storage)[index];
+}
+
 // A wipe has to reach every byte and leave nothing behind it. The bytes are
 // read back through the same allocation before the vector is destroyed,
 // which is what makes an under- or over-run visible
@@ -51,7 +55,7 @@ void CheckScrub(const uint8_t* data, size_t size) {
     // clear() does not free, so the allocation is still ours to inspect
     assert(secret.capacity() == capacity && "the wipe reallocated instead of overwriting");
     for (size_t i = 0; i < size; ++i) {
-        assert(storage[i] == 0 && "a byte of key material survived the wipe");
+        assert(ReadRetained(storage, i) == 0 && "a byte of key material survived the wipe");
     }
 }
 

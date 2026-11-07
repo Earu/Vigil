@@ -177,7 +177,7 @@ jobs:
 
     - name: Convert findings to SARIF
       if: always()
-      run: node scripts/sarif-report.mjs native native-fuzz-out/pcsc.log native-fuzz-out/touchid.log --out native-fuzz.sarif
+      run: node scripts/sarif-report.mjs native native-fuzz-out/pcsc.log native-fuzz-out/touchid.log native-fuzz-out/tpm.log --out native-fuzz.sarif
 
     # A category per runner: an upload replaces the previous one under the
     # same name, so one shared category would resolve the other leg's alerts
@@ -351,7 +351,7 @@ jobs:
     - name: Install Linux dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev libpcsclite-dev pkgconf xvfb
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev libpcsclite-dev libtss2-dev pkgconf xvfb
 
     # An unpacked directory is enough to inspect and boot; the AppImage
     # wrapping adds minutes and changes nothing these checks look at
@@ -459,7 +459,7 @@ jobs:
     - name: Install Linux dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev libpcsclite-dev pkgconf
+        sudo apt-get install -y libnss3 libsecret-1-dev libusb-1.0-0-dev libudev-dev libpcsclite-dev libtss2-dev pkgconf
 
     - name: Package
       run: |

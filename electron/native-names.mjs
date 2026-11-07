@@ -18,7 +18,7 @@ export const OUTPUT_NAMES = {
 // Addons compiled from this repository (copy-native-modules.mjs buildAddon);
 // not pinned, since a compiled binary is not reproducible, and covered by
 // build provenance
-export const OWN_ADDONS = ['vigil_touchid.node', 'vigil_pcsc.node'];
+export const OWN_ADDONS = ['vigil_touchid.node', 'vigil_pcsc.node', 'vigil_tpm.node'];
 export const OWN_ADDONS_DIR = 'native';
 
 // What the copy step shipped and against which pin, for the check that runs

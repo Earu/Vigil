@@ -156,6 +156,9 @@ fs.writeFileSync(path.join(destDir, MANIFEST_NAME), JSON.stringify(manifest, nul
 if (process.platform === 'darwin') {
     buildAddon('touchid', { fallback: 'biometric unlock will fall back' });
 }
+if (process.platform === 'win32' || process.platform === 'linux') {
+    buildAddon('tpm', { fallback: 'PIN unlock will be unavailable' });
+}
 // PC/SC is the YubiKey OATH transport on every platform. Linux needs the
 // pcsclite headers (see electron/native/pcsc/README.md)
 buildAddon('pcsc', { fallback: 'YubiKey OATH codes will be unavailable' });

@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
         reads: 0,
         canPromptTouchID: true,
         pinSupported: true,
+        pinIgnored: false,
         pinSecrets: new Map<string, { data: Buffer; pin: string }>(),
         pinStates: new Map<string, Buffer>(),
     },
@@ -73,9 +74,10 @@ vi.mock('../electron/native/touchid', () => ({
         return { ok: true };
     },
     getPinSecret: async (account: string, pin: string) => {
+        await new Promise(resolve => setTimeout(resolve, 1));
         const item = state.touch.pinSecrets.get(account);
         if (!item) return { ok: false, code: 'not-found' };
-        if (item.pin !== pin) return { ok: false, code: 'auth-failed' };
+        if (item.pin !== pin && !state.touch.pinIgnored) return { ok: false, code: 'auth-failed' };
         return { ok: true, data: Buffer.from(item.data) };
     },
     deletePinSecret: async (account: string) => { state.touch.pinSecrets.delete(account); return { ok: true }; },
@@ -86,6 +88,7 @@ vi.mock('../electron/native/touchid', () => ({
     },
     getPinState: async (account: string) => {
         const data = state.touch.pinStates.get(account);
+        await new Promise(resolve => setTimeout(resolve, 1));
         return data ? { ok: true, data: Buffer.from(data) } : { ok: false, code: 'not-found' };
     },
     deletePinState: async (account: string) => { state.touch.pinStates.delete(account); return { ok: true }; },
@@ -145,6 +148,7 @@ beforeEach(() => {
     state.touch.reads = 0;
     state.touch.canPromptTouchID = true;
     state.touch.pinSupported = true;
+    state.touch.pinIgnored = false;
     state.touch.pinSecrets.clear();
     state.touch.pinStates.clear();
     state.hardwareUuid = '1234-ABCD';
@@ -506,6 +510,33 @@ describe('PIN unlock on macOS', () => {
         expect(state.touch.pinSecrets.has(ACCOUNT)).toBe(false);
         expect(state.touch.pinStates.has(ACCOUNT)).toBe(false);
 
+        expect((await bio.getBiometricPassword(DB, PIN)).success).toBe(false);
+    });
+
+    it('refuses a key store that releases the key for a wrong PIN', async () => {
+        state.touch.pinIgnored = true;
+        const result = await enablePin();
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/did not enforce the PIN/);
+        expect(state.keytar.size).toBe(0);
+        expect(state.touch.pinSecrets.size).toBe(0);
+        expect(state.touch.pinStates.size).toBe(0);
+    });
+
+    it('a PIN that is not digits is refused without spending an attempt', async () => {
+        await enablePin();
+        expect(await bio.getBiometricPassword(DB, 'abcdef')).toMatchObject({ success: false, retry: true, error: 'A PIN is 6 to 32 digits' });
+        expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 4 attempts left');
+    });
+
+    it('counts parallel guesses one by one', async () => {
+        await enablePin();
+        const guesses = await Promise.all(Array.from({ length: 20 }, (_, i) =>
+            bio.getBiometricPassword(DB, String(100000 + i))));
+
+        expect(guesses.filter(result => result.error?.startsWith('Incorrect PIN'))).toHaveLength(4);
+        expect(guesses.filter(result => result.error?.startsWith('Too many'))).toHaveLength(1);
+        expect(state.touch.pinSecrets.has(ACCOUNT)).toBe(false);
         expect((await bio.getBiometricPassword(DB, PIN)).success).toBe(false);
     });
 

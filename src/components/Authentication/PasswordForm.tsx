@@ -891,8 +891,8 @@ export const PasswordForm = ({
             )}
 
             {selectedFile && !isCreatingNew && !isBiometricsAvailable && biometricsUnavailableReason && (
-                <p className="biometric-weak-notice" title={biometricsUnavailableReason}>
-                    Biometric unlock is off in this build
+                <p className="biometric-weak-notice">
+                    {biometricsUnavailableReason}
                 </p>
             )}
 

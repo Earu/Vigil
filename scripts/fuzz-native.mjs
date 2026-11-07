@@ -51,6 +51,11 @@ const TARGETS = [
         // wipe key material goes through is still covered
         darwin: ['-x', 'objective-c++', '-fobjc-arc', '-framework', 'Foundation'],
     },
+    {
+        name: 'tpm',
+        source: 'electron/native/tpm/fuzz/tpm_fuzz.cc',
+        corpus: 'electron/native/tpm/fuzz/corpus',
+    },
 ];
 
 const args = process.argv.slice(2);
