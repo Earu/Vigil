@@ -114,6 +114,8 @@ export interface OathResult<T> {
 	detail?: string;
 }
 
+export type QuickUnlockMethod = 'touch-id' | 'windows-hello' | 'pin';
+
 export interface IElectronAPI {
 	focusWindow: () => Promise<void>;
 	minimizeWindow: () => Promise<void>;
@@ -158,12 +160,13 @@ export interface IElectronAPI {
 		 *  enforces itself. The only backend a password is ever stored under. */
 		backend: 'hardware' | 'none';
 		biometryType: string;
+		methods: QuickUnlockMethod[];
 		/** Set when the sensor works but this build cannot use it (macOS,
 		 *  unsigned build), so the unlock screen can say why the option is absent */
 		unavailableReason?: string;
 	}>;
-	enableBiometrics: (dbPath: string, password: string) => Promise<{ success: boolean; error?: string }>;
-	getBiometricPassword: (dbPath: string) => Promise<{
+	enableBiometrics: (dbPath: string, password: string, options?: { method?: QuickUnlockMethod; pin?: string }) => Promise<{ success: boolean; error?: string }>;
+	getBiometricPassword: (dbPath: string, pin?: string) => Promise<{
 		success: boolean;
 		password?: string;
 		error?: string;
@@ -173,7 +176,7 @@ export interface IElectronAPI {
 	// armed says an unlock attempt could release a password right now: false
 	// for a session-scoped vault after a restart, until a password unlock
 	// re-arms it
-	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled: boolean; armed?: boolean; error?: string }>;
+	hasBiometricsEnabled: (dbPath: string) => Promise<{ success: boolean; enabled: boolean; armed?: boolean; method?: QuickUnlockMethod; error?: string }>;
 	disableBiometrics: (dbPath: string) => Promise<{ success: boolean; error?: string }>;
 	// Windows only: whether Hello unlock survives a restart (persistent blob)
 	// or the sealed password lives only in Vigil's memory for the session

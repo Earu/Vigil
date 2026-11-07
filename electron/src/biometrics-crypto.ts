@@ -172,6 +172,41 @@ export function openWithKeychainKey(blob: string, keychainKey: Buffer): string {
     return openKeychain(V3_PREFIX, 'vigil-biometric-v3', blob, keychainKey);
 }
 
+const PIN_PREFIX = 'pin1:';
+const PIN_SESSION_PREFIX = 'pin-session:';
+
+function pinKey(shared: Buffer, ephemeralPublic: Buffer, info: string): Buffer {
+    return Buffer.from(hkdfSync('sha256', shared, ephemeralPublic, info, 32));
+}
+
+export function isPinBlob(blob: string): boolean {
+    return blob.startsWith(PIN_PREFIX);
+}
+
+export function sealPinPassword(password: string, ephemeralPublic: Buffer, shared: Buffer): string {
+    return sealWithPrefix(PIN_PREFIX, password, ephemeralPublic, pinKey(shared, ephemeralPublic, 'vigil-pin-v1'));
+}
+
+export function pinBindingFromBlob(blob: string): Buffer {
+    return challengeWithPrefix(PIN_PREFIX, blob);
+}
+
+export function openPinPassword(blob: string, shared: Buffer): string {
+    return openWithPrefix(PIN_PREFIX, blob, pinKey(shared, pinBindingFromBlob(blob), 'vigil-pin-v1'));
+}
+
+export function sealPinSession(password: string, ephemeralPublic: Buffer, shared: Buffer): string {
+    return sealWithPrefix(PIN_SESSION_PREFIX, password, ephemeralPublic, pinKey(shared, ephemeralPublic, 'vigil-pin-session'));
+}
+
+export function pinSessionBinding(blob: string): Buffer {
+    return challengeWithPrefix(PIN_SESSION_PREFIX, blob);
+}
+
+export function openPinSession(blob: string, shared: Buffer): string {
+    return openWithPrefix(PIN_SESSION_PREFIX, blob, pinKey(shared, pinSessionBinding(blob), 'vigil-pin-session'));
+}
+
 export function sealSessionWithKeychainKey(password: string, keychainKey: Buffer): string {
     return sealKeychain(MAC_SESSION_PREFIX, 'vigil-biometric-mac-session', password, keychainKey);
 }

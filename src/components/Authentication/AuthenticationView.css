@@ -364,6 +364,88 @@
     height: 1.25rem;
 }
 
+.auth-toggle-wrapper {
+    position: relative;
+}
+
+.auth-method-menu-button {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-light);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.auth-method-menu-button:hover,
+.auth-method-menu-button.open {
+    background-color: var(--overlay-medium);
+    color: var(--text-primary);
+}
+
+.auth-method-menu-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.auth-method-chevron {
+    width: 1rem;
+    height: 1rem;
+    transform: rotate(90deg);
+    transition: transform 0.2s ease;
+}
+
+.auth-method-menu-button.open .auth-method-chevron {
+    transform: rotate(-90deg);
+}
+
+.auth-method-menu {
+    position: absolute;
+    top: calc(100% + 0.25rem);
+    right: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 0.25rem;
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.auth-method-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    background: none;
+    border: none;
+    color: var(--text-light);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.875rem;
+    text-align: left;
+}
+
+.auth-method-item:hover,
+.auth-method-item:focus-visible {
+    background-color: var(--overlay-medium);
+    color: var(--text-primary);
+    outline: none;
+}
+
+.auth-method-item.selected {
+    color: var(--text-primary);
+    box-shadow: inset 0 0 0 1px var(--accent-border);
+}
+
 .biometric-unlock-button {
     display: flex;
     align-items: center;

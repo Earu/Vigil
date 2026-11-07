@@ -32,6 +32,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getSecret", Napi::Function::New(env, Unimplemented));
     exports.Set("deleteSecret", Napi::Function::New(env, Unimplemented));
     exports.Set("hasSecret", Napi::Function::New(env, Unimplemented));
+    exports.Set("setPinSecret", Napi::Function::New(env, Unimplemented));
+    exports.Set("getPinSecret", Napi::Function::New(env, Unimplemented));
+    exports.Set("deletePinSecret", Napi::Function::New(env, Unimplemented));
+    exports.Set("setPinState", Napi::Function::New(env, Unimplemented));
+    exports.Set("getPinState", Napi::Function::New(env, Unimplemented));
+    exports.Set("deletePinState", Napi::Function::New(env, Unimplemented));
     return exports;
 }
 

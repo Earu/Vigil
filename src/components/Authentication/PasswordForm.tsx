@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
+import type { QuickUnlockMethod } from '../../types/electron';
+import { QUICK_UNLOCK_NAMES, PIN_PATTERN, PIN_RULE } from '../../services/QuickUnlockMethods';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { ImportService, ImportResult } from '../../services/ImportService';
-import { LockAuthIcon, BiometricAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
-import { KeyActionIcon, UsbKeyIcon } from '../../icons/actions/ActionIcons';
+import { LockAuthIcon, BiometricAuthIcon, PinAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
+import { ChevronActionIcon, KeyActionIcon, UsbKeyIcon } from '../../icons/actions/ActionIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
 import {
@@ -35,10 +37,8 @@ interface PasswordFormProps {
     setBrowserPasswords?: (passwords: ImportResult | undefined) => void;
 }
 
-// What this platform calls its biometric check, in the user's words
-const BIOMETRIC_METHOD_NAME = navigator.userAgent.includes('Mac')
-    ? 'Touch ID'
-    : navigator.userAgent.includes('Windows') ? 'Windows Hello' : 'Biometrics';
+const QuickUnlockIcon = ({ method, className }: { method: QuickUnlockMethod | null; className: string }) =>
+    method === 'pin' ? <PinAuthIcon className={className} /> : <BiometricAuthIcon className={className} />;
 
 export const PasswordForm = ({
     selectedFile,
@@ -70,6 +70,17 @@ export const PasswordForm = ({
     // re-arms it
     const [biometricsArmed, setBiometricsArmed] = useState(true);
     const [showPasswordInput, setShowPasswordInput] = useState(!initialBiometricsEnabled);
+    const [methods, setMethods] = useState<QuickUnlockMethod[]>([]);
+    const [vaultMethod, setVaultMethod] = useState<QuickUnlockMethod | null>(null);
+    const [chosenMethod, setChosenMethod] = useState<QuickUnlockMethod | null>(null);
+    const [methodMenuOpen, setMethodMenuOpen] = useState(false);
+    const [pin, setPin] = useState('');
+    const [pinSetup, setPinSetup] = useState(false);
+    const [newPin, setNewPin] = useState('');
+    const [confirmPin, setConfirmPin] = useState('');
+    const pinInputRef = useRef<HTMLInputElement>(null);
+    const methodMenuRef = useRef<HTMLDivElement>(null);
+    const methodMenuButtonRef = useRef<HTMLButtonElement>(null);
     const [keyFile, setKeyFile] = useState<{ path: string; name: string } | null>(null);
     const [hardwareKey, setHardwareKey] = useState<HardwareKeySelection | null>(null);
     const [hardwareKeyPresent, setHardwareKeyPresent] = useState(false);
@@ -165,6 +176,7 @@ export const PasswordForm = ({
             const info = await window.electron.getBiometricsInfo();
             setIsBiometricsAvailable(info.available);
             setBiometricsUnavailableReason(info.unavailableReason ?? null);
+            setMethods(info.methods ?? []);
         };
         checkBiometrics();
     }, []);
@@ -172,11 +184,13 @@ export const PasswordForm = ({
     useEffect(() => {
         if (!window.electron || !databasePath || !isBiometricsEnabled) {
             setBiometricsArmed(true);
+            setVaultMethod(null);
             return;
         }
         let cancelled = false;
         window.electron.hasBiometricsEnabled(databasePath).then(result => {
             if (cancelled) return;
+            setVaultMethod(result.method ?? null);
             // false only for a session-scoped vault awaiting its re-arm (or a
             // persistent blob frozen by the restart-lock setting): the
             // password field is what unlocks now, so lead with it
@@ -185,6 +199,27 @@ export const PasswordForm = ({
         }).catch(() => {});
         return () => { cancelled = true; };
     }, [databasePath, isBiometricsEnabled]);
+
+    useEffect(() => {
+        setChosenMethod(null);
+        setPinSetup(false);
+        setPin('');
+        setNewPin('');
+        setConfirmPin('');
+        setMethodMenuOpen(false);
+    }, [databasePath]);
+
+    useEffect(() => {
+        if (!methodMenuOpen) return;
+        const closeOnOutside = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (methodMenuRef.current?.contains(target) || methodMenuButtonRef.current?.contains(target)) return;
+            setMethodMenuOpen(false);
+        };
+        document.addEventListener('mousedown', closeOnOutside);
+        methodMenuRef.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
+        return () => document.removeEventListener('mousedown', closeOnOutside);
+    }, [methodMenuOpen]);
 
     useEffect(() => {
         setIsBiometricsEnabled(initialBiometricsEnabled);
@@ -255,21 +290,52 @@ export const PasswordForm = ({
         }
     }
 
+    const usingEnrolled = isBiometricsEnabled && chosenMethod === null;
+    const activeMethod: QuickUnlockMethod | null = usingEnrolled
+        ? vaultMethod ?? methods[0] ?? null
+        : chosenMethod ?? methods[0] ?? null;
+    const methodName = activeMethod ? QUICK_UNLOCK_NAMES[activeMethod] : 'Biometrics';
+    const quickUnlockActive = (usingEnrolled && !showPasswordInput) || pinSetup;
+    const showPinUnlock = usingEnrolled && !showPasswordInput && vaultMethod === 'pin';
+
+    useEffect(() => {
+        if (showPinUnlock) pinInputRef.current?.focus();
+    }, [showPinUnlock]);
+
+    const resetPinSetup = () => {
+        setPinSetup(false);
+        setNewPin('');
+        setConfirmPin('');
+    };
+
     const handleBiometricUnlock = async () => {
         if (!selectedFile || !databasePath || !window.electron || !isBiometricsEnabled) return;
+        const usingPin = vaultMethod === 'pin';
+        if (usingPin && !pin) {
+            setError('Enter your PIN');
+            pinInputRef.current?.focus();
+            return;
+        }
 
         setIsLoading(true);
         setError('');
 
         try {
-            const biometricResult = await window.electron.getBiometricPassword(databasePath);
+            const biometricResult = await window.electron.getBiometricPassword(databasePath, usingPin ? pin : undefined);
+            if (usingPin) setPin('');
             if (!biometricResult.success || !biometricResult.password) {
+                if (usingPin && biometricResult.retry) {
+                    setError(biometricResult.error || 'Incorrect PIN');
+                    pinInputRef.current?.focus();
+                    return;
+                }
                 // A dismissed prompt or an unrecognised finger leaves the
                 // stored credential intact, so only tear the setup down when
                 // the credential itself can no longer be opened
                 if (!biometricResult.retry) {
                     await window.electron.disableBiometrics(databasePath);
                     setIsBiometricsEnabled(false);
+                    setVaultMethod(null);
                 }
                 setShowPasswordInput(true);
                 (window as any).showToast?.({
@@ -308,67 +374,149 @@ export const PasswordForm = ({
         }
     };
 
-    const handleBiometricsToggle = async () => {
+    const handleForgetQuickUnlock = async () => {
         if (!window.electron || !databasePath) return;
-
-        if (isBiometricsEnabled) {
-            const result = await window.electron.disableBiometrics(databasePath);
-            if (result.success) {
-                setIsBiometricsEnabled(false);
-                setShowPasswordInput(true);
-                (window as any).showToast?.({
-                    message: 'Biometric authentication disabled',
-                    type: 'success'
-                });
-            } else {
-                (window as any).showToast?.({
-                    message: 'Failed to disable biometric authentication',
-                    type: 'error'
-                });
-            }
+        const name = QUICK_UNLOCK_NAMES[vaultMethod ?? activeMethod ?? 'touch-id'];
+        const result = await window.electron.disableBiometrics(databasePath);
+        if (result.success) {
+            setIsBiometricsEnabled(false);
+            setVaultMethod(null);
+            setChosenMethod(null);
+            resetPinSetup();
+            setShowPasswordInput(true);
+            (window as any).showToast?.({
+                message: `${name} turned off for this database`,
+                type: 'success'
+            });
         } else {
-            if (!password) {
-                setError('Please enter your database password to enable biometric authentication');
-                return;
-            }
-
-            try {
-                const credentials = await buildCredentials(password);
-                let fileBuffer: ArrayBuffer;
-                if (databasePath && window.electron) {
-                    const result = await window.electron.readFile(databasePath);
-                    if (!result.success || !result.data) {
-                        throw new Error(`FILE_READ_FAILED:${result.error || 'Failed to read file'}`);
-                    }
-                    fileBuffer = result.data.buffer;
-                } else {
-                    fileBuffer = await selectedFile!.arrayBuffer();
-                }
-
-                const bytes = new Uint8Array(fileBuffer).buffer;
-                KeepassDatabaseService.assertKdfOpenable(bytes);
-                await kdbxweb.Kdbx.load(bytes, credentials);
-
-                const result = await window.electron.enableBiometrics(databasePath, password);
-                if (result.success) {
-                    setIsBiometricsEnabled(true);
-                    setShowPasswordInput(false);
-                    setPassword('');
-                    (window as any).showToast?.({
-                        message: 'Biometric authentication enabled',
-                        type: 'success'
-                    });
-                    handleUnlock();
-                } else {
-                    (window as any).showToast?.({
-                        message: result.error || 'Failed to enable biometric authentication',
-                        type: 'error'
-                    });
-                }
-            } catch (err) {
-                setError('Invalid database password');
-            }
+            (window as any).showToast?.({
+                message: `Failed to turn off ${name}`,
+                type: 'error'
+            });
         }
+    };
+
+    const turnOnQuickUnlock = async (method: QuickUnlockMethod, newPinValue?: string) => {
+        if (!window.electron || !databasePath) return;
+        const name = QUICK_UNLOCK_NAMES[method];
+        if (!password) {
+            setError(`Enter your database password to turn on ${name}`);
+            passwordInputRef.current?.focus();
+            return;
+        }
+
+        try {
+            const credentials = await buildCredentials(password);
+            const read = await window.electron.readFile(databasePath);
+            if (!read.success || !read.data) {
+                throw new Error(`FILE_READ_FAILED:${read.error || 'Failed to read file'}`);
+            }
+            const bytes = new Uint8Array(read.data.buffer).buffer;
+            KeepassDatabaseService.assertKdfOpenable(bytes);
+            await kdbxweb.Kdbx.load(bytes, credentials);
+        } catch {
+            setError('Invalid database password');
+            return;
+        }
+
+        const result = await window.electron.enableBiometrics(databasePath, password, { method, pin: newPinValue });
+        if (!result.success) {
+            (window as any).showToast?.({
+                message: result.error || `Failed to turn on ${name}`,
+                type: 'error'
+            });
+            return;
+        }
+        setIsBiometricsEnabled(true);
+        setVaultMethod(method);
+        setChosenMethod(null);
+        resetPinSetup();
+        setShowPasswordInput(false);
+        setPassword('');
+        (window as any).showToast?.({
+            message: `${name} turned on`,
+            type: 'success'
+        });
+        handleUnlock();
+    };
+
+    const startEnrollment = (method: QuickUnlockMethod) => {
+        setShowPasswordInput(true);
+        setError('');
+        if (method === 'pin') {
+            setPinSetup(true);
+            return;
+        }
+        resetPinSetup();
+        void turnOnQuickUnlock(method);
+    };
+
+    const submitPinSetup = () => {
+        if (!PIN_PATTERN.test(newPin)) {
+            setError(PIN_RULE);
+            return;
+        }
+        if (newPin !== confirmPin) {
+            setError('The PINs do not match');
+            return;
+        }
+        void turnOnQuickUnlock('pin', newPin);
+    };
+
+    const chooseMethod = (method: QuickUnlockMethod) => {
+        setMethodMenuOpen(false);
+        methodMenuButtonRef.current?.focus();
+        if (isBiometricsEnabled && method === vaultMethod) {
+            setChosenMethod(null);
+            resetPinSetup();
+            setError('');
+            return;
+        }
+        setChosenMethod(method);
+        startEnrollment(method);
+    };
+
+    const handleMethodMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]'));
+        const index = items.indexOf(document.activeElement as HTMLButtonElement);
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            setMethodMenuOpen(false);
+            methodMenuButtonRef.current?.focus();
+        } else if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            items[(index + 1) % items.length]?.focus();
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            items[(index - 1 + items.length) % items.length]?.focus();
+        }
+    };
+
+    const handleMethodClick = () => {
+        if (!activeMethod) return;
+        if (!usingEnrolled) {
+            startEnrollment(activeMethod);
+            return;
+        }
+        // Enrolled but not armed: this run of Vigil holds
+        // no sealed copy for the biometric check to
+        // release, so an attempt could only fail and
+        // re-show the same notice. The typed master
+        // password is exactly what unlocks and arms it,
+        // so spend it rather than sending the user
+        // through a prompt that cannot succeed
+        if (!biometricsArmed) {
+            setShowPasswordInput(true);
+            if (password) void handleUnlock();
+            else passwordInputRef.current?.focus();
+            return;
+        }
+        setShowPasswordInput(false);
+        if (vaultMethod === 'pin') {
+            pinInputRef.current?.focus();
+            return;
+        }
+        handleBiometricUnlock();
     };
 
     const handleUnlock = async () => {
@@ -519,6 +667,8 @@ export const PasswordForm = ({
         if (e.key === 'Enter' && !isLoading) {
             if (isCreatingNew) {
                 handleCreateNew();
+            } else if (pinSetup) {
+                submitPinSetup();
             } else if (selectedFile) {
                 handleUnlock();
             }
@@ -625,71 +775,116 @@ export const PasswordForm = ({
 
             {selectedFile && !isCreatingNew && isBiometricsAvailable && (
                 <>
-                    <div className="auth-toggle" role="group" aria-label="Unlock method">
-                        <button
-                            className={`auth-option ${!isBiometricsEnabled || showPasswordInput ? 'active' : ''}`}
-                            aria-pressed={!isBiometricsEnabled || showPasswordInput}
-                            onClick={() => setShowPasswordInput(true)}
-                        >
-                            <LockAuthIcon className="auth-icon" />
-                            Password
-                        </button>
-                        <button
-                            className={`auth-option ${isBiometricsEnabled && !showPasswordInput ? 'active' : ''}`}
-                            aria-pressed={isBiometricsEnabled && !showPasswordInput}
-                            onClick={() => {
-                                if (!isBiometricsEnabled) {
+                    <div className="auth-toggle-wrapper">
+                        <div className="auth-toggle" role="group" aria-label="Unlock method">
+                            <button
+                                className={`auth-option ${!quickUnlockActive ? 'active' : ''}`}
+                                aria-pressed={!quickUnlockActive}
+                                onClick={() => {
                                     setShowPasswordInput(true);
-                                    handleBiometricsToggle();
-                                    return;
-                                }
-                                // Enrolled but not armed: this run of Vigil holds
-                                // no sealed copy for the biometric check to
-                                // release, so an attempt could only fail and
-                                // re-show the same notice. The typed master
-                                // password is exactly what unlocks and arms it,
-                                // so spend it rather than sending the user
-                                // through a prompt that cannot succeed
-                                if (!biometricsArmed) {
-                                    setShowPasswordInput(true);
-                                    if (password) void handleUnlock();
-                                    else passwordInputRef.current?.focus();
-                                    return;
-                                }
-                                setShowPasswordInput(false);
-                                handleBiometricUnlock();
-                            }}
-                        >
-                            <BiometricAuthIcon className="auth-icon" />
-                            {BIOMETRIC_METHOD_NAME}
-                        </button>
+                                    setChosenMethod(null);
+                                    resetPinSetup();
+                                    setError('');
+                                }}
+                            >
+                                <LockAuthIcon className="auth-icon" />
+                                Password
+                            </button>
+                            <button
+                                className={`auth-option ${quickUnlockActive ? 'active' : ''}`}
+                                aria-pressed={quickUnlockActive}
+                                onClick={handleMethodClick}
+                            >
+                                <QuickUnlockIcon method={activeMethod} className="auth-icon" />
+                                {methodName}
+                            </button>
+                            {methods.length > 1 && (
+                                <button
+                                    ref={methodMenuButtonRef}
+                                    className={`auth-method-menu-button ${methodMenuOpen ? 'open' : ''}`}
+                                    aria-label="Choose unlock method"
+                                    title="Choose unlock method"
+                                    aria-haspopup="menu"
+                                    aria-expanded={methodMenuOpen}
+                                    onClick={() => setMethodMenuOpen(open => !open)}
+                                    disabled={isLoading}
+                                >
+                                    <ChevronActionIcon className="auth-method-chevron" />
+                                </button>
+                            )}
+                        </div>
+
+                        {methodMenuOpen && (
+                            <div
+                                ref={methodMenuRef}
+                                className="auth-method-menu"
+                                role="menu"
+                                aria-label="Unlock methods"
+                                onKeyDown={handleMethodMenuKeyDown}
+                            >
+                                {methods.map(method => (
+                                    <button
+                                        key={method}
+                                        role="menuitemradio"
+                                        aria-checked={method === activeMethod}
+                                        className={`auth-method-item ${method === activeMethod ? 'selected' : ''}`}
+                                        onClick={() => chooseMethod(method)}
+                                    >
+                                        <QuickUnlockIcon method={method} className="auth-icon" />
+                                        {QUICK_UNLOCK_NAMES[method]}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
 
-                    {isBiometricsEnabled && !biometricsArmed && (
+                    {usingEnrolled && !biometricsArmed && (
                         <p className="biometric-weak-notice">
-                            {BIOMETRIC_METHOD_NAME} needs your master password once each time Vigil
+                            {methodName} needs your master password once each time Vigil
                             starts.
                         </p>
                     )}
 
-                    {isBiometricsEnabled && !showPasswordInput && (
+                    {showPinUnlock && (
+                        <>
+                            <div className="password-input-container">
+                                <input
+                                    ref={pinInputRef}
+                                    type="password"
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                    placeholder="Enter PIN"
+                                    aria-label="PIN"
+                                    className="password-input"
+                                    value={pin}
+                                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' && !isLoading) handleBiometricUnlock();
+                                    }}
+                                />
+                            </div>
+                            {error && <div className="error-message" role="alert">{error}</div>}
+                        </>
+                    )}
+
+                    {usingEnrolled && !showPasswordInput && (
                         <button
                             className="biometric-unlock-button"
                             onClick={handleBiometricUnlock}
-                            disabled={isLoading}
+                            disabled={isLoading || (showPinUnlock && !pin)}
                         >
-                            <BiometricAuthIcon className="biometric-icon" />
-                            Unlock with {BIOMETRIC_METHOD_NAME}
+                            <QuickUnlockIcon method={activeMethod} className="biometric-icon" />
+                            Unlock with {methodName}
                         </button>
                     )}
 
-                    {isBiometricsEnabled && (
+                    {isBiometricsEnabled && !pinSetup && (
                         <button
                             className="biometric-disable-button"
-                            onClick={handleBiometricsToggle}
+                            onClick={handleForgetQuickUnlock}
                             disabled={isLoading}
                         >
-                            Forget {BIOMETRIC_METHOD_NAME} for this database
+                            Forget {QUICK_UNLOCK_NAMES[vaultMethod ?? activeMethod ?? 'touch-id']} for this database
                         </button>
                     )}
                 </>
@@ -738,8 +933,61 @@ export const PasswordForm = ({
                         </div>
                     )}
 
-                    {error && <div className="error-message" role="alert">{error}</div>}
+                    {pinSetup && !isCreatingNew && (
+                        <>
+                            <div className="password-input-container">
+                                <input
+                                    type="password"
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                    placeholder="Choose a PIN (6+ digits)"
+                                    aria-label="Choose a PIN"
+                                    className="password-input"
+                                    value={newPin}
+                                    onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ''))}
+                                    onKeyDown={handleKeyDown}
+                                />
+                            </div>
+                            <div className="password-input-container">
+                                <input
+                                    type="password"
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                    placeholder="Confirm PIN"
+                                    aria-label="Confirm PIN"
+                                    className="password-input"
+                                    value={confirmPin}
+                                    onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
+                                    onKeyDown={handleKeyDown}
+                                />
+                            </div>
+                        </>
+                    )}
 
+                    {error && !showPinUnlock && <div className="error-message" role="alert">{error}</div>}
+
+                    {pinSetup && !isCreatingNew ? (
+                        <div className="form-buttons">
+                            <button
+                                className="auth-cancel-button"
+                                onClick={() => {
+                                    setChosenMethod(null);
+                                    resetPinSetup();
+                                    setError('');
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className={`unlock-button ${isLoading ? 'loading' : ''}`}
+                                onClick={submitPinSetup}
+                                disabled={isLoading}
+                            >
+                                <PinAuthIcon className="unlock-icon" />
+                                Turn on PIN
+                            </button>
+                        </div>
+                    ) : (
                     <div className="form-buttons">
                         {isCreatingNew && (
                             <button
@@ -771,6 +1019,7 @@ export const PasswordForm = ({
                             )}
                         </button>
                     </div>
+                    )}
                 </>
             )}
         </div>

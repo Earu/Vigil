@@ -19,19 +19,12 @@ import { TabStrip, tabPanelProps } from '../TabStrip';
 import { SettingRow, Toggle, helpId } from './SettingRow';
 import { SHORTCUT_GROUPS, chordKeys } from '../../services/Shortcuts';
 import { confirmDialog } from '../../services/Dialogs';
+import { QUICK_UNLOCK_NAMES } from '../../services/QuickUnlockMethods';
 import './Settings.css';
 
 const REPO_URL = 'https://github.com/Earu/Vigil';
 const ISSUES_URL = `${REPO_URL}/issues`;
 const RELEASES_URL = `${REPO_URL}/releases`;
-
-// What each platform's biometric check is called where the user can see it
-const BIOMETRIC_METHOD_NAMES: Record<string, string> = {
-    'windows-hello': 'Windows Hello',
-    'touch-id': 'Touch ID',
-    'face-id': 'Face ID',
-    'optic-id': 'Optic ID',
-};
 
 const openLink = (url: string) => {
     if (window.electron) window.electron.openExternal(url).catch(() => {});
@@ -144,7 +137,16 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             .then(config => setBiometricsRestartLock(config.requirePasswordAfterRestart))
             .catch(() => {});
         window.electron.getBiometricsInfo()
-            .then(info => setBiometricsMethod(info.available ? BIOMETRIC_METHOD_NAMES[info.biometryType] ?? 'Biometric' : null))
+            .then(async info => {
+                if (!info.available) {
+                    setBiometricsMethod(null);
+                    return;
+                }
+                const vaultPath = KeepassDatabaseService.getPath();
+                const vault = vaultPath ? await window.electron!.hasBiometricsEnabled(vaultPath).catch(() => null) : null;
+                const method = vault?.enabled && vault.method ? vault.method : info.methods[0];
+                setBiometricsMethod(method ? QUICK_UNLOCK_NAMES[method] : 'Biometric unlock');
+            })
             .catch(() => {});
         const refreshAssociations = () =>
             setBrowserAssociations(kdbxDb ? BrowserIntegrationService.listAssociations(kdbxDb) : []);

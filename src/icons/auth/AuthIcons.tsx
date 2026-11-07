@@ -106,6 +106,28 @@ export const BiometricAuthIcon: React.FC<AuthIconProps> = ({ className, color = 
 	);
 };
 
+export const PinAuthIcon: React.FC<AuthIconProps> = ({ className, color = 'currentColor', style }) => (
+	<svg aria-hidden="true"
+		xmlns="http://www.w3.org/2000/svg"
+		viewBox="0 0 24 24"
+		fill={color}
+		stroke="none"
+		className={className}
+		style={style}
+	>
+		<circle cx="6" cy="5" r="1.75" />
+		<circle cx="12" cy="5" r="1.75" />
+		<circle cx="18" cy="5" r="1.75" />
+		<circle cx="6" cy="11" r="1.75" />
+		<circle cx="12" cy="11" r="1.75" />
+		<circle cx="18" cy="11" r="1.75" />
+		<circle cx="6" cy="17" r="1.75" />
+		<circle cx="12" cy="17" r="1.75" />
+		<circle cx="18" cy="17" r="1.75" />
+		<circle cx="12" cy="22" r="1.75" />
+	</svg>
+);
+
 export const ShowPasswordIcon: React.FC<AuthIconProps> = ({ className, color = 'currentColor', style }) => (
 	<svg aria-hidden="true"
 		xmlns="http://www.w3.org/2000/svg"

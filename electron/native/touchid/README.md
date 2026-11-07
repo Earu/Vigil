@@ -17,7 +17,9 @@ and fails the same way.
 ## Files
 
 - `src/touchid_mac.mm`: `isAvailable` (sync), async `setSecret`, `getSecret`
-  (prompts), `deleteSecret`, `hasSecret`. Raw `OSStatus` out, no logic.
+  (prompts), `deleteSecret`, `hasSecret`, and the PIN items below
+  (`setPinSecret`, `getPinSecret`, `deletePinSecret`, `setPinState`,
+  `getPinState`, `deletePinState`). Raw `OSStatus` out, no logic.
 - `src/touchid_parse.h`: the wipe key material goes through, and the decision
   about what can name a keychain item. Reachable without macOS, entitlements
   or a prompt, so `fuzz/` can drive it.

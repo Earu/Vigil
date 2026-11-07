@@ -271,6 +271,38 @@ describe('path grant gating', () => {
         expect(target().mock.calls[0][0]).toBe(args[0]);
     });
 
+    it('enable-biometrics forwards a known method and a PIN', async () => {
+        isPathGranted.mockReturnValue(true);
+        vi.mocked(biometrics.enableBiometrics).mockClear().mockResolvedValue({ success: true });
+        await invoke('enable-biometrics', '/vault.kdbx', 'hunter2', { method: 'pin', pin: '482915' });
+        expect(biometrics.enableBiometrics).toHaveBeenCalledWith('/vault.kdbx', 'hunter2', { method: 'pin', pin: '482915' });
+    });
+
+    it.each([
+        ['an unknown method', { method: 'face-id' }],
+        ['a non-string PIN', { method: 'pin', pin: 482915 }],
+        ['an oversized PIN', { method: 'pin', pin: '1'.repeat(65) }],
+        ['a non-object', 'pin'],
+    ])('enable-biometrics refuses %s', async (_label, options) => {
+        isPathGranted.mockReturnValue(true);
+        vi.mocked(biometrics.enableBiometrics).mockClear();
+        expect(await invoke('enable-biometrics', '/vault.kdbx', 'hunter2', options))
+            .toEqual({ success: false, error: 'Invalid unlock options' });
+        expect(biometrics.enableBiometrics).not.toHaveBeenCalled();
+    });
+
+    it('get-biometric-password forwards a PIN and refuses a non-string one', async () => {
+        isPathGranted.mockReturnValue(true);
+        vi.mocked(biometrics.getBiometricPassword).mockClear().mockResolvedValue({ success: true, password: 'x' });
+        await invoke('get-biometric-password', '/vault.kdbx', '482915');
+        expect(biometrics.getBiometricPassword).toHaveBeenCalledWith('/vault.kdbx', '482915');
+
+        vi.mocked(biometrics.getBiometricPassword).mockClear();
+        expect(await invoke('get-biometric-password', '/vault.kdbx', { pin: '482915' }))
+            .toEqual({ success: false, error: 'Invalid PIN' });
+        expect(biometrics.getBiometricPassword).not.toHaveBeenCalled();
+    });
+
     // Read and write grants are separate capabilities: a key file is granted
     // read-only, and neither writing to it nor persisting it as the last
     // database (which re-grants it { write: true } on the next load, so a

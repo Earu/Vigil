@@ -105,6 +105,8 @@ function interpretPresence(result) {
 
 const unavailable = async () => ({ ok: false, code: 'unavailable' });
 
+const pinNative = native && typeof native.setPinSecret === 'function' ? native : null;
+
 module.exports = {
     STATUS,
     interpret,
@@ -116,4 +118,11 @@ module.exports = {
     getSecret: native ? async (account, prompt) => interpret(await native.getSecret(account, prompt)) : unavailable,
     deleteSecret: native ? async (account) => interpret(await native.deleteSecret(account)) : unavailable,
     hasSecret: native ? async (account) => interpretPresence(await native.hasSecret(account)) : unavailable,
+    pinSupported: () => pinNative !== null,
+    setPinSecret: pinNative ? async (account, data, pin) => interpret(await pinNative.setPinSecret(account, data, pin)) : unavailable,
+    getPinSecret: pinNative ? async (account, pin) => interpret(await pinNative.getPinSecret(account, pin)) : unavailable,
+    deletePinSecret: pinNative ? async (account) => interpret(await pinNative.deletePinSecret(account)) : unavailable,
+    setPinState: pinNative ? async (account, data) => interpret(await pinNative.setPinState(account, data)) : unavailable,
+    getPinState: pinNative ? async (account) => interpret(await pinNative.getPinState(account)) : unavailable,
+    deletePinState: pinNative ? async (account) => interpret(await pinNative.deletePinState(account)) : unavailable,
 };

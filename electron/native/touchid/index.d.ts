@@ -26,3 +26,10 @@ export function setSecret(account: string, data: Buffer): Promise<TouchIdResult<
 export function getSecret(account: string, prompt: string): Promise<TouchIdResult<Buffer>>;
 export function deleteSecret(account: string): Promise<TouchIdResult<Buffer>>;
 export function hasSecret(account: string): Promise<{ ok: true; present: boolean } | { ok: false; code: TouchIdCode; status?: number }>;
+export function pinSupported(): boolean;
+export function setPinSecret(account: string, data: Buffer, pin: string): Promise<TouchIdResult<Buffer>>;
+export function getPinSecret(account: string, pin: string): Promise<TouchIdResult<Buffer>>;
+export function deletePinSecret(account: string): Promise<TouchIdResult<Buffer>>;
+export function setPinState(account: string, data: Buffer): Promise<TouchIdResult<Buffer>>;
+export function getPinState(account: string): Promise<TouchIdResult<Buffer>>;
+export function deletePinState(account: string): Promise<TouchIdResult<Buffer>>;

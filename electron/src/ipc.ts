@@ -40,6 +40,20 @@ import { agentSocketPath, isAgentRunning, listIdentities, addKeyForWindow, relea
 import { parsePrivateKey, publicBlobOf, readPublicInfo, fingerprintOf, SshKeyError } from './ssh-key';
 import { consumeRecentGesture } from './gesture';
 import { decodeQrFromImage } from './qr-decode';
+import type { QuickUnlockMethod } from './biometrics-provider';
+
+const QUICK_UNLOCK_METHODS: readonly QuickUnlockMethod[] = ['touch-id', 'windows-hello', 'pin'];
+
+const isPin = (value: unknown): value is string => typeof value === 'string' && value.length <= 64;
+
+function parseEnableOptions(options: unknown): { method?: QuickUnlockMethod; pin?: string } | null {
+    if (options === undefined || options === null) return {};
+    if (typeof options !== 'object') return null;
+    const { method, pin } = options as { method?: unknown; pin?: unknown };
+    if (method !== undefined && !QUICK_UNLOCK_METHODS.includes(method as QuickUnlockMethod)) return null;
+    if (pin !== undefined && !isPin(pin)) return null;
+    return { method: method as QuickUnlockMethod | undefined, pin };
+}
 
 export function setupIpcHandlers(): void {
     // Renderer failures land in the same file as main-process ones. Fire and
@@ -472,14 +486,17 @@ export function setupIpcHandlers(): void {
         return await hasBiometricsEnabled(dbPath);
     });
 
-    handle('enable-biometrics', async (_, dbPath: string, password: string) => {
+    handle('enable-biometrics', async (_, dbPath: string, password: string, options?: unknown) => {
         if (!isPathGranted(dbPath)) return { success: false, error: 'Unknown database path' };
-        return await enableBiometrics(dbPath, password);
+        const parsed = parseEnableOptions(options);
+        if (!parsed) return { success: false, error: 'Invalid unlock options' };
+        return await enableBiometrics(dbPath, password, parsed);
     });
 
-    handle('get-biometric-password', async (_, dbPath: string) => {
+    handle('get-biometric-password', async (_, dbPath: string, pin?: unknown) => {
         if (!isPathGranted(dbPath)) return { success: false, error: 'Unknown database path' };
-        return await getBiometricPassword(dbPath);
+        if (pin !== undefined && !isPin(pin)) return { success: false, error: 'Invalid PIN' };
+        return await getBiometricPassword(dbPath, pin);
     });
 
     handle('disable-biometrics', async (_, dbPath: string) => {

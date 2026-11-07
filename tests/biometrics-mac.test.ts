@@ -22,6 +22,10 @@ const state = vi.hoisted(() => ({
         // Every Touch ID prompt the code asks for: releasing a key is the
         // only thing that raises one, so this counts them
         reads: 0,
+        canPromptTouchID: true,
+        pinSupported: true,
+        pinSecrets: new Map<string, { data: Buffer; pin: string }>(),
+        pinStates: new Map<string, Buffer>(),
     },
     hardwareUuid: '1234-ABCD' as string | null,
     // keytar does not guarantee findCredentials, and biometrics.ts guards for
@@ -30,7 +34,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock('electron', () => ({
-    systemPreferences: { canPromptTouchID: () => true, promptTouchID: async () => {} },
+    systemPreferences: { canPromptTouchID: () => state.touch.canPromptTouchID, promptTouchID: async () => {} },
     app: { getPath: () => state.userData },
 }));
 
@@ -62,6 +66,29 @@ vi.mock('../electron/native/touchid', () => ({
     },
     deleteSecret: async (account: string) => { state.touch.secrets.delete(account); return { ok: true }; },
     hasSecret: async (account: string) => ({ ok: true, present: state.touch.secrets.has(account) }),
+    pinSupported: () => state.touch.pinSupported,
+    setPinSecret: async (account: string, data: Buffer, pin: string) => {
+        if (!state.touch.acceptWrites) return { ok: false, code: 'missing-entitlement' };
+        state.touch.pinSecrets.set(account, { data: Buffer.from(data), pin });
+        return { ok: true };
+    },
+    getPinSecret: async (account: string, pin: string) => {
+        const item = state.touch.pinSecrets.get(account);
+        if (!item) return { ok: false, code: 'not-found' };
+        if (item.pin !== pin) return { ok: false, code: 'auth-failed' };
+        return { ok: true, data: Buffer.from(item.data) };
+    },
+    deletePinSecret: async (account: string) => { state.touch.pinSecrets.delete(account); return { ok: true }; },
+    setPinState: async (account: string, data: Buffer) => {
+        if (!state.touch.acceptWrites) return { ok: false, code: 'missing-entitlement' };
+        state.touch.pinStates.set(account, Buffer.from(data));
+        return { ok: true };
+    },
+    getPinState: async (account: string) => {
+        const data = state.touch.pinStates.get(account);
+        return data ? { ok: true, data: Buffer.from(data) } : { ok: false, code: 'not-found' };
+    },
+    deletePinState: async (account: string) => { state.touch.pinStates.delete(account); return { ok: true }; },
 }));
 
 vi.mock('child_process', () => ({
@@ -116,6 +143,10 @@ beforeEach(() => {
     state.touch.usable = true;
     state.touch.readBehaviour = 'ok';
     state.touch.reads = 0;
+    state.touch.canPromptTouchID = true;
+    state.touch.pinSupported = true;
+    state.touch.pinSecrets.clear();
+    state.touch.pinStates.clear();
     state.hardwareUuid = '1234-ABCD';
     state.keytarEnumerable = true;
     fs.rmSync(CONFIG(), { force: true });
@@ -129,7 +160,7 @@ describe('enabling biometric unlock on macOS', () => {
         expect(state.keytar.get(ACCOUNT)).toMatch(/^v3:/);
         expect(state.touch.secrets.has(ACCOUNT)).toBe(true);
 
-        expect(await bio.hasBiometricsEnabled(DB)).toEqual({ success: true, enabled: true, armed: true });
+        expect(await bio.hasBiometricsEnabled(DB)).toEqual({ success: true, enabled: true, armed: true, method: 'touch-id' });
         expect(await bio.getBiometricPassword(DB)).toEqual({ success: true, password: 'hunter2' });
     });
 
@@ -170,7 +201,12 @@ describe('enabling biometric unlock on macOS', () => {
     });
 
     it('reports the signed build as hardware backed', async () => {
-        expect(await bio.getBiometricsInfo()).toEqual({ available: true, backend: 'hardware', biometryType: 'touch-id' });
+        expect(await bio.getBiometricsInfo()).toEqual({
+            available: true,
+            backend: 'hardware',
+            biometryType: 'touch-id',
+            methods: ['touch-id', 'pin'],
+        });
     });
 });
 
@@ -420,5 +456,190 @@ describe('session-scoped mode on macOS (the default)', () => {
         expect((await bio.enableBiometrics(DB, 'hunter2')).success).toBe(false);
         expect(state.keytar.size).toBe(0);
         expect(bio.sessionStateForTests()).toEqual([]);
+    });
+});
+
+describe('PIN unlock on macOS', () => {
+    const PIN = '482915';
+    const enablePin = (pin = PIN) => bio.enableBiometrics(DB, 'hunter2', { method: 'pin', pin });
+
+    it('enrols session-scoped by default and releases with the PIN', async () => {
+        expect(await enablePin()).toEqual({ success: true });
+        expect(state.keytar.get(ACCOUNT)).toBe('pin1-session:');
+        expect(state.touch.pinSecrets.has(ACCOUNT)).toBe(true);
+        expect(state.touch.reads).toBe(0);
+
+        expect(await bio.hasBiometricsEnabled(DB)).toEqual({ success: true, enabled: true, armed: true, method: 'pin' });
+        expect(await bio.getBiometricPassword(DB, PIN)).toEqual({ success: true, password: 'hunter2' });
+    });
+
+    it('refuses a PIN that is not 6 to 32 digits, storing nothing', async () => {
+        for (const pin of ['12345', 'abcdef', '1'.repeat(33)]) {
+            const result = await enablePin(pin);
+            expect(result.success).toBe(false);
+            expect(result.error).toMatch(/6 to 32 digits/);
+        }
+        expect(state.keytar.size).toBe(0);
+        expect(state.touch.pinSecrets.size).toBe(0);
+    });
+
+    it('counts wrong PINs, and a right one resets the count', async () => {
+        await enablePin();
+
+        expect(await bio.getBiometricPassword(DB, '000000')).toEqual({
+            success: false, retry: true, error: 'Incorrect PIN, 4 attempts left',
+        });
+        expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 3 attempts left');
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+        expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 4 attempts left');
+    });
+
+    it('turns PIN unlock off after five wrong PINs', async () => {
+        await enablePin();
+        for (let i = 0; i < 4; i++) await bio.getBiometricPassword(DB, '000000');
+
+        const lockedOut = await bio.getBiometricPassword(DB, '000000');
+        expect(lockedOut.success).toBe(false);
+        expect(lockedOut.retry).toBeFalsy();
+        expect(lockedOut.error).toMatch(/Too many incorrect PINs/);
+        expect(state.keytar.has(ACCOUNT)).toBe(false);
+        expect(state.touch.pinSecrets.has(ACCOUNT)).toBe(false);
+        expect(state.touch.pinStates.has(ACCOUNT)).toBe(false);
+
+        expect((await bio.getBiometricPassword(DB, PIN)).success).toBe(false);
+    });
+
+    it('keeps the count across a restart', async () => {
+        await enablePin();
+        for (let i = 0; i < 3; i++) await bio.getBiometricPassword(DB, '000000');
+
+        restart();
+        await bio.enableBiometrics(DB, 'hunter2');
+        expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 1 attempt left');
+    });
+
+    it('asks for the PIN rather than releasing without one', async () => {
+        await enablePin();
+        const result = await bio.getBiometricPassword(DB);
+        expect(result).toMatchObject({ success: false, retry: true, error: 'Enter your PIN' });
+        expect(result.password).toBeUndefined();
+    });
+
+    it('re-arms after a restart from the master password alone', async () => {
+        await enablePin();
+        restart();
+
+        expect(await bio.hasBiometricsEnabled(DB)).toMatchObject({ enabled: true, armed: false, method: 'pin' });
+        expect((await bio.getBiometricPassword(DB, PIN)).success).toBe(false);
+
+        expect(await bio.enableBiometrics(DB, 'hunter2')).toEqual({ success: true });
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+    });
+
+    it('a new password reseals under the existing PIN', async () => {
+        await enablePin();
+        expect(await bio.enableBiometrics(DB, 'new-pass')).toEqual({ success: true });
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('new-pass');
+    });
+
+    it('switching methods replaces the enrollment and its keys', async () => {
+        await bio.enableBiometrics(DB, 'hunter2');
+        expect(state.touch.secrets.has(ACCOUNT)).toBe(true);
+
+        await enablePin();
+        expect(state.keytar.get(ACCOUNT)).toBe('pin1-session:');
+        expect(state.touch.secrets.has(ACCOUNT)).toBe(false);
+        expect((await bio.hasBiometricsEnabled(DB)).method).toBe('pin');
+
+        expect(await bio.enableBiometrics(DB, 'hunter2', { method: 'touch-id' })).toEqual({ success: true });
+        expect(state.keytar.get(ACCOUNT)).toBe('v3-session:');
+        expect(state.touch.pinSecrets.has(ACCOUNT)).toBe(false);
+        expect(state.touch.pinStates.has(ACCOUNT)).toBe(false);
+        expect((await bio.getBiometricPassword(DB)).password).toBe('hunter2');
+    });
+
+    it('a refused switch keeps the current enrollment', async () => {
+        await bio.enableBiometrics(DB, 'hunter2');
+        expect((await enablePin('12')).success).toBe(false);
+        expect(state.keytar.get(ACCOUNT)).toBe('v3-session:');
+        expect((await bio.getBiometricPassword(DB)).password).toBe('hunter2');
+    });
+
+    it('holds neither the password nor the PIN in memory between arming and release', async () => {
+        const secret = 'correct horse battery staple ' + randomBytes(8).toString('hex');
+        await bio.enableBiometrics(DB, secret, { method: 'pin', pin: PIN });
+
+        const retained = JSON.stringify(bio.sessionStateForTests(), (_key, value) =>
+            Buffer.isBuffer(value) ? value.toString('base64') : value);
+        for (const value of [secret, PIN]) {
+            expect(retained).not.toContain(value);
+            expect(retained).not.toContain(Buffer.from(value).toString('base64'));
+            expect(retained).not.toContain(Buffer.from(value).toString('hex'));
+        }
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe(secret);
+    });
+
+    it('persists when the restart lock is off, and survives a restart', async () => {
+        await persistentMode();
+        await enablePin();
+        expect(state.keytar.get(ACCOUNT)).toMatch(/^pin1:/);
+
+        restart();
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+    });
+
+    it('turning the restart lock on retires the PIN blob but keeps the PIN', async () => {
+        await persistentMode();
+        await enablePin();
+
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
+        expect(state.keytar.get(ACCOUNT)).toBe('pin1-session:');
+        expect(state.touch.pinSecrets.has(ACCOUNT)).toBe(true);
+
+        await bio.enableBiometrics(DB, 'hunter2');
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+    });
+
+    it('turning the restart lock off persists a PIN vault at its next unlock', async () => {
+        await enablePin();
+        await persistentMode();
+        expect(state.keytar.get(ACCOUNT)).toBe('pin1-session:');
+
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+        expect(state.keytar.get(ACCOUNT)).toMatch(/^pin1:/);
+        restart();
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+    });
+
+    it('disable removes the PIN key and its state', async () => {
+        await enablePin();
+        expect((await bio.disableBiometrics(DB)).success).toBe(true);
+        expect(state.keytar.has(ACCOUNT)).toBe(false);
+        expect(state.touch.pinSecrets.has(ACCOUNT)).toBe(false);
+        expect(state.touch.pinStates.has(ACCOUNT)).toBe(false);
+    });
+
+    it('is the only method on a Mac without Touch ID', async () => {
+        state.touch.canPromptTouchID = false;
+        expect(await bio.getBiometricsInfo()).toMatchObject({ available: true, methods: ['pin'] });
+
+        const withoutPin = await bio.enableBiometrics(DB, 'hunter2');
+        expect(withoutPin.success).toBe(false);
+        expect(withoutPin.error).toMatch(/Set a PIN/);
+        expect((await enablePin()).success).toBe(true);
+    });
+
+    it('is not offered by an addon built before PIN support', async () => {
+        state.touch.pinSupported = false;
+        expect((await bio.getBiometricsInfo()).methods).toEqual(['touch-id']);
+        expect((await enablePin()).error).toMatch(/not available/);
+    });
+
+    it('refuses on a build the keychain rejects, storing nothing', async () => {
+        unsignedBuild();
+        const result = await enablePin();
+        expect(result.error).toMatch(/signed build/);
+        expect(state.keytar.size).toBe(0);
+        expect(state.touch.pinSecrets.size).toBe(0);
     });
 });
