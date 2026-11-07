@@ -632,6 +632,19 @@ describe('PIN unlock on macOS', () => {
         expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
     });
 
+    it('a copy of a retired PIN blob no longer opens', async () => {
+        await persistentMode();
+        await enablePin();
+        const copy = state.keytar.get(ACCOUNT)!;
+
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
+        await persistentMode();
+        state.keytar.set(ACCOUNT, copy);
+        const result = await bio.getBiometricPassword(DB, PIN);
+        expect(result.success).toBe(false);
+        expect(result.password).toBeUndefined();
+    });
+
     it('turning the restart lock off persists a PIN vault at its next unlock', async () => {
         await enablePin();
         await persistentMode();

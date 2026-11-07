@@ -1,4 +1,4 @@
-import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, type KeyObject } from 'crypto';
+import { createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, type KeyObject } from 'crypto';
 import {
     isPinBlob,
     sealPinPassword,
@@ -33,13 +33,28 @@ const LOCKED_OUT_MESSAGE = 'Too many incorrect PINs, PIN unlock was turned off f
 const TAMPERED_MESSAGE = 'The PIN setup was modified outside Vigil, PIN unlock was turned off for this database';
 const HARDWARE_LOCKOUT_MESSAGE = 'Too many incorrect PINs, the TPM is refusing attempts for now. Try again later';
 
+const EPOCH_LENGTH = 32;
+
+// The epoch is mixed into every secret the PIN key releases and replaced when
+// the vault's persistent blob is retired, so a copy of that blob which
+// outlived the keytar record (a keychain backup, credential roaming) no
+// longer opens: the same guarantee deleting the DPAPI entropy gives Hello
 interface PinState {
     publicKey: string;
+    epoch: string;
     failures: number;
     sealed?: string;
 }
 
 type StateRead = { kind: 'ok'; state: PinState } | { kind: 'missing' } | { kind: 'error'; code: string };
+
+function newEpoch(): string {
+    return randomBytes(EPOCH_LENGTH).toString('base64');
+}
+
+function withEpoch(shared: Buffer, epoch: string): Buffer {
+    return Buffer.from(hkdfSync('sha256', shared, Buffer.from(epoch, 'base64'), 'vigil-pin-epoch', 32));
+}
 
 async function readState(vault: PinVault, account: string): Promise<StateRead> {
     const read = await vault.readState(account);
@@ -47,8 +62,12 @@ async function readState(vault: PinVault, account: string): Promise<StateRead> {
     try {
         const parsed = JSON.parse(read.data.toString('utf8'));
         const sealedOk = parsed?.sealed === undefined || typeof parsed.sealed === 'string';
-        if (typeof parsed?.publicKey === 'string' && Number.isInteger(parsed?.failures) && parsed.failures >= 0 && sealedOk) {
-            return { kind: 'ok', state: { publicKey: parsed.publicKey, failures: parsed.failures, sealed: parsed.sealed } };
+        const epochOk = typeof parsed?.epoch === 'string' && Buffer.from(parsed.epoch, 'base64').length === EPOCH_LENGTH;
+        if (typeof parsed?.publicKey === 'string' && epochOk && Number.isInteger(parsed?.failures) && parsed.failures >= 0 && sealedOk) {
+            return {
+                kind: 'ok',
+                state: { publicKey: parsed.publicKey, epoch: parsed.epoch, failures: parsed.failures, sealed: parsed.sealed }
+            };
         }
     } catch { /* malformed */ }
     return { kind: 'error', code: 'malformed' };
@@ -70,7 +89,12 @@ function publicKeyFromRaw(raw: Buffer): KeyObject {
     return createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x: raw.toString('base64url') }, format: 'jwk' });
 }
 
-async function enroll(vault: PinVault, account: string, pin: string): Promise<Buffer> {
+interface EnrolledKey {
+    publicKey: Buffer;
+    epoch: string;
+}
+
+async function enroll(vault: PinVault, account: string, pin: string): Promise<EnrolledKey> {
     const minLength = await minPinLength(vault);
     if (!PIN_PATTERN.test(pin) || pin.length < minLength) throw new ArmError(`A PIN is ${minLength} to 32 digits`);
 
@@ -98,12 +122,12 @@ async function enroll(vault: PinVault, account: string, pin: string): Promise<Bu
             throw new ArmError('Could not set up PIN unlock: the key store did not enforce the PIN');
         }
         const raw = rawPublicKey(publicKey);
-        const state = { publicKey: raw.toString('base64'), failures: 0, sealed: written.sealed };
+        const state = { publicKey: raw.toString('base64'), epoch: newEpoch(), failures: 0, sealed: written.sealed };
         if (!await writeState(vault, account, state)) {
             await vault.wipe(account);
             throw new ArmError('Could not set up PIN unlock: the PIN state could not be stored');
         }
-        return raw;
+        return { publicKey: raw, epoch: state.epoch };
     } finally {
         privateDer.fill(0);
     }
@@ -135,13 +159,13 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
         minPinLength: () => minPinLength(vault),
 
         async arm(target, _confirm, pin) {
-            const publicKey = pin !== undefined
+            const { publicKey, epoch } = pin !== undefined
                 ? await exclusive(target.account, () => enroll(vault, target.account, pin))
-                : await storedPublicKey(target.account);
+                : await storedKey(target.account);
 
             const ephemeral = generateKeyPairSync('x25519');
-            const secret = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: publicKeyFromRaw(publicKey) });
-            return { secret, binding: rawPublicKey(ephemeral.publicKey) };
+            const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: publicKeyFromRaw(publicKey) });
+            return { secret: withEpoch(shared, epoch), binding: rawPublicKey(ephemeral.publicKey) };
         },
 
         async release(target, binding, pin) {
@@ -150,7 +174,15 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
             return exclusive(target.account, () => attempt(target.account, binding, pin));
         },
 
-        async retire() {},
+        async retire(account) {
+            await exclusive(account, async () => {
+                const read = await readState(vault, account);
+                if (read.kind !== 'ok') return;
+                if (!await writeState(vault, account, { ...read.state, epoch: newEpoch() })) {
+                    console.error('Failed to rotate the PIN epoch, an old copy of the retired blob still opens');
+                }
+            });
+        },
 
         async remove(target) {
             await exclusive(target.account, () => vault.wipe(target.account));
@@ -170,14 +202,14 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
         }
     };
 
-    async function storedPublicKey(account: string): Promise<Buffer> {
+    async function storedKey(account: string): Promise<EnrolledKey> {
         const read = await readState(vault, account);
         if (read.kind === 'missing') throw new ArmError('Set a PIN to turn on PIN unlock');
         if (read.kind === 'error') {
             console.error('PIN state read failed:', read.code);
             throw new ArmError('Could not read the PIN setup');
         }
-        return Buffer.from(read.state.publicKey, 'base64');
+        return { publicKey: Buffer.from(read.state.publicKey, 'base64'), epoch: read.state.epoch };
     }
 
     async function attempt(account: string, binding: Buffer, pin: string): Promise<Buffer> {
@@ -200,7 +232,7 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
                     throw new ReleaseError('revoked', TAMPERED_MESSAGE);
                 }
                 await writeState(vault, account, { ...read.state, failures: 0 });
-                return diffieHellman({ privateKey, publicKey: publicKeyFromRaw(binding) });
+                return withEpoch(diffieHellman({ privateKey, publicKey: publicKeyFromRaw(binding) }), read.state.epoch);
             } finally {
                 released.data.fill(0);
             }

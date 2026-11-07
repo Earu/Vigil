@@ -180,6 +180,41 @@ describe('PIN unlock on Linux', () => {
         expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
     });
 
+    it('retiring a persistent blob leaves an old copy of it unopenable', async () => {
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+        await enablePin();
+        const copy = state.keytar.get(ACCOUNT)!;
+        expect(copy).toMatch(/^pin1:/);
+
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
+        expect(state.keytar.get(ACCOUNT)).toBe('pin1-session:');
+
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+        state.keytar.set(ACCOUNT, copy);
+        const result = await bio.getBiometricPassword(DB, PIN);
+        expect(result.success).toBe(false);
+        expect(result.password).toBeUndefined();
+    });
+
+    it('keeps the PIN working after its blob is retired', async () => {
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+        await enablePin();
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: true });
+        restart();
+        expect(await bio.enableBiometrics(DB, 'hunter2')).toEqual({ success: true });
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+    });
+
+    it('treats state without an epoch as malformed', async () => {
+        await enablePin();
+        const [file] = fs.readdirSync(pinDir());
+        const full = path.join(pinDir(), file);
+        const { epoch: _epoch, ...withoutEpoch } = JSON.parse(fs.readFileSync(full, 'utf8'));
+        fs.writeFileSync(full, JSON.stringify(withoutEpoch));
+        restart();
+        expect((await bio.enableBiometrics(DB, 'hunter2')).error).toBe('Could not read the PIN setup');
+    });
+
     it('a re-arm without the PIN never writes a persistent blob, even with the restart lock off', async () => {
         await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
         await enablePin();

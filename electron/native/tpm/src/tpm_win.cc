@@ -40,6 +40,10 @@ void ScrubWide(std::wstring& text) {
     text.clear();
 }
 
+BCRYPT_OAEP_PADDING_INFO Oaep() {
+    return BCRYPT_OAEP_PADDING_INFO{BCRYPT_SHA256_ALGORITHM, nullptr, 0};
+}
+
 uint32_t Code(SECURITY_STATUS status) {
     return static_cast<uint32_t>(status);
 }
@@ -93,11 +97,12 @@ Outcome Seal(const Request& request) {
 
     PBYTE input = const_cast<PBYTE>(request.input.data());
     DWORD inputSize = static_cast<DWORD>(request.input.size());
+    BCRYPT_OAEP_PADDING_INFO padding = Oaep();
     DWORD size = 0;
-    status = NCryptEncrypt(key.handle, input, inputSize, nullptr, nullptr, 0, &size, NCRYPT_PAD_PKCS1_FLAG);
+    status = NCryptEncrypt(key.handle, input, inputSize, &padding, nullptr, 0, &size, NCRYPT_PAD_OAEP_FLAG);
     std::vector<uint8_t> sealed(size);
     if (status == ERROR_SUCCESS) {
-        status = NCryptEncrypt(key.handle, input, inputSize, nullptr, sealed.data(), size, &size, NCRYPT_PAD_PKCS1_FLAG);
+        status = NCryptEncrypt(key.handle, input, inputSize, &padding, sealed.data(), size, &size, NCRYPT_PAD_OAEP_FLAG);
     }
     if (status != ERROR_SUCCESS) {
         key.Delete();
@@ -118,10 +123,11 @@ Outcome Unseal(const Request& request) {
     if (status != ERROR_SUCCESS) return Outcome{Code(status), {}};
 
     std::vector<uint8_t> plain(kKeyBits / 8);
+    BCRYPT_OAEP_PADDING_INFO padding = Oaep();
     DWORD size = 0;
     status = NCryptDecrypt(
         key.handle, const_cast<PBYTE>(request.input.data()), static_cast<DWORD>(request.input.size()),
-        nullptr, plain.data(), static_cast<DWORD>(plain.size()), &size, NCRYPT_PAD_PKCS1_FLAG | NCRYPT_SILENT_FLAG);
+        &padding, plain.data(), static_cast<DWORD>(plain.size()), &size, NCRYPT_PAD_OAEP_FLAG | NCRYPT_SILENT_FLAG);
     if (status != ERROR_SUCCESS) {
         Scrub(plain);
         return Outcome{Code(status), {}};
