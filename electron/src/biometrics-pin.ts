@@ -34,6 +34,7 @@ const TAMPERED_MESSAGE = 'The PIN setup was modified outside Vigil, PIN unlock w
 const HARDWARE_LOCKOUT_MESSAGE = 'Too many incorrect PINs, the TPM is refusing attempts for now. Try again later';
 
 const EPOCH_LENGTH = 32;
+const X25519_KEY_LENGTH = 32;
 
 // The epoch is mixed into every secret the PIN key releases and replaced when
 // the vault's persistent blob is retired, so a copy of that blob which
@@ -63,7 +64,9 @@ async function readState(vault: PinVault, account: string): Promise<StateRead> {
         const parsed = JSON.parse(read.data.toString('utf8'));
         const sealedOk = parsed?.sealed === undefined || typeof parsed.sealed === 'string';
         const epochOk = typeof parsed?.epoch === 'string' && Buffer.from(parsed.epoch, 'base64').length === EPOCH_LENGTH;
-        if (typeof parsed?.publicKey === 'string' && epochOk && Number.isInteger(parsed?.failures) && parsed.failures >= 0 && sealedOk) {
+        const publicKeyOk = typeof parsed?.publicKey === 'string'
+            && Buffer.from(parsed.publicKey, 'base64').length === X25519_KEY_LENGTH;
+        if (publicKeyOk && epochOk && Number.isInteger(parsed?.failures) && parsed.failures >= 0 && sealedOk) {
             return {
                 kind: 'ok',
                 state: { publicKey: parsed.publicKey, epoch: parsed.epoch, failures: parsed.failures, sealed: parsed.sealed }
@@ -87,6 +90,16 @@ function rawPublicKey(key: KeyObject): Buffer {
 
 function publicKeyFromRaw(raw: Buffer): KeyObject {
     return createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x: raw.toString('base64url') }, format: 'jwk' });
+}
+
+// Both peers can come from a writable record: a key of the wrong length, or
+// a low-order point whose shared secret OpenSSL refuses as all zeros
+function agree(privateKey: KeyObject, peer: Buffer): Buffer | null {
+    try {
+        return diffieHellman({ privateKey, publicKey: publicKeyFromRaw(peer) });
+    } catch {
+        return null;
+    }
 }
 
 interface EnrolledKey {
@@ -164,7 +177,8 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
                 : await storedKey(target.account);
 
             const ephemeral = generateKeyPairSync('x25519');
-            const shared = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: publicKeyFromRaw(publicKey) });
+            const shared = agree(ephemeral.privateKey, publicKey);
+            if (!shared) throw new ArmError('Could not read the PIN setup');
             return { secret: withEpoch(shared, epoch), binding: rawPublicKey(ephemeral.publicKey) };
         },
 
@@ -232,7 +246,9 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
                     throw new ReleaseError('revoked', TAMPERED_MESSAGE);
                 }
                 await writeState(vault, account, { ...read.state, failures: 0 });
-                return withEpoch(diffieHellman({ privateKey, publicKey: publicKeyFromRaw(binding) }), read.state.epoch);
+                const shared = agree(privateKey, binding);
+                if (!shared) throw new ReleaseError('gone', 'The sealed copy does not match this PIN setup');
+                return withEpoch(shared, read.state.epoch);
             } finally {
                 released.data.fill(0);
             }

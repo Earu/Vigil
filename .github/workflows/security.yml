@@ -13,7 +13,11 @@ name: Security
 #                under AddressSanitizer and UndefinedBehaviorSanitizer: no
 #                bounds checks there, and what they read comes from a driver,
 #                a removable device and the keychain
-#   codeql       GitHub's static analysis, results land in the Security tab
+#   tpm-integration  the Linux TPM addon built for real and run against
+#                swtpm: no fallback to a TCP simulator, and seal, unseal and
+#                the lockout settings through /dev/tpmrm0 where the runner's
+#                kernel has the vTPM proxy
+#   codeql      GitHub's static analysis, results land in the Security tab
 #   audit        the lockfile against the OSV advisory database
 #   dependency-review  on pull requests: new dependencies with known
 #                vulnerabilities or unacceptable licenses block the merge
@@ -224,6 +228,61 @@ jobs:
     - name: Fail on findings
       if: steps.native.outcome == 'failure'
       run: exit 1
+
+  # Every other TPM test mocks the addon; this one runs the real Linux build
+  # against swtpm. GitHub's runners expose no TPM, so the device checks need
+  # the kernel's vTPM proxy and warn instead of failing where it is missing
+  tpm-integration:
+    name: TPM addon against swtpm
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Setup Node.js
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: '22'
+
+    # Only node-addon-api (headers) and node-gyp are needed, so no install
+    # script runs and Electron's binary is not downloaded
+    - name: Install dependencies
+      run: npm ci --ignore-scripts --no-audit --no-fund
+
+    - name: Install the TPM stack
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libtss2-dev swtpm swtpm-tools tpm2-tools
+
+    - name: Build the TPM addon
+      working-directory: electron/native/tpm
+      run: npx node-gyp rebuild
+
+    - name: Refuse a TPM simulator on TCP
+      run: |
+        if [ -e /dev/tpmrm0 ]; then
+          echo "::warning::this runner has a TPM, the TCP fallback cannot be checked"
+          exit 0
+        fi
+        mkdir -p "$RUNNER_TEMP/tcp"
+        swtpm socket --tpm2 --tpmstate dir="$RUNNER_TEMP/tcp" --server type=tcp,port=2321 \
+          --ctrl type=tcp,port=2322 --flags not-need-init,startup-clear --daemon
+        node scripts/tpm-integration.mjs tcp
+
+    - name: Seal, unseal and lockout through /dev/tpmrm0
+      run: |
+        if ! sudo modprobe tpm_vtpm_proxy; then
+          echo "::warning::tpm_vtpm_proxy is not available on this runner, the device checks did not run"
+          exit 0
+        fi
+        mkdir -p "$RUNNER_TEMP/device"
+        sudo swtpm chardev --vtpm-proxy --tpm2 --tpmstate dir="$RUNNER_TEMP/device" \
+          --flags not-need-init,startup-clear --daemon
+        for _ in $(seq 20); do [ -e /dev/tpmrm0 ] && break; sleep 0.5; done
+        sudo chmod 666 /dev/tpmrm0
+        node scripts/tpm-integration.mjs device
 
   codeql:
     name: CodeQL
