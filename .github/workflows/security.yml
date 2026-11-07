@@ -12,7 +12,7 @@ name: Security
 #   native-fuzz  libFuzzer over the C++ addons' own parsing (electron/native),
 #                under AddressSanitizer and UndefinedBehaviorSanitizer: no
 #                bounds checks there, and what they read comes from a driver,
-#                a removable device and the keychain
+#                a removable device, the keychain and the TPM
 #   tpm-integration  the Linux TPM addon built for real and run against
 #                swtpm: no fallback to a TCP simulator, and seal, unseal and
 #                the lockout settings through /dev/tpmrm0 where the runner's
@@ -221,7 +221,14 @@ jobs:
           echo "Budget: \`${NATIVE_FUZZ_SECONDS}\`s per target under AddressSanitizer and UndefinedBehaviorSanitizer. Findings are filed under Security > Code scanning, category \`native-fuzz-$RUNNER_OS_LABEL\`, and the reproducing input is attached to the run."
           echo
           echo '```'
-          grep -hE "^compiler:|^mode:|^instrumentation:|^passed over:|ERROR|SUMMARY|runtime error|Assertion|^Done |^replayed |stat::number_of_executed_units" native-fuzz-out/*.log 2>/dev/null | head -40 || echo "no log"
+          found=false
+          for log in native-fuzz-out/*.log; do
+            [ -e "$log" ] || continue
+            found=true
+            echo "$(basename "$log" .log):"
+            grep -E "^compiler:|^mode:|^instrumentation:|^passed over:|ERROR|SUMMARY|runtime error|Assertion|^Done |^replayed |stat::number_of_executed_units" "$log" | head -15 | sed 's/^/  /' || true
+          done
+          $found || echo "no log"
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
 
