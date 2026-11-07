@@ -6,5 +6,10 @@ export const QUICK_UNLOCK_NAMES: Record<QuickUnlockMethod, string> = {
     pin: 'PIN'
 };
 
-export const PIN_PATTERN = /^\d{6,32}$/;
-export const PIN_RULE = 'A PIN is 6 to 32 digits';
+export const MIN_PIN_LENGTH = 6;
+export const MAX_PIN_LENGTH = 32;
+
+export const isValidPin = (pin: string, minLength: number): boolean =>
+    /^\d+$/.test(pin) && pin.length >= minLength && pin.length <= MAX_PIN_LENGTH;
+
+export const pinRule = (minLength: number): string => `A PIN is ${minLength} to ${MAX_PIN_LENGTH} digits`;

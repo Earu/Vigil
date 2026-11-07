@@ -11,3 +11,10 @@ export function probe(): { ok: true } | { ok: false; code: TpmCode; status: numb
 export function seal(name: string, data: Buffer, pin: string): Promise<TpmResult<'sealed'>>;
 export function unseal(name: string, pin: string, sealed: Buffer): Promise<TpmResult<'data'>>;
 export function remove(name: string): Promise<TpmResult<'data'>>;
+
+export type LockoutResult =
+    | { ok: true; lockoutAuthSet: boolean; maxTries: number; recoveryInterval: number }
+    | { ok: false; code: TpmCode; status: number };
+
+export function parseLockout(data: Buffer): LockoutResult;
+export function lockout(): Promise<LockoutResult>;

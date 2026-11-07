@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
 import type { QuickUnlockMethod } from '../../types/electron';
-import { QUICK_UNLOCK_NAMES, PIN_PATTERN, PIN_RULE } from '../../services/QuickUnlockMethods';
+import { QUICK_UNLOCK_NAMES, MIN_PIN_LENGTH, isValidPin, pinRule } from '../../services/QuickUnlockMethods';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { ImportService, ImportResult } from '../../services/ImportService';
@@ -78,6 +78,7 @@ export const PasswordForm = ({
     const [pinSetup, setPinSetup] = useState(false);
     const [newPin, setNewPin] = useState('');
     const [confirmPin, setConfirmPin] = useState('');
+    const [pinMinLength, setPinMinLength] = useState(MIN_PIN_LENGTH);
     const pinInputRef = useRef<HTMLInputElement>(null);
     const methodMenuRef = useRef<HTMLDivElement>(null);
     const methodMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -177,6 +178,7 @@ export const PasswordForm = ({
             setIsBiometricsAvailable(info.available);
             setBiometricsUnavailableReason(info.unavailableReason ?? null);
             setMethods(info.methods ?? []);
+            setPinMinLength(info.pinMinLength ?? MIN_PIN_LENGTH);
         };
         checkBiometrics();
     }, []);
@@ -452,8 +454,8 @@ export const PasswordForm = ({
     };
 
     const submitPinSetup = () => {
-        if (!PIN_PATTERN.test(newPin)) {
-            setError(PIN_RULE);
+        if (!isValidPin(newPin, pinMinLength)) {
+            setError(pinRule(pinMinLength));
             return;
         }
         if (newPin !== confirmPin) {
@@ -940,7 +942,7 @@ export const PasswordForm = ({
                                     type="password"
                                     inputMode="numeric"
                                     autoComplete="off"
-                                    placeholder="Choose a PIN (6+ digits)"
+                                    placeholder={`Choose a PIN (${pinMinLength}+ digits)`}
                                     aria-label="Choose a PIN"
                                     className="password-input"
                                     value={newPin}

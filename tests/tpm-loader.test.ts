@@ -1,6 +1,25 @@
 import { describe, it, expect } from 'vitest';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { interpret } = require('../electron/native/tpm/index.js');
+const { interpret, parseLockout } = require('../electron/native/tpm/index.js');
+
+describe('TPM lockout settings', () => {
+    const encode = (...values: number[]) => {
+        const data = Buffer.alloc(values.length * 4);
+        values.forEach((value, i) => data.writeUInt32BE(value, i * 4));
+        return data;
+    };
+
+    it('reads the lockout password flag and the limits', () => {
+        expect(parseLockout(encode(0x4, 32, 7200))).toEqual({ ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200 });
+        expect(parseLockout(encode(0x3, 0xffffffff, 0))).toEqual({ ok: true, lockoutAuthSet: false, maxTries: 0xffffffff, recoveryInterval: 0 });
+    });
+
+    it('refuses anything but three values', () => {
+        expect(parseLockout(encode(0x4, 32)).ok).toBe(false);
+        expect(parseLockout(Buffer.alloc(16)).ok).toBe(false);
+        expect(parseLockout(undefined).ok).toBe(false);
+    });
+});
 
 describe('TPM status interpretation on Windows', () => {
     it.each([

@@ -16,6 +16,8 @@ import { touchId, resetTouchIdForTests } from './biometrics-touchid';
 import { macPin } from './biometrics-pin-mac';
 import { tpmPin, resetTpmForTests } from './biometrics-pin-tpm';
 
+export { getPinLockoutPolicy, setAllowUnprotectedTpm, type PinLockoutPolicy } from './biometrics-pin-tpm';
+
 const SERVICE_NAME = 'Vigil Password Manager';
 const SALT_PATH = path.join(app.getPath('userData'), '.salt');
 
@@ -323,15 +325,16 @@ export async function enableBiometrics(dbPath: string, password: string, options
         }
 
         const strict = getBiometricsConfig().requirePasswordAfterRestart;
-        const seal = strict ? null : provider.persistent.sealer();
-        if (!strict && !seal) {
+        const persist = !strict && !(provider.needsPin && options.pin === undefined);
+        const seal = persist ? provider.persistent.sealer() : null;
+        if (persist && !seal) {
             return { success: false, error: 'Could not set up biometric unlock: the entropy store is unavailable' };
         }
 
         // A vault already carrying the marker is being re-armed after a
         // restart, not enrolled, so it does not need the confirmation prompt
         const switching = current !== null && current !== provider;
-        const enrolled = strict && stored === provider.sessionMarker;
+        const enrolled = !persist && stored === provider.sessionMarker;
 
         let material: KeyMaterial;
         try {
@@ -520,6 +523,7 @@ export async function getBiometricsInfo(): Promise<{
     backend: BiometricsBackend,
     biometryType: string,
     methods: QuickUnlockMethod[],
+    pinMinLength?: number,
     unavailableReason?: string
 }> {
     if (!await isBiometricsAvailable()) return { available: false, backend: 'none', biometryType: 'none', methods: [] };
@@ -536,5 +540,12 @@ export async function getBiometricsInfo(): Promise<{
     if (usable.length === 0) {
         return { available: false, backend: 'none', biometryType: providers[0].biometryType(), methods: [], unavailableReason };
     }
-    return { available: true, backend: 'hardware', biometryType: usable[0].biometryType(), methods: usable.map(provider => provider.id) };
+    const pin = usable.find(provider => provider.needsPin);
+    return {
+        available: true,
+        backend: 'hardware',
+        biometryType: usable[0].biometryType(),
+        methods: usable.map(provider => provider.id),
+        ...(pin?.minPinLength ? { pinMinLength: await pin.minPinLength() } : {})
+    };
 }

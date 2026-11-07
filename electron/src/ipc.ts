@@ -25,7 +25,9 @@ import {
     hasBiometricsEnabled,
     enableBiometrics,
     getBiometricPassword,
-    disableBiometrics
+    disableBiometrics,
+    getPinLockoutPolicy,
+    setAllowUnprotectedTpm
 } from './biometrics';
 import { checkEmailBreaches, setHibpApiKey, hasHibpApiKey } from './hibp';
 import { fetchFavicon } from './favicon';
@@ -476,6 +478,13 @@ export function setupIpcHandlers(): void {
         const strict = (config as { requirePasswordAfterRestart?: unknown } | null)?.requirePasswordAfterRestart;
         if (typeof strict !== 'boolean') return { success: false, error: 'Invalid config' };
         return await setBiometricsConfig({ requirePasswordAfterRestart: strict });
+    });
+
+    handle('get-pin-lockout-policy', async () => await getPinLockoutPolicy());
+
+    handle('set-pin-allow-unprotected', async (_, allow: unknown) => {
+        if (typeof allow !== 'boolean') return { success: false, error: 'Invalid setting' };
+        return await setAllowUnprotectedTpm(allow);
     });
 
     // Gated like the file channels: get-biometric-password hands out a

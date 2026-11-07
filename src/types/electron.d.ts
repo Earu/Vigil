@@ -161,6 +161,7 @@ export interface IElectronAPI {
 		backend: 'hardware' | 'none';
 		biometryType: string;
 		methods: QuickUnlockMethod[];
+		pinMinLength?: number;
 		/** Set when the sensor works but this build cannot use it (macOS,
 		 *  unsigned build), so the unlock screen can say why the option is absent */
 		unavailableReason?: string;
@@ -182,6 +183,10 @@ export interface IElectronAPI {
 	// or the sealed password lives only in Vigil's memory for the session
 	getBiometricsConfig: () => Promise<{ requirePasswordAfterRestart: boolean }>;
 	setBiometricsConfig: (config: { requirePasswordAfterRestart: boolean }) => Promise<{ success: boolean; error?: string }>;
+	// Linux only: applies is false elsewhere. protected says the TPM limits
+	// wrong PINs (lockout password set, tight lockout settings)
+	getPinLockoutPolicy: () => Promise<{ applies: boolean; protected: boolean; allowUnprotected: boolean }>;
+	setPinAllowUnprotected: (allow: boolean) => Promise<{ success: boolean; error?: string }>;
 	// Copying runs in the main process so it can carry the macOS pasteboard
 	// markers and so a quit mid-countdown can still take the secret back
 	copySecret: (text: string, clearSeconds?: number) => Promise<{ success: boolean; error?: string }>;

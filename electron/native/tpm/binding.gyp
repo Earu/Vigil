@@ -14,8 +14,8 @@
         }],
         ["OS=='linux'", {
           "sources": ["src/tpm_linux.cc"],
-          "cflags_cc": ["-std=c++17", "<!@(pkg-config --cflags tss2-esys tss2-mu)"],
-          "libraries": ["<!@(pkg-config --libs tss2-esys tss2-mu)"]
+          "cflags_cc": ["-std=c++17", "<!@(pkg-config --cflags tss2-esys tss2-mu tss2-tctildr)"],
+          "libraries": ["<!@(pkg-config --libs tss2-esys tss2-mu tss2-tctildr)"]
         }],
         ["OS!='win' and OS!='linux'", {
           "sources": ["src/tpm_stub.cc"],

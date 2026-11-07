@@ -144,6 +144,11 @@ Outcome Remove(const Request& request) {
     return Outcome{Code(status), {}};
 }
 
+// Windows owns the lockout authorization and configures the lockout itself
+Outcome Lockout(const Request&) {
+    return Outcome{kUnimplemented, {}};
+}
+
 uint32_t Probe() {
     Provider provider;
     SECURITY_STATUS status = OpenProvider(provider);

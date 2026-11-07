@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+import { generateKeyPairSync } from 'crypto';
 
 const state = vi.hoisted(() => ({
     userData: '',
@@ -12,6 +13,7 @@ const state = vi.hoisted(() => ({
         nextId: 0,
         failures: 0,
         lockoutAt: 32,
+        lockout: { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200 } as Record<string, unknown>,
     },
     hello: { available: true, deleted: 0 },
 }));
@@ -75,6 +77,7 @@ vi.mock('../electron/native/tpm', () => ({
         for (const [id, object] of state.tpm.objects) if (object.name === name) state.tpm.objects.delete(id);
         return { ok: true, data: Buffer.alloc(0) };
     },
+    lockout: async () => state.tpm.lockout,
 }));
 
 const realPlatform = process.platform;
@@ -109,10 +112,12 @@ beforeEach(() => {
     state.tpm.objects.clear();
     state.tpm.failures = 0;
     state.tpm.lockoutAt = 32;
+    state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200 };
     state.hello.available = true;
     state.hello.deleted = 0;
     fs.rmSync(pinDir(), { recursive: true, force: true });
     fs.rmSync(path.join(state.userData, 'biometrics-config.json'), { force: true });
+    fs.rmSync(path.join(state.userData, 'tpm-pin-config.json'), { force: true });
 });
 
 describe('PIN unlock on Linux', () => {
@@ -175,6 +180,41 @@ describe('PIN unlock on Linux', () => {
         expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
     });
 
+    it('a re-arm without the PIN never writes a persistent blob, even with the restart lock off', async () => {
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+        await enablePin();
+        state.keytar.set(ACCOUNT, 'pin1-session:');
+        restart();
+        expect(await bio.enableBiometrics(DB, 'hunter2')).toEqual({ success: true });
+        expect(state.keytar.get(ACCOUNT)).toBe('pin1-session:');
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+        expect(state.keytar.get(ACCOUNT)).toMatch(/^pin1:/);
+    });
+
+    it('a public key swapped in the state file never seals a password the attacker can open', async () => {
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+        await enablePin();
+        const [file] = fs.readdirSync(pinDir());
+        const full = path.join(pinDir(), file);
+        const attacker = generateKeyPairSync('x25519');
+        const tampered = JSON.parse(fs.readFileSync(full, 'utf8'));
+        tampered.publicKey = Buffer.from(attacker.publicKey.export({ format: 'jwk' }).x as string, 'base64url').toString('base64');
+        fs.writeFileSync(full, JSON.stringify(tampered));
+        state.keytar.set(ACCOUNT, 'pin1-session:');
+        restart();
+
+        expect(await bio.enableBiometrics(DB, 'hunter2')).toEqual({ success: true });
+        expect(state.keytar.get(ACCOUNT)).toBe('pin1-session:');
+
+        const result = await bio.getBiometricPassword(DB, PIN);
+        expect(result.success).toBe(false);
+        expect(result.retry).toBeFalsy();
+        expect(result.error).toMatch(/modified outside Vigil/);
+        expect(state.keytar.has(ACCOUNT)).toBe(false);
+        expect(state.tpm.objects.size).toBe(0);
+        expect(fs.readdirSync(pinDir())).toEqual([]);
+    });
+
     it('a sealed object the TPM no longer opens takes the enrollment with it', async () => {
         await enablePin();
         state.tpm.objects.clear();
@@ -213,8 +253,83 @@ describe('PIN unlock on Linux', () => {
     });
 });
 
+describe('PIN unlock on Linux without TPM lockout protection', () => {
+    const LONG_PIN = '4829150371';
+    const unprotected = () => { state.tpm.lockout = { ok: true, lockoutAuthSet: false, maxTries: 32, recoveryInterval: 7200 }; };
+
+    it('is refused, naming the command and the setting', async () => {
+        unprotected();
+        const info = await bio.getBiometricsInfo();
+        expect(info).toMatchObject({ available: false, methods: [] });
+        expect(info.unavailableReason).toMatch(/tpm2_changeauth -c lockout/);
+        expect(info.unavailableReason).toMatch(/Settings/);
+        expect((await enablePin()).error).toMatch(/tpm2_changeauth/);
+        expect(state.tpm.objects.size).toBe(0);
+        expect(await bio.getPinLockoutPolicy()).toEqual({ applies: true, protected: false, allowUnprotected: false });
+    });
+
+    it.each([
+        ['too many tries', { maxTries: 1000, recoveryInterval: 7200 }],
+        ['a fast recovery', { maxTries: 32, recoveryInterval: 60 }],
+    ])('is refused with a lockout password but %s', async (_label, settings) => {
+        state.tpm.lockout = { ok: true, lockoutAuthSet: true, ...settings };
+        expect((await enablePin()).error).toMatch(/lockout password/);
+    });
+
+    it('treats unreadable lockout settings as unprotected', async () => {
+        state.tpm.lockout = { ok: false, code: 'error', status: 0x18b };
+        expect((await enablePin()).error).toMatch(/lockout password/);
+    });
+
+    it('accepts a recovery interval of zero, which never forgives a failure', async () => {
+        state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 0 };
+        expect(await enablePin()).toEqual({ success: true });
+    });
+
+    it('refuses to re-arm after a restart once the lockout password is gone', async () => {
+        await enablePin();
+        restart();
+        unprotected();
+        expect((await bio.enableBiometrics(DB, 'hunter2')).error).toMatch(/lockout password/);
+    });
+
+    it('with the opt-out, takes only a PIN of at least 10 digits', async () => {
+        unprotected();
+        expect((await bio.setAllowUnprotectedTpm(true)).success).toBe(true);
+        expect(await bio.getBiometricsInfo()).toMatchObject({ available: true, methods: ['pin'], pinMinLength: 10 });
+
+        expect((await enablePin()).error).toBe('A PIN is 10 to 32 digits');
+        expect(state.tpm.objects.size).toBe(0);
+
+        expect(await enablePin(LONG_PIN)).toEqual({ success: true });
+        expect((await bio.getBiometricPassword(DB, LONG_PIN)).password).toBe('hunter2');
+    });
+
+    it('keeps the opt-out across restarts until it is turned off', async () => {
+        unprotected();
+        await bio.setAllowUnprotectedTpm(true);
+        restart();
+        expect((await bio.getPinLockoutPolicy()).allowUnprotected).toBe(true);
+        await bio.setAllowUnprotectedTpm(false);
+        restart();
+        expect((await enablePin(LONG_PIN)).error).toMatch(/lockout password/);
+    });
+
+    it('a protected TPM keeps the 6-digit minimum', async () => {
+        expect(await bio.getBiometricsInfo()).toMatchObject({ pinMinLength: 6 });
+        expect(await bio.getPinLockoutPolicy()).toEqual({ applies: true, protected: true, allowUnprotected: false });
+    });
+});
+
 describe('PIN unlock on Windows', () => {
     beforeEach(() => setPlatform('win32'));
+
+    it('does not consult the lockout settings, which Windows owns', async () => {
+        state.tpm.lockout = { ok: true, lockoutAuthSet: false, maxTries: 0xffffffff, recoveryInterval: 1 };
+        expect((await bio.getBiometricsInfo()).methods).toContain('pin');
+        expect(await enablePin()).toEqual({ success: true });
+        expect((await bio.getPinLockoutPolicy()).applies).toBe(false);
+    });
 
     it('is offered next to Windows Hello', async () => {
         expect(await bio.getBiometricsInfo()).toMatchObject({ available: true, methods: ['windows-hello', 'pin'] });

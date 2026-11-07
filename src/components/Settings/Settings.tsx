@@ -100,6 +100,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     // (or this build) has no biometric unlock at all, which is what hides the
     // setting rather than a guess from the user agent
     const [biometricsMethod, setBiometricsMethod] = useState<string | null>(null);
+    const [pinLockout, setPinLockout] = useState<{ applies: boolean; protected: boolean; allowUnprotected: boolean } | null>(null);
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
     // the database
@@ -126,17 +127,8 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         return () => unsubscribe();
     }, []);
 
-    useEffect(() => {
-        if (!isOpen || !window.electron) return;
-        window.electron.getBrowserIntegrationStatus()
-            .then(status => setBrowserIntegration({ supported: status.supported, enabled: status.enabled, running: status.running }))
-            .catch(() => {});
-        window.electron.getContentProtection().then(setContentProtection).catch(() => {});
-        window.electron.sshAgentStatus?.().then(setSshAgent).catch(() => {});
-        window.electron.getBiometricsConfig?.()
-            .then(config => setBiometricsRestartLock(config.requirePasswordAfterRestart))
-            .catch(() => {});
-        window.electron.getBiometricsInfo()
+    const refreshBiometrics = () => {
+        window.electron?.getBiometricsInfo()
             .then(async info => {
                 if (!info.available) {
                     setBiometricsMethod(null);
@@ -148,6 +140,20 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                 setBiometricsMethod(method ? QUICK_UNLOCK_NAMES[method] : 'Biometric unlock');
             })
             .catch(() => {});
+    };
+
+    useEffect(() => {
+        if (!isOpen || !window.electron) return;
+        window.electron.getBrowserIntegrationStatus()
+            .then(status => setBrowserIntegration({ supported: status.supported, enabled: status.enabled, running: status.running }))
+            .catch(() => {});
+        window.electron.getContentProtection().then(setContentProtection).catch(() => {});
+        window.electron.sshAgentStatus?.().then(setSshAgent).catch(() => {});
+        window.electron.getBiometricsConfig?.()
+            .then(config => setBiometricsRestartLock(config.requirePasswordAfterRestart))
+            .catch(() => {});
+        refreshBiometrics();
+        window.electron.getPinLockoutPolicy?.().then(setPinLockout).catch(() => {});
         const refreshAssociations = () =>
             setBrowserAssociations(kdbxDb ? BrowserIntegrationService.listAssociations(kdbxDb) : []);
         refreshAssociations();
@@ -195,6 +201,22 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
         } else {
             (window as any).showToast?.({ message: result?.error || 'Failed to remove the API key', type: 'error', duration: 5000 });
         }
+    };
+
+    const handlePinAllowUnprotectedToggle = async (allow: boolean) => {
+        if (!window.electron || !pinLockout) return;
+        if (allow && !await confirmDialog(
+            'Without a TPM lockout password, software running as you can try every PIN until one works. '
+            + 'Vigil will require a PIN of at least 10 digits. Allow PIN unlock anyway?',
+            'Allow'
+        )) return;
+        const result = await window.electron.setPinAllowUnprotected(allow);
+        if (!result.success) {
+            (window as any).showToast?.({ message: result.error || 'Failed to change the setting', type: 'error', duration: 5000 });
+            return;
+        }
+        setPinLockout({ ...pinLockout, allowUnprotected: allow });
+        refreshBiometrics();
     };
 
     const handleBiometricsRestartLockToggle = async (enabled: boolean) => {
@@ -779,6 +801,25 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                                 id="biometrics-restart-lock"
                                                 checked={biometricsRestartLock}
                                                 onChange={handleBiometricsRestartLockToggle}
+                                            />
+                                        </SettingRow>
+                                    )}
+                                    {pinLockout?.applies && (!pinLockout.protected || pinLockout.allowUnprotected) && (
+                                        <SettingRow
+                                            label="Allow PIN unlock without a TPM lockout password"
+                                            htmlFor="pin-allow-unprotected"
+                                            help={pinLockout.protected
+                                                ? 'The TPM now limits wrong PINs, so this is no longer needed.'
+                                                : <>
+                                                    This TPM does not limit wrong PINs, so software running as you can try every
+                                                    PIN. Setting a lockout password with "tpm2_changeauth -c lockout" fixes that.
+                                                    Turning this on allows PIN unlock anyway, with a PIN of at least 10 digits.
+                                                </>}
+                                        >
+                                            <Toggle
+                                                id="pin-allow-unprotected"
+                                                checked={pinLockout.allowUnprotected}
+                                                onChange={handlePinAllowUnprotectedToggle}
                                             />
                                         </SettingRow>
                                     )}

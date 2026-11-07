@@ -1,5 +1,6 @@
 #include <tss2/tss2_esys.h>
 #include <tss2/tss2_mu.h>
+#include <tss2/tss2_tctildr.h>
 
 #include <cstring>
 
@@ -9,14 +10,24 @@ namespace vigil_tpm {
 
 namespace {
 
+// The kernel resource manager only. Without an explicit TCTI the loader falls
+// back to tabrmd and then to simulators on localhost:2321, which any local
+// user can listen on and so receive the PIN and the sealed key
+constexpr const char* kTcti = "device:/dev/tpmrm0";
+
 class Context {
 public:
-    Context() { status_ = Esys_Initialize(&context_, nullptr, nullptr); }
+    Context() {
+        status_ = Tss2_TctiLdr_Initialize(kTcti, &tcti_);
+        if (status_ == TSS2_RC_SUCCESS) status_ = Esys_Initialize(&context_, tcti_, nullptr);
+    }
 
     ~Context() {
-        if (context_ == nullptr) return;
-        for (auto it = handles_.rbegin(); it != handles_.rend(); ++it) Esys_FlushContext(context_, *it);
-        Esys_Finalize(&context_);
+        if (context_ != nullptr) {
+            for (auto it = handles_.rbegin(); it != handles_.rend(); ++it) Esys_FlushContext(context_, *it);
+            Esys_Finalize(&context_);
+        }
+        if (tcti_ != nullptr) Tss2_TctiLdr_Finalize(&tcti_);
     }
 
     TSS2_RC status() const { return status_; }
@@ -24,6 +35,7 @@ public:
     void Track(ESYS_TR handle) { handles_.push_back(handle); }
 
 private:
+    TSS2_TCTI_CONTEXT* tcti_ = nullptr;
     ESYS_CONTEXT* context_ = nullptr;
     TSS2_RC status_ = 0;
     std::vector<ESYS_TR> handles_;
@@ -178,6 +190,38 @@ Outcome Unseal(const Request& request) {
 
 Outcome Remove(const Request&) {
     return Outcome{0, {}};
+}
+
+namespace {
+
+TSS2_RC ReadProperty(Context& context, TPM2_PT property, uint32_t* value) {
+    TPMI_YES_NO more = TPM2_NO;
+    TPMS_CAPABILITY_DATA* capability = nullptr;
+    TSS2_RC status = Esys_GetCapability(context.get(), ESYS_TR_NONE, ESYS_TR_NONE, ESYS_TR_NONE,
+                                        TPM2_CAP_TPM_PROPERTIES, property, 1, &more, &capability);
+    if (status != TSS2_RC_SUCCESS) return status;
+    const TPML_TAGGED_TPM_PROPERTY& list = capability->data.tpmProperties;
+    const bool found = list.count >= 1 && list.tpmProperty[0].property == property;
+    if (found) *value = list.tpmProperty[0].value;
+    Esys_Free(capability);
+    return found ? TSS2_RC_SUCCESS : kBadInput;
+}
+
+}  // namespace
+
+Outcome Lockout(const Request&) {
+    Context context;
+    TSS2_RC status = context.status();
+    if (status != TSS2_RC_SUCCESS) return Outcome{status, {}};
+
+    std::vector<uint8_t> data;
+    for (TPM2_PT property : {TPM2_PT_PERMANENT, TPM2_PT_MAX_AUTH_FAIL, TPM2_PT_LOCKOUT_INTERVAL}) {
+        uint32_t value = 0;
+        status = ReadProperty(context, property, &value);
+        if (status != TSS2_RC_SUCCESS) return Outcome{status, {}};
+        for (int shift = 24; shift >= 0; shift -= 8) data.push_back(static_cast<uint8_t>(value >> shift));
+    }
+    return Outcome{0, std::move(data)};
 }
 
 uint32_t Probe() {

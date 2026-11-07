@@ -82,6 +82,8 @@ vi.mock('../../electron/src/biometrics', () => ({
     enableBiometrics: vi.fn(async () => ({ success: true })),
     getBiometricPassword: vi.fn(async () => ({ success: false })),
     disableBiometrics: vi.fn(async () => ({ success: true })),
+    getPinLockoutPolicy: vi.fn(async () => ({ applies: false, protected: true, allowUnprotected: false })),
+    setAllowUnprotectedTpm: vi.fn(async () => ({ success: true })),
 }));
 
 vi.mock('../../electron/src/hibp', () => ({

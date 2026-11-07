@@ -12,6 +12,7 @@
 namespace vigil_tpm {
 
 constexpr uint32_t kBadInput = 0xFFFFFFFE;
+constexpr uint32_t kUnimplemented = 0xFFFFFFFF;
 
 struct Outcome {
     uint32_t status = 0;
@@ -29,6 +30,8 @@ using Operation = Outcome (*)(const Request&);
 Outcome Seal(const Request& request);
 Outcome Unseal(const Request& request);
 Outcome Remove(const Request& request);
+// Big-endian TPM2_PT_PERMANENT, TPM2_PT_MAX_AUTH_FAIL, TPM2_PT_LOCKOUT_INTERVAL
+Outcome Lockout(const Request& request);
 uint32_t Probe();
 const char* PlatformName();
 
@@ -50,7 +53,7 @@ public:
 
 protected:
     void Execute() override {
-        if (operation_ != Remove && !IsPin(request_.pin)) {
+        if (operation_ != Remove && operation_ != Lockout && !IsPin(request_.pin)) {
             outcome_ = Outcome{kBadInput, {}};
         } else {
             outcome_ = operation_(request_);
@@ -120,12 +123,17 @@ inline Napi::Value JsRemove(const Napi::CallbackInfo& info) {
     return Queue(env, Remove, Request{info[0].As<Napi::String>().Utf8Value(), std::string(), {}});
 }
 
+inline Napi::Value JsLockout(const Napi::CallbackInfo& info) {
+    return Queue(info.Env(), Lockout, Request{});
+}
+
 inline Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("platform", Napi::String::New(env, PlatformName()));
     exports.Set("probe", Napi::Function::New(env, JsProbe));
     exports.Set("seal", Napi::Function::New(env, JsSeal));
     exports.Set("unseal", Napi::Function::New(env, JsUnseal));
     exports.Set("remove", Napi::Function::New(env, JsRemove));
+    exports.Set("lockout", Napi::Function::New(env, JsLockout));
     return exports;
 }
 

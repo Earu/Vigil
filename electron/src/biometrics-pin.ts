@@ -11,6 +11,7 @@ import {
 import { ArmError, ReleaseError, type QuickUnlockProvider } from './biometrics-provider';
 
 export const MAX_PIN_ATTEMPTS = 5;
+export const MIN_PIN_LENGTH = 6;
 export const PIN_PATTERN = /^\d{6,32}$/;
 
 export type VaultResult<T> = ({ ok: true } & T) | { ok: false; code: string };
@@ -18,6 +19,7 @@ export type VaultResult<T> = ({ ok: true } & T) | { ok: false; code: string };
 export interface PinVault {
     supported(): boolean;
     refusal(): Promise<string | null>;
+    minPinLength?(): Promise<number>;
     seal(account: string, data: Buffer, pin: string): Promise<VaultResult<{ sealed?: string }>>;
     unseal(account: string, pin: string, sealed?: string): Promise<VaultResult<{ data: Buffer }>>;
     readState(account: string): Promise<VaultResult<{ data: Buffer }>>;
@@ -28,6 +30,7 @@ export interface PinVault {
 const NO_SALT = Buffer.alloc(0);
 const RESET_MESSAGE = 'PIN unlock was reset for this database, set it up again with your master password';
 const LOCKED_OUT_MESSAGE = 'Too many incorrect PINs, PIN unlock was turned off for this database';
+const TAMPERED_MESSAGE = 'The PIN setup was modified outside Vigil, PIN unlock was turned off for this database';
 const HARDWARE_LOCKOUT_MESSAGE = 'Too many incorrect PINs, the TPM is refusing attempts for now. Try again later';
 
 interface PinState {
@@ -55,6 +58,10 @@ function writeState(vault: PinVault, account: string, state: PinState): Promise<
     return vault.writeState(account, Buffer.from(JSON.stringify(state), 'utf8'));
 }
 
+function minPinLength(vault: PinVault): Promise<number> {
+    return vault.minPinLength?.() ?? Promise.resolve(MIN_PIN_LENGTH);
+}
+
 function rawPublicKey(key: KeyObject): Buffer {
     return Buffer.from(key.export({ format: 'jwk' }).x as string, 'base64url');
 }
@@ -63,8 +70,9 @@ function publicKeyFromRaw(raw: Buffer): KeyObject {
     return createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x: raw.toString('base64url') }, format: 'jwk' });
 }
 
-async function enroll(vault: PinVault, account: string, pin: string): Promise<void> {
-    if (!PIN_PATTERN.test(pin)) throw new ArmError('A PIN is 6 to 32 digits');
+async function enroll(vault: PinVault, account: string, pin: string): Promise<Buffer> {
+    const minLength = await minPinLength(vault);
+    if (!PIN_PATTERN.test(pin) || pin.length < minLength) throw new ArmError(`A PIN is ${minLength} to 32 digits`);
 
     const { publicKey, privateKey } = generateKeyPairSync('x25519');
     const privateDer = privateKey.export({ format: 'der', type: 'pkcs8' });
@@ -89,11 +97,13 @@ async function enroll(vault: PinVault, account: string, pin: string): Promise<vo
             console.error('PIN key store accepted a wrong PIN or failed to check it:', refused.ok ? 'accepted' : refused.code);
             throw new ArmError('Could not set up PIN unlock: the key store did not enforce the PIN');
         }
-        const state = { publicKey: rawPublicKey(publicKey).toString('base64'), failures: 0, sealed: written.sealed };
+        const raw = rawPublicKey(publicKey);
+        const state = { publicKey: raw.toString('base64'), failures: 0, sealed: written.sealed };
         if (!await writeState(vault, account, state)) {
             await vault.wipe(account);
             throw new ArmError('Could not set up PIN unlock: the PIN state could not be stored');
         }
+        return raw;
     } finally {
         privateDer.fill(0);
     }
@@ -122,22 +132,15 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
         supported: () => vault.supported(),
         biometryType: () => 'pin',
         refusal: () => vault.refusal(),
+        minPinLength: () => minPinLength(vault),
 
         async arm(target, _confirm, pin) {
-            if (pin !== undefined) await exclusive(target.account, () => enroll(vault, target.account, pin));
-
-            const read = await readState(vault, target.account);
-            if (read.kind === 'missing') throw new ArmError('Set a PIN to turn on PIN unlock');
-            if (read.kind === 'error') {
-                console.error('PIN state read failed:', read.code);
-                throw new ArmError('Could not read the PIN setup');
-            }
+            const publicKey = pin !== undefined
+                ? await exclusive(target.account, () => enroll(vault, target.account, pin))
+                : await storedPublicKey(target.account);
 
             const ephemeral = generateKeyPairSync('x25519');
-            const secret = diffieHellman({
-                privateKey: ephemeral.privateKey,
-                publicKey: publicKeyFromRaw(Buffer.from(read.state.publicKey, 'base64'))
-            });
+            const secret = diffieHellman({ privateKey: ephemeral.privateKey, publicKey: publicKeyFromRaw(publicKey) });
             return { secret, binding: rawPublicKey(ephemeral.publicKey) };
         },
 
@@ -167,6 +170,16 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
         }
     };
 
+    async function storedPublicKey(account: string): Promise<Buffer> {
+        const read = await readState(vault, account);
+        if (read.kind === 'missing') throw new ArmError('Set a PIN to turn on PIN unlock');
+        if (read.kind === 'error') {
+            console.error('PIN state read failed:', read.code);
+            throw new ArmError('Could not read the PIN setup');
+        }
+        return Buffer.from(read.state.publicKey, 'base64');
+    }
+
     async function attempt(account: string, binding: Buffer, pin: string): Promise<Buffer> {
         const read = await readState(vault, account);
         if (read.kind === 'missing') throw new ReleaseError('revoked', RESET_MESSAGE);
@@ -179,9 +192,14 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
 
         const released = await vault.unseal(account, pin, read.state.sealed);
         if (released.ok) {
-            await writeState(vault, account, { ...read.state, failures: 0 });
             try {
                 const privateKey = createPrivateKey({ key: released.data, format: 'der', type: 'pkcs8' });
+                if (!rawPublicKey(createPublicKey(privateKey)).equals(Buffer.from(read.state.publicKey, 'base64'))) {
+                    console.error('PIN state public key does not match the sealed private key');
+                    await vault.wipe(account);
+                    throw new ReleaseError('revoked', TAMPERED_MESSAGE);
+                }
+                await writeState(vault, account, { ...read.state, failures: 0 });
                 return diffieHellman({ privateKey, publicKey: publicKeyFromRaw(binding) });
             } finally {
                 released.data.fill(0);

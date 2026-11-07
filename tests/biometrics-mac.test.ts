@@ -210,6 +210,7 @@ describe('enabling biometric unlock on macOS', () => {
             backend: 'hardware',
             biometryType: 'touch-id',
             methods: ['touch-id', 'pin'],
+            pinMinLength: 6,
         });
     });
 });
