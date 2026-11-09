@@ -37,9 +37,11 @@ const EPOCH_LENGTH = 32;
 const X25519_KEY_LENGTH = 32;
 
 // The epoch is mixed into every secret the PIN key releases and replaced when
-// the vault's persistent blob is retired, so a copy of that blob which
-// outlived the keytar record (a keychain backup, credential roaming) no
-// longer opens: the same guarantee deleting the DPAPI entropy gives Hello
+// the vault's persistent blob is retired, so Vigil no longer opens a copy of
+// that blob which outlived the keytar record (a keychain backup, credential
+// roaming). Weaker than deleting the DPAPI entropy is for Hello: the PIN key
+// survives and the epoch is stored in the clear, so someone holding the old
+// blob, the old state, the PIN and the TPM can still open it
 interface PinState {
     publicKey: string;
     epoch: string;
@@ -216,6 +218,13 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
         }
     };
 
+    // The re-arm after a restart has the master password but not the PIN, so
+    // nothing authenticates this public key: on Windows and Linux same-user
+    // code can replace it (and the TPM key behind it) and the session copy is
+    // then sealed to a key it holds. Accepted: exploiting that takes a read of
+    // this process's memory, which already yields the master password while a
+    // database is open, and the next PIN unlock either detects the swap or
+    // refuses the user's PIN against the replaced key
     async function storedKey(account: string): Promise<EnrolledKey> {
         const read = await readState(vault, account);
         if (read.kind === 'missing') throw new ArmError('Set a PIN to turn on PIN unlock');

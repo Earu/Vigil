@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
 import type { QuickUnlockMethod } from '../../types/electron';
@@ -79,6 +79,7 @@ export const PasswordForm = ({
     const [newPin, setNewPin] = useState('');
     const [confirmPin, setConfirmPin] = useState('');
     const [pinMinLength, setPinMinLength] = useState(MIN_PIN_LENGTH);
+    const [pinEstimatorReady, setPinEstimatorReady] = useState(false);
     const pinInputRef = useRef<HTMLInputElement>(null);
     const methodMenuRef = useRef<HTMLDivElement>(null);
     const methodMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -303,6 +304,21 @@ export const PasswordForm = ({
     useEffect(() => {
         if (showPinUnlock) pinInputRef.current?.focus();
     }, [showPinUnlock]);
+
+    useEffect(() => {
+        if (!pinSetup || pinEstimatorReady) return;
+        let cancelled = false;
+        HaveIBeenPwnedService.preloadStrengthEstimator()
+            .then(() => { if (!cancelled) setPinEstimatorReady(true); })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [pinSetup, pinEstimatorReady]);
+
+    // A warning, never a refusal: the choice stays the user's
+    const pinIsEasy = useMemo(
+        () => pinEstimatorReady && isValidPin(newPin, pinMinLength) && HaveIBeenPwnedService.isEasyPin(newPin) === true,
+        [pinEstimatorReady, newPin, pinMinLength]
+    );
 
     const resetPinSetup = () => {
         setPinSetup(false);
@@ -963,6 +979,11 @@ export const PasswordForm = ({
                                     onKeyDown={handleKeyDown}
                                 />
                             </div>
+                            {pinIsEasy && (
+                                <div className="pin-strength-warning" role="status">
+                                    This PIN is among the first ones an attacker would try
+                                </div>
+                            )}
                         </>
                     )}
 

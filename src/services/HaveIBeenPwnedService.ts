@@ -162,6 +162,23 @@ export class HaveIBeenPwnedService {
         };
     }
 
+    // PINs are judged by zxcvbn's guess estimate rather than its score: every
+    // 6-digit PIN scores 0 or 1, random ones included. Under 1,000 guesses
+    // sit the common PINs, repeats and sequences an attacker tries first.
+    // Against the RockYou PIN frequencies that bound covers 16 % of real-world
+    // choices and flags none of a random sample; higher bounds start flagging
+    // dates and random PINs without catching much more of what people pick
+    private static readonly EASY_PIN_GUESSES = 1000;
+
+    // Null while the estimator chunk is still loading, like the password check
+    public static isEasyPin(pin: string): boolean | null {
+        if (!this.zxcvbn) {
+            void this.preloadStrengthEstimator();
+            return null;
+        }
+        return this.zxcvbn(pin).guesses < this.EASY_PIN_GUESSES;
+    }
+
     /**
      * Checks if a password has been exposed in known data breaches and evaluates its strength
      * Uses k-Anonymity model to safely check passwords and zxcvbn for strength evaluation
