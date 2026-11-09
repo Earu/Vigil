@@ -40,7 +40,8 @@ function allowUnprotected(): boolean {
 
 // An empty lockout authorization lets any process with TPM access clear the
 // failure counter or raise the limit, so the TPM bounds nothing. Only Linux
-// leaves it to the user; Windows owns it
+// leaves it to the user; Windows owns it. A recovery time of zero turns
+// dictionary-attack protection off entirely, so it fails the minimum too
 async function lockoutProtected(): Promise<boolean> {
     const lockout = await tpm.lockout();
     if (!lockout.ok) {
@@ -49,7 +50,7 @@ async function lockoutProtected(): Promise<boolean> {
     }
     return lockout.lockoutAuthSet
         && lockout.maxTries <= MAX_TRIES
-        && (lockout.recoveryInterval === 0 || lockout.recoveryInterval >= MIN_RECOVERY_SECONDS);
+        && lockout.recoveryInterval >= MIN_RECOVERY_SECONDS;
 }
 
 export interface PinLockoutPolicy {
@@ -134,7 +135,7 @@ const tpmPinVault: PinVault = {
         if (!sealed) return { ok: false, code: 'not-found' };
         const result = await tpm.unseal(keyName(account), pin, Buffer.from(sealed, 'base64'));
         if (result.ok) return { ok: true, data: result.data };
-        if (result.code === 'wrong-pin' || result.code === 'locked-out' || result.code === 'not-found') {
+        if (['wrong-pin', 'locked-out', 'not-found', 'tampered', 'unavailable'].includes(result.code)) {
             return { ok: false, code: result.code };
         }
         if (result.code === 'bad-input') return { ok: false, code: 'not-found' };

@@ -9,10 +9,11 @@ const state = vi.hoisted(() => ({
     tpm: {
         loaded: true,
         probe: { ok: true } as { ok: true } | { ok: false; code: string; status: number },
-        objects: new Map<string, { name: string; data: Buffer; pin: string }>(),
+        objects: new Map<string, { name: string; data: Buffer; pin: string; forged?: boolean }>(),
         nextId: 0,
         failures: 0,
         lockoutAt: 32,
+        failWith: null as { code: string; status: number } | null,
         lockout: { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200 } as Record<string, unknown>,
     },
     hello: { available: true, deleted: 0 },
@@ -67,6 +68,8 @@ vi.mock('../electron/native/tpm', () => ({
         if (state.tpm.failures >= state.tpm.lockoutAt) return { ok: false, code: 'locked-out', status: 0x921 };
         const object = state.tpm.objects.get(sealed.toString());
         if (!object || object.name !== name) return { ok: false, code: 'not-found', status: 0x80090016 };
+        if (object.forged) return { ok: false, code: 'tampered', status: 0xfffffffd };
+        if (state.tpm.failWith) return { ok: false, ...state.tpm.failWith };
         if (object.pin !== pin) {
             state.tpm.failures++;
             return { ok: false, code: 'wrong-pin', status: 0x98e };
@@ -112,6 +115,7 @@ beforeEach(() => {
     state.tpm.objects.clear();
     state.tpm.failures = 0;
     state.tpm.lockoutAt = 32;
+    state.tpm.failWith = null;
     state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200 };
     state.hello.available = true;
     state.hello.deleted = 0;
@@ -160,6 +164,25 @@ describe('PIN unlock on Linux', () => {
         expect(refused.error).toMatch(/TPM is refusing attempts/);
 
         state.tpm.lockoutAt = 32;
+        expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 4 attempts left');
+        expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
+    });
+
+    it('counts a failure it does not recognise, since it may be a wrong PIN', async () => {
+        await enablePin();
+        state.tpm.failWith = { code: 'error', status: 0x80090010 };
+        for (let i = 0; i < 4; i++) expect((await bio.getBiometricPassword(DB, '000000')).retry).toBe(true);
+        const lockedOut = await bio.getBiometricPassword(DB, '000000');
+        expect(lockedOut.retry).toBeFalsy();
+        expect(lockedOut.error).toMatch(/Too many incorrect PINs/);
+        expect(state.keytar.has(ACCOUNT)).toBe(false);
+    });
+
+    it('an unreachable TPM spends none of the PIN attempts', async () => {
+        await enablePin();
+        state.tpm.failWith = { code: 'unavailable', status: 0x8028400f };
+        for (let i = 0; i < 6; i++) expect((await bio.getBiometricPassword(DB, PIN)).retry).toBe(true);
+        state.tpm.failWith = null;
         expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 4 attempts left');
         expect((await bio.getBiometricPassword(DB, PIN)).password).toBe('hunter2');
     });
@@ -306,6 +329,7 @@ describe('PIN unlock on Linux without TPM lockout protection', () => {
     it.each([
         ['too many tries', { maxTries: 1000, recoveryInterval: 7200 }],
         ['a fast recovery', { maxTries: 32, recoveryInterval: 60 }],
+        ['a recovery time of zero, which turns the lockout off', { maxTries: 32, recoveryInterval: 0 }],
     ])('is refused with a lockout password but %s', async (_label, settings) => {
         state.tpm.lockout = { ok: true, lockoutAuthSet: true, ...settings };
         expect((await enablePin()).error).toMatch(/lockout password/);
@@ -314,11 +338,6 @@ describe('PIN unlock on Linux without TPM lockout protection', () => {
     it('treats unreadable lockout settings as unprotected', async () => {
         state.tpm.lockout = { ok: false, code: 'error', status: 0x18b };
         expect((await enablePin()).error).toMatch(/lockout password/);
-    });
-
-    it('accepts a recovery interval of zero, which never forgives a failure', async () => {
-        state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 0 };
-        expect(await enablePin()).toEqual({ success: true });
     });
 
     it('refuses to re-arm after a restart once the lockout password is gone', async () => {
@@ -389,5 +408,34 @@ describe('PIN unlock on Windows', () => {
         expect(state.keytar.get(ACCOUNT)).toBe('pin1-session:');
         expect([...state.tpm.objects.values()][0].name).toMatch(/^Vigil PIN [0-9a-f]{32}$/);
         expect(await bio.getBiometricPassword(DB, PIN)).toEqual({ success: true, password: 'hunter2' });
+    });
+
+    it('a key encrypted to the TPM key by someone else is refused and never seals a password', async () => {
+        await bio.setBiometricsConfig({ requirePasswordAfterRestart: false });
+        await enablePin();
+        const [file] = fs.readdirSync(pinDir());
+        const full = path.join(pinDir(), file);
+        const tampered = JSON.parse(fs.readFileSync(full, 'utf8'));
+        const [original] = state.tpm.objects.values();
+        const attacker = generateKeyPairSync('x25519');
+        state.tpm.objects.set('forged', {
+            name: original.name,
+            data: attacker.privateKey.export({ format: 'der', type: 'pkcs8' }),
+            pin: PIN,
+            forged: true,
+        });
+        tampered.sealed = Buffer.from('forged').toString('base64');
+        tampered.publicKey = Buffer.from(attacker.publicKey.export({ format: 'jwk' }).x as string, 'base64url').toString('base64');
+        fs.writeFileSync(full, JSON.stringify(tampered));
+        state.keytar.set(ACCOUNT, 'pin1-session:');
+        restart();
+
+        expect(await bio.enableBiometrics(DB, 'hunter2')).toEqual({ success: true });
+        const result = await bio.getBiometricPassword(DB, PIN);
+        expect(result.success).toBe(false);
+        expect(result.retry).toBeFalsy();
+        expect(result.error).toMatch(/modified outside Vigil/);
+        expect(state.keytar.has(ACCOUNT)).toBe(false);
+        expect(fs.readdirSync(pinDir())).toEqual([]);
     });
 });

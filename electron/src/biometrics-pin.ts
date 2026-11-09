@@ -254,19 +254,30 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
             }
         }
 
-        if (released.code === 'wrong-pin') {
-            if (failures >= MAX_PIN_ATTEMPTS) {
-                await vault.wipe(account);
-                throw new ReleaseError('revoked', LOCKED_OUT_MESSAGE);
-            }
-            const left = MAX_PIN_ATTEMPTS - failures;
-            throw new ReleaseError('wrong-pin', `Incorrect PIN, ${left} ${left === 1 ? 'attempt' : 'attempts'} left`);
+        if (released.code === 'tampered') {
+            console.error('PIN key store refused a sealed key it did not produce');
+            await vault.wipe(account);
+            throw new ReleaseError('revoked', TAMPERED_MESSAGE);
         }
-        await writeState(vault, account, read.state);
-        if (released.code === 'locked-out') throw new ReleaseError('wrong-pin', HARDWARE_LOCKOUT_MESSAGE);
         if (released.code === 'not-found') {
             await vault.wipe(account);
             throw new ReleaseError('revoked', RESET_MESSAGE);
+        }
+        // Only an attempt that provably never reached the PIN check gives
+        // its count back. A failure the code does not recognise may be a
+        // wrong PIN under a status this file has never seen, so it counts
+        if (released.code === 'locked-out' || released.code === 'unavailable') {
+            await writeState(vault, account, read.state);
+            if (released.code === 'locked-out') throw new ReleaseError('wrong-pin', HARDWARE_LOCKOUT_MESSAGE);
+            throw new ReleaseError('failed', released.code);
+        }
+        if (failures >= MAX_PIN_ATTEMPTS) {
+            await vault.wipe(account);
+            throw new ReleaseError('revoked', LOCKED_OUT_MESSAGE);
+        }
+        if (released.code === 'wrong-pin') {
+            const left = MAX_PIN_ATTEMPTS - failures;
+            throw new ReleaseError('wrong-pin', `Incorrect PIN, ${left} ${left === 1 ? 'attempt' : 'attempts'} left`);
         }
         throw new ReleaseError('failed', released.code);
     }

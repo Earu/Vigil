@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <bcrypt.h>
 #include <ncrypt.h>
 
 #include "tpm_common.h"
@@ -8,6 +9,9 @@ namespace vigil_tpm {
 namespace {
 
 constexpr DWORD kKeyBits = 2048;
+constexpr DWORD kBlockBytes = kKeyBits / 8;
+constexpr DWORD kDigestBytes = 32;
+constexpr char kSealContext[] = "vigil-pin-seal-v1";
 
 struct Provider {
     NCRYPT_PROV_HANDLE handle = 0;
@@ -16,13 +20,19 @@ struct Provider {
     }
 };
 
+// The Platform Crypto Provider refuses NCRYPT_SILENT_FLAG on delete with
+// NTE_BAD_FLAGS, which left every key behind. Deleting shows no UI anyway
 struct Key {
     NCRYPT_KEY_HANDLE handle = 0;
     ~Key() {
         if (handle) NCryptFreeObject(handle);
     }
-    void Delete() {
-        if (handle && NCryptDeleteKey(handle, NCRYPT_SILENT_FLAG) == ERROR_SUCCESS) handle = 0;
+    SECURITY_STATUS Delete() {
+        if (!handle) return ERROR_SUCCESS;
+        SECURITY_STATUS status = NCryptDeleteKey(handle, NCRYPT_SILENT_FLAG);
+        if (status == NTE_BAD_FLAGS) status = NCryptDeleteKey(handle, 0);
+        if (status == ERROR_SUCCESS) handle = 0;
+        return status;
     }
 };
 
@@ -42,6 +52,23 @@ void ScrubWide(std::wstring& text) {
 
 BCRYPT_OAEP_PADDING_INFO Oaep() {
     return BCRYPT_OAEP_PADDING_INFO{BCRYPT_SHA256_ALGORITHM, nullptr, 0};
+}
+
+BCRYPT_PKCS1_PADDING_INFO Pkcs1() {
+    return BCRYPT_PKCS1_PADDING_INFO{BCRYPT_SHA256_ALGORITHM};
+}
+
+// Encrypting to the key is a public-key operation any process can perform
+// without the PIN, so a ciphertext alone proves nothing about who made it.
+// The PIN-gated signature over it does: unseal refuses a ciphertext the key
+// did not sign, before the PIN is spent on it
+SECURITY_STATUS Digest(const uint8_t* ciphertext, std::vector<uint8_t>& digest) {
+    std::vector<uint8_t> message(kSealContext, kSealContext + sizeof(kSealContext));
+    message.insert(message.end(), ciphertext, ciphertext + kBlockBytes);
+    digest.assign(kDigestBytes, 0);
+    NTSTATUS status = BCryptHash(BCRYPT_SHA256_ALG_HANDLE, nullptr, 0, message.data(), static_cast<ULONG>(message.size()),
+                                 digest.data(), kDigestBytes);
+    return BCRYPT_SUCCESS(status) ? ERROR_SUCCESS : NTE_FAIL;
 }
 
 uint32_t Code(SECURITY_STATUS status) {
@@ -83,7 +110,7 @@ Outcome Seal(const Request& request) {
     if (status != ERROR_SUCCESS) return Outcome{Code(status), {}};
 
     DWORD length = kKeyBits;
-    DWORD usage = NCRYPT_ALLOW_DECRYPT_FLAG;
+    DWORD usage = NCRYPT_ALLOW_DECRYPT_FLAG | NCRYPT_ALLOW_SIGNING_FLAG;
     status = NCryptSetProperty(key.handle, NCRYPT_LENGTH_PROPERTY, reinterpret_cast<PBYTE>(&length), sizeof(length), 0);
     if (status == ERROR_SUCCESS) {
         status = NCryptSetProperty(key.handle, NCRYPT_KEY_USAGE_PROPERTY, reinterpret_cast<PBYTE>(&usage), sizeof(usage), 0);
@@ -104,29 +131,56 @@ Outcome Seal(const Request& request) {
     if (status == ERROR_SUCCESS) {
         status = NCryptEncrypt(key.handle, input, inputSize, &padding, sealed.data(), size, &size, NCRYPT_PAD_OAEP_FLAG);
     }
+    if (status == ERROR_SUCCESS && size != kBlockBytes) status = NTE_BAD_LEN;
+
+    std::vector<uint8_t> digest;
+    if (status == ERROR_SUCCESS) status = Digest(sealed.data(), digest);
+    if (status == ERROR_SUCCESS) status = SetPin(key.handle, request.pin);
+    BCRYPT_PKCS1_PADDING_INFO pkcs1 = Pkcs1();
+    std::vector<uint8_t> signature(kBlockBytes);
+    DWORD signatureSize = 0;
+    if (status == ERROR_SUCCESS) {
+        status = NCryptSignHash(key.handle, &pkcs1, digest.data(), kDigestBytes, signature.data(), kBlockBytes,
+                                &signatureSize, NCRYPT_PAD_PKCS1_FLAG | NCRYPT_SILENT_FLAG);
+    }
+    if (status == ERROR_SUCCESS && signatureSize != kBlockBytes) status = NTE_BAD_LEN;
     if (status != ERROR_SUCCESS) {
         key.Delete();
         return Outcome{Code(status), {}};
     }
-    sealed.resize(size);
+    sealed.resize(kBlockBytes);
+    sealed.insert(sealed.end(), signature.begin(), signature.end());
     return Outcome{0, std::move(sealed)};
 }
 
 Outcome Unseal(const Request& request) {
     std::wstring name = Wide(request.name);
-    if (name.empty() || request.input.size() != kKeyBits / 8) return Outcome{kBadInput, {}};
+    if (name.empty() || request.input.size() != 2 * kBlockBytes) return Outcome{kBadInput, {}};
+    const uint8_t* ciphertext = request.input.data();
+    const uint8_t* signature = request.input.data() + kBlockBytes;
 
     Provider provider;
     Key key;
     SECURITY_STATUS status = OpenKey(provider, key, name);
-    if (status == ERROR_SUCCESS) status = SetPin(key.handle, request.pin);
     if (status != ERROR_SUCCESS) return Outcome{Code(status), {}};
 
-    std::vector<uint8_t> plain(kKeyBits / 8);
+    std::vector<uint8_t> digest;
+    status = Digest(ciphertext, digest);
+    if (status != ERROR_SUCCESS) return Outcome{Code(status), {}};
+    BCRYPT_PKCS1_PADDING_INFO pkcs1 = Pkcs1();
+    status = NCryptVerifySignature(key.handle, &pkcs1, digest.data(), kDigestBytes, const_cast<PBYTE>(signature),
+                                   kBlockBytes, NCRYPT_PAD_PKCS1_FLAG | NCRYPT_SILENT_FLAG);
+    if (status == NTE_BAD_SIGNATURE) return Outcome{kTampered, {}};
+    if (status != ERROR_SUCCESS) return Outcome{Code(status), {}};
+
+    status = SetPin(key.handle, request.pin);
+    if (status != ERROR_SUCCESS) return Outcome{Code(status), {}};
+
+    std::vector<uint8_t> plain(kBlockBytes);
     BCRYPT_OAEP_PADDING_INFO padding = Oaep();
     DWORD size = 0;
     status = NCryptDecrypt(
-        key.handle, const_cast<PBYTE>(request.input.data()), static_cast<DWORD>(request.input.size()),
+        key.handle, const_cast<PBYTE>(ciphertext), kBlockBytes,
         &padding, plain.data(), static_cast<DWORD>(plain.size()), &size, NCRYPT_PAD_OAEP_FLAG | NCRYPT_SILENT_FLAG);
     if (status != ERROR_SUCCESS) {
         Scrub(plain);
@@ -145,9 +199,7 @@ Outcome Remove(const Request& request) {
     SECURITY_STATUS status = OpenKey(provider, key, name);
     if (status == NTE_BAD_KEYSET || status == NTE_NOT_FOUND) return Outcome{0, {}};
     if (status != ERROR_SUCCESS) return Outcome{Code(status), {}};
-    status = NCryptDeleteKey(key.handle, NCRYPT_SILENT_FLAG);
-    if (status == ERROR_SUCCESS) key.handle = 0;
-    return Outcome{Code(status), {}};
+    return Outcome{Code(key.Delete()), {}};
 }
 
 // Windows owns the lockout authorization and configures the lockout itself

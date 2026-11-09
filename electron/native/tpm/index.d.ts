@@ -1,4 +1,4 @@
-export type TpmCode = 'wrong-pin' | 'locked-out' | 'not-found' | 'unavailable' | 'bad-input' | 'error';
+export type TpmCode = 'wrong-pin' | 'locked-out' | 'not-found' | 'unavailable' | 'tampered' | 'bad-input' | 'error';
 
 export type TpmResult<K extends string> =
     | ({ ok: true } & { [key in K]: Buffer })

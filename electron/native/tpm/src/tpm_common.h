@@ -11,6 +11,7 @@
 
 namespace vigil_tpm {
 
+constexpr uint32_t kTampered = 0xFFFFFFFD;
 constexpr uint32_t kBadInput = 0xFFFFFFFE;
 constexpr uint32_t kUnimplemented = 0xFFFFFFFF;
 

@@ -9,7 +9,7 @@
           "sources": ["src/tpm_win.cc"],
           "defines": ["UNICODE", "_UNICODE"],
           "link_settings": {
-            "libraries": ["ncrypt.lib"]
+            "libraries": ["ncrypt.lib", "bcrypt.lib"]
           }
         }],
         ["OS=='linux'", {

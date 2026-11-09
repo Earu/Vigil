@@ -1,11 +1,14 @@
 const path = require('path');
 
+const TAMPERED = 0xfffffffd;
 const BAD_INPUT = 0xfffffffe;
 const UNIMPLEMENTED = 0xffffffff;
 
+// NTE_PERM (0x80090010) is what the Platform Crypto Provider returns for a
+// wrong PIN on Windows 11, and the TPM counts it as an authorization failure
 const WIN = {
     NOT_FOUND: [0x80090016, 0x80090011],
-    WRONG_PIN: [0x8028008e, 0x802800a2, 0x80280001, 0x8010006b, 0x80290107],
+    WRONG_PIN: [0x8028008e, 0x802800a2, 0x80280001, 0x8010006b, 0x80290107, 0x80090010],
     LOCKED_OUT: [0x80280921, 0x80280803, 0x8010006c],
     UNAVAILABLE: [0x80090030, 0x80090029, 0x8028400f, 0x80290101, 0x80290100],
 };
@@ -46,6 +49,7 @@ function interpretLinux(status) {
 
 function interpret(platform, status) {
     if (status === 0) return 'ok';
+    if (status === TAMPERED) return 'tampered';
     if (status === BAD_INPUT) return 'bad-input';
     if (status === UNIMPLEMENTED) return 'unavailable';
     if (platform === 'win') return interpretWindows(status);

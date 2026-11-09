@@ -30,12 +30,14 @@ describe('TPM status interpretation on Windows', () => {
         [0x802800a2, 'wrong-pin'],
         [0x80280001, 'wrong-pin'],
         [0x8010006b, 'wrong-pin'],
+        [0x80090010, 'wrong-pin'],
         [0x80280921, 'locked-out'],
         [0x80280803, 'locked-out'],
         [0x8010006c, 'locked-out'],
         [0x8028400f, 'unavailable'],
         [0x80090030, 'unavailable'],
         [0x8009000f, 'error'],
+        [0xfffffffd, 'tampered'],
         [0xfffffffe, 'bad-input'],
     ])('0x%s is %s', (status, code) => {
         expect(interpret('win', status)).toBe(code);
