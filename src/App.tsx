@@ -151,9 +151,17 @@ function App() {
 			}
 		};
 
-		const unsubscribe = window.electron?.on('trigger-lock', handleLockEvent);
+		const handleMinimize = () => {
+			if (userSettingsService.getLockOnMinimize()) handleLockEvent();
+		};
 
-		return () => unsubscribe?.();
+		const unsubscribe = window.electron?.on('trigger-lock', handleLockEvent);
+		const unsubscribeMinimize = window.electron?.on('window-minimized', handleMinimize);
+
+		return () => {
+			unsubscribe?.();
+			unsubscribeMinimize?.();
+		};
 	}, [database]);
 
 	// The YubiKey is blinking and waiting for a touch (unlock or save with a

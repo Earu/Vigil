@@ -87,6 +87,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [checkPasswordBreaches, setCheckPasswordBreaches] = useState<boolean>(userSettingsService.getCheckPasswordBreaches());
     const [showImportModal, setShowImportModal] = useState(false);
     const [fetchFavicons, setFetchFavicons] = useState<boolean>(userSettingsService.getFetchFavicons());
+    const [lockOnMinimize, setLockOnMinimize] = useState<boolean>(userSettingsService.getLockOnMinimize());
     const [clipboardClearSeconds, setClipboardClearSeconds] = useState<number>(userSettingsService.getClipboardClearSeconds());
     const [allowPasskeysLocalhost, setAllowPasskeysLocalhost] = useState<boolean>(userSettingsService.getAllowPasskeysLocalhost());
     const [alwaysAllowBrowserAccess, setAlwaysAllowBrowserAccess] = useState<boolean>(userSettingsService.getAlwaysAllowBrowserAccess());
@@ -798,6 +799,16 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                                 const value = Math.max(1, Math.min(480, parseInt(e.target.value) || 20));
                                                 setAutoLockDuration(value);
                                                 userSettingsService.setAutoLockDuration(value);
+                                            }}
+                                        />
+                                    </SettingRow>
+                                    <SettingRow label="Lock when the window is minimized" htmlFor="lock-on-minimize">
+                                        <Toggle
+                                            id="lock-on-minimize"
+                                            checked={lockOnMinimize}
+                                            onChange={(checked) => {
+                                                setLockOnMinimize(checked);
+                                                userSettingsService.setLockOnMinimize(checked);
                                             }}
                                         />
                                     </SettingRow>

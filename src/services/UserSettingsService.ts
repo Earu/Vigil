@@ -19,6 +19,7 @@ interface UserSettings {
     // wrote, not necessarily this shape; the getters supply the default
     autoLockEnabled?: boolean;
     autoLockDuration?: number;
+    lockOnMinimize?: boolean;
     // Remembered key file path per database path. Only paths are stored,
     // never key material
     keyFilePaths?: Record<string, string>;
@@ -256,6 +257,15 @@ class UserSettingsService {
 
     setAutoLockDuration(duration: number): void {
         this.current.autoLockDuration = duration;
+        this.saveSettings();
+    }
+
+    getLockOnMinimize(): boolean {
+        return this.current.lockOnMinimize ?? false;
+    }
+
+    setLockOnMinimize(enabled: boolean): void {
+        this.current.lockOnMinimize = enabled;
         this.saveSettings();
     }
 

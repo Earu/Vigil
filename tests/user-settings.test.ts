@@ -65,6 +65,17 @@ describe('auto-lock default', () => {
     });
 });
 
+describe('lock on minimize', () => {
+    it('is off by default and turns on persistently', async () => {
+        const settings = await freshService();
+        expect(settings.getLockOnMinimize()).toBe(false);
+
+        settings.setLockOnMinimize(true);
+        const reloaded = await freshService();
+        expect(reloaded.getLockOnMinimize()).toBe(true);
+    });
+});
+
 describe('password breach checking', () => {
     it('is on by default and turns off persistently', async () => {
         const settings = await freshService();

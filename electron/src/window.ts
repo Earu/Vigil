@@ -304,6 +304,10 @@ export function createWindow(startupFile?: string) {
         win.webContents.send('maximize-change', false);
     });
 
+    win.on('minimize', () => {
+        win.webContents.send('window-minimized');
+    });
+
     // macOS fullscreen (green traffic light) hides the buttons, so the
     // renderer drops the space it reserves for them
     win.on('enter-full-screen', () => {
