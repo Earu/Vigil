@@ -171,12 +171,12 @@ export class HaveIBeenPwnedService {
     private static readonly EASY_PIN_GUESSES = 1000;
 
     // Null while the estimator chunk is still loading, like the password check
-    public static isEasyPin(pin: string): boolean | null {
+    public static isEasyPin(pin: string, guessesPerYear = 0): boolean | null {
         if (!this.zxcvbn) {
             void this.preloadStrengthEstimator();
             return null;
         }
-        return this.zxcvbn(pin).guesses < this.EASY_PIN_GUESSES;
+        return this.zxcvbn(pin).guesses < Math.max(this.EASY_PIN_GUESSES, guessesPerYear);
     }
 
     /**

@@ -51,6 +51,7 @@ export interface QuickUnlockProvider {
     biometryType(): string;
     refusal(): Promise<string | null>;
     minPinLength?(): Promise<number>;
+    guessesPerYear?(): Promise<number | null>;
     arm(target: UnlockTarget, confirm: boolean, pin?: string): Promise<KeyMaterial>;
     release(target: UnlockTarget, binding: Buffer, pin?: string): Promise<Buffer>;
     retire(account: string): Promise<void>;

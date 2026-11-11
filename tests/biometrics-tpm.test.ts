@@ -170,6 +170,12 @@ beforeEach(() => {
 });
 
 describe('PIN unlock on Linux', () => {
+    it('reports how many PINs the TPM lets an attacker try in a year', async () => {
+        expect(await bio.getBiometricsInfo()).toMatchObject({ pinGuessesPerYear: 32 + 4380 });
+        state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 31, recoveryInterval: 600, lockoutRecovery: 86400 };
+        expect(await bio.getBiometricsInfo()).toMatchObject({ pinGuessesPerYear: 31 + 52560 });
+    });
+
     it('is the only method, and releases with the PIN', async () => {
         expect(await bio.getBiometricsInfo()).toMatchObject({ available: true, methods: ['pin'] });
         expect(await enablePin()).toEqual({ success: true });
@@ -404,7 +410,9 @@ describe('PIN unlock on Linux without TPM lockout protection', () => {
     it('with the opt-out, takes only a PIN of at least 10 digits', async () => {
         unprotected();
         expect((await bio.setAllowUnprotectedTpm(true)).success).toBe(true);
-        expect(await bio.getBiometricsInfo()).toMatchObject({ available: true, methods: ['pin'], pinMinLength: 10 });
+        const info = await bio.getBiometricsInfo();
+        expect(info).toMatchObject({ available: true, methods: ['pin'], pinMinLength: 10 });
+        expect(info.pinGuessesPerYear).toBeUndefined();
 
         expect((await enablePin()).error).toBe('A PIN is 10 to 32 digits');
         expect(state.tpm.objects.size).toBe(0);
@@ -664,6 +672,10 @@ describe('PIN unlock on Windows', () => {
 
     it('is offered next to Windows Hello', async () => {
         expect(await bio.getBiometricsInfo()).toMatchObject({ available: true, methods: ['windows-hello', 'pin'] });
+    });
+
+    it('counts guesses per year from the limits Windows sets, 31 tries and 10 minutes', async () => {
+        expect(await bio.getBiometricsInfo()).toMatchObject({ pinGuessesPerYear: 31 + 52560 });
     });
 
     it('is the only method when Hello is not set up', async () => {

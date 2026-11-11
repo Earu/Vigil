@@ -20,6 +20,7 @@ export interface PinVault {
     supported(): boolean;
     refusal(): Promise<string | null>;
     minPinLength?(): Promise<number>;
+    guessesPerYear?(): Promise<number | null>;
     remainingTries?(): Promise<number | null>;
     seal(account: string, data: Buffer, pin: string): Promise<VaultResult<{ sealed?: string }>>;
     unseal(account: string, pin: string, sealed?: string): Promise<VaultResult<{ data: Buffer }>>;
@@ -173,6 +174,7 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
         biometryType: () => 'pin',
         refusal: () => vault.refusal(),
         minPinLength: () => minPinLength(vault),
+        guessesPerYear: () => vault.guessesPerYear?.() ?? Promise.resolve(MAX_PIN_ATTEMPTS),
 
         async arm(target, _confirm, pin) {
             const { publicKey, epoch } = pin !== undefined

@@ -536,6 +536,7 @@ export async function getBiometricsInfo(): Promise<{
     biometryType: string,
     methods: QuickUnlockMethod[],
     pinMinLength?: number,
+    pinGuessesPerYear?: number,
     unavailableReason?: string
 }> {
     if (!await isBiometricsAvailable()) return { available: false, backend: 'none', biometryType: 'none', methods: [] };
@@ -553,11 +554,13 @@ export async function getBiometricsInfo(): Promise<{
         return { available: false, backend: 'none', biometryType: providers[0].biometryType(), methods: [], unavailableReason };
     }
     const pin = usable.find(provider => provider.needsPin);
+    const pinGuessesPerYear = await pin?.guessesPerYear?.() ?? null;
     return {
         available: true,
         backend: 'hardware',
         biometryType: usable[0].biometryType(),
         methods: usable.map(provider => provider.id),
-        ...(pin?.minPinLength ? { pinMinLength: await pin.minPinLength() } : {})
+        ...(pin?.minPinLength ? { pinMinLength: await pin.minPinLength() } : {}),
+        ...(pinGuessesPerYear !== null ? { pinGuessesPerYear } : {})
     };
 }

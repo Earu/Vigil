@@ -25,5 +25,22 @@ describe('easy PIN warning', () => {
             expect(Hibp.isEasyPin('250990')).toBe(false);
             expect(Hibp.isEasyPin('051289')).toBe(false);
         });
+
+        describe('where the TPM allows 31 tries and one more every 10 minutes', () => {
+            const PER_YEAR = 31 + 52560;
+
+            it.each(['250990', '051289', '19900525', '123456', '90210'])('refuses %s, guessed within a year', (pin) => {
+                expect(Hibp.isEasyPin(pin, PER_YEAR)).toBe(true);
+            });
+
+            it.each(['482915', '739204', '605127', '8462095173'])('takes %s, a random PIN', (pin) => {
+                expect(Hibp.isEasyPin(pin, PER_YEAR)).toBe(false);
+            });
+        });
+
+        it('still refuses the most common PINs where only a few tries are allowed', () => {
+            expect(Hibp.isEasyPin('147258', 5)).toBe(true);
+            expect(Hibp.isEasyPin('250990', 5)).toBe(false);
+        });
     });
 });

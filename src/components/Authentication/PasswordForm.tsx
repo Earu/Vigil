@@ -83,6 +83,7 @@ export const PasswordForm = ({
     const [newPin, setNewPin] = useState('');
     const [confirmPin, setConfirmPin] = useState('');
     const [pinMinLength, setPinMinLength] = useState(MIN_PIN_LENGTH);
+    const [pinGuessesPerYear, setPinGuessesPerYear] = useState(0);
     const [pinEstimatorReady, setPinEstimatorReady] = useState(false);
     const pinInputRef = useRef<HTMLInputElement>(null);
     const methodMenuRef = useRef<HTMLDivElement>(null);
@@ -183,6 +184,7 @@ export const PasswordForm = ({
         setBiometricsUnavailableReason(info.unavailableReason ?? null);
         setMethods(info.methods ?? []);
         setPinMinLength(info.pinMinLength ?? MIN_PIN_LENGTH);
+        setPinGuessesPerYear(info.pinGuessesPerYear ?? 0);
         const step = info.available ? null : await window.electron.getTpmSetupStep?.();
         setTpmSetupStep(step && step !== 'unreachable' ? step : null);
     };
@@ -321,10 +323,10 @@ export const PasswordForm = ({
         return () => { cancelled = true; };
     }, [pinSetup, pinEstimatorReady]);
 
-    // A warning, never a refusal: the choice stays the user's
     const pinIsEasy = useMemo(
-        () => pinEstimatorReady && isValidPin(newPin, pinMinLength) && HaveIBeenPwnedService.isEasyPin(newPin) === true,
-        [pinEstimatorReady, newPin, pinMinLength]
+        () => pinEstimatorReady && isValidPin(newPin, pinMinLength)
+            && HaveIBeenPwnedService.isEasyPin(newPin, pinGuessesPerYear) === true,
+        [pinEstimatorReady, newPin, pinMinLength, pinGuessesPerYear]
     );
 
     const resetPinSetup = () => {
@@ -476,13 +478,19 @@ export const PasswordForm = ({
         void turnOnQuickUnlock(method);
     };
 
-    const submitPinSetup = () => {
+    const submitPinSetup = async () => {
         if (!isValidPin(newPin, pinMinLength)) {
             setError(pinRule(pinMinLength));
             return;
         }
         if (newPin !== confirmPin) {
             setError('The PINs do not match');
+            return;
+        }
+        await HaveIBeenPwnedService.preloadStrengthEstimator().catch(() => {});
+        if (HaveIBeenPwnedService.isEasyPin(newPin, pinGuessesPerYear) === true) {
+            setError('');
+            setPinEstimatorReady(true);
             return;
         }
         void turnOnQuickUnlock('pin', newPin);
@@ -693,7 +701,7 @@ export const PasswordForm = ({
             if (isCreatingNew) {
                 handleCreateNew();
             } else if (pinSetup) {
-                submitPinSetup();
+                void submitPinSetup();
             } else if (selectedFile) {
                 handleUnlock();
             }
@@ -1016,7 +1024,7 @@ export const PasswordForm = ({
                             </div>
                             {pinIsEasy && (
                                 <div className="pin-strength-warning" role="status">
-                                    This PIN is among the first ones an attacker would try
+                                    This PIN is among the first ones an attacker would try. Choose another
                                 </div>
                             )}
                         </>
@@ -1038,8 +1046,8 @@ export const PasswordForm = ({
                             </button>
                             <button
                                 className={`unlock-button ${isLoading ? 'loading' : ''}`}
-                                onClick={submitPinSetup}
-                                disabled={isLoading}
+                                onClick={() => void submitPinSetup()}
+                                disabled={isLoading || pinIsEasy}
                             >
                                 <PinAuthIcon className="unlock-icon" />
                                 Turn on PIN

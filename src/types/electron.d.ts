@@ -169,6 +169,7 @@ export interface IElectronAPI {
 		biometryType: string;
 		methods: QuickUnlockMethod[];
 		pinMinLength?: number;
+		pinGuessesPerYear?: number;
 		/** Set when the sensor works but this build cannot use it (macOS,
 		 *  unsigned build), so the unlock screen can say why the option is absent */
 		unavailableReason?: string;

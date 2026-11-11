@@ -18,6 +18,12 @@ const MIN_RECOVERY_SECONDS = 600;
 const DEFAULT_RECOVERY_SECONDS = 7200;
 const MIN_TRIES = 2;
 export const UNPROTECTED_MIN_PIN_LENGTH = 10;
+const SECONDS_PER_YEAR = 365 * 24 * 3600;
+const WINDOWS_MAX_TRIES = 31;
+const WINDOWS_RECOVERY_SECONDS = 600;
+
+const guessesInAYear = (maxTries: number, recoveryInterval: number) =>
+    maxTries + Math.floor(SECONDS_PER_YEAR / recoveryInterval);
 
 const UDEV_RULE = 'SUBSYSTEM=="tpmrm", KERNEL=="tpmrm[0-9]*", TAG+="uaccess"';
 const UDEV_RULE_PATH = '/etc/udev/rules.d/70-vigil-tpm.rules';
@@ -304,6 +310,13 @@ const tpmPinVault: PinVault = {
     async minPinLength() {
         if (process.platform !== 'linux' || await lockoutProtected()) return MIN_PIN_LENGTH;
         return UNPROTECTED_MIN_PIN_LENGTH;
+    },
+
+    async guessesPerYear() {
+        if (process.platform !== 'linux') return guessesInAYear(WINDOWS_MAX_TRIES, WINDOWS_RECOVERY_SECONDS);
+        if (!await lockoutProtected()) return null;
+        const lockout = await tpm.lockout();
+        return lockout.ok ? guessesInAYear(lockout.maxTries, lockout.recoveryInterval) : null;
     },
 
     async seal(account, data, pin) {
