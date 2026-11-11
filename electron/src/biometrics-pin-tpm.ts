@@ -27,21 +27,31 @@ export const TPM_ACCESS_COMMANDS = [
     `echo '${UDEV_RULE}' | sudo tee ${UDEV_RULE_PATH}`,
     'sudo udevadm trigger --subsystem-match=tpmrm --action=change',
 ];
+const REVOKE_SCRIPT = `rm -f ${UDEV_RULE_PATH}`
+    + ' && udevadm control --reload && udevadm trigger --subsystem-match=tpmrm --action=change && udevadm settle'
+    + ' && for device in /dev/tpmrm*; do setfacl -x "u:$PKEXEC_UID" "$device" 2>/dev/null || true; done';
+export const TPM_REVOKE_COMMANDS = [
+    `sudo rm ${UDEV_RULE_PATH}`,
+    'sudo udevadm trigger --subsystem-match=tpmrm --action=change',
+    'sudo setfacl -x "u:$USER" /dev/tpmrm0',
+];
 
 const RECOVERY_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
 
 let linuxDevice = '/dev/tpmrm0';
+let udevRulePath = UDEV_RULE_PATH;
 let pkexecPaths = ['/usr/bin/pkexec', '/run/wrappers/bin/pkexec'];
 let probeCache: ReturnType<typeof tpm.probe> | null = null;
 let allowUnprotectedCache: boolean | null = null;
 let pendingRecovery: { password: string; change: TpmLimitChange | null } | null = null;
 
-export function resetTpmForTests(device?: string, pkexec?: string[]): void {
+export function resetTpmForTests(device?: string, pkexec?: string[], rulePath?: string): void {
     probeCache = null;
     allowUnprotectedCache = null;
     pendingRecovery = null;
     if (device) linuxDevice = device;
     if (pkexec) pkexecPaths = pkexec;
+    if (rulePath) udevRulePath = rulePath;
 }
 
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'tpm-pin-config.json');
@@ -146,13 +156,37 @@ export type TpmAccessResult =
     | { success: true }
     | { success: false; cancelled?: boolean; error: string; commands?: string[] };
 
-function runElevated(pkexec: string): Promise<number> {
+function runElevated(pkexec: string, script: string): Promise<number> {
     return new Promise(resolve => {
-        execFile(pkexec, ['/bin/sh', '-c', GRANT_SCRIPT], error => {
+        execFile(pkexec, ['/bin/sh', '-c', script], error => {
             if (!error) resolve(0);
             else resolve(typeof error.code === 'number' ? error.code : -1);
         });
     });
+}
+
+export function tpmAccessGranted(): boolean {
+    return process.platform === 'linux' && fs.existsSync(udevRulePath);
+}
+
+export async function revokeTpmAccess(): Promise<TpmAccessResult> {
+    if (!tpmAccessGranted()) return { success: true };
+    const pkexec = pkexecPaths.find(candidate => fs.existsSync(candidate));
+    const manual = { success: false as const, commands: TPM_REVOKE_COMMANDS };
+    if (!pkexec) {
+        return { ...manual, error: 'Vigil could not ask for your administrator password. Run these commands in a terminal instead' };
+    }
+    const code = await runElevated(pkexec, REVOKE_SCRIPT);
+    probeCache = null;
+    if (code === 126) return { success: false, cancelled: true, error: 'The administrator password was not given' };
+    if (code !== 0) {
+        console.error('Removing TPM access failed with exit code', code);
+        return { ...manual, error: 'Vigil could not make the change. Run these commands in a terminal instead' };
+    }
+    if (linuxDeviceAccessible()) {
+        return { success: false, error: 'Vigil removed its permission, but apps you run can still use the security chip. Restarting the computer may end that' };
+    }
+    return { success: true };
 }
 
 export async function grantTpmAccess(): Promise<TpmAccessResult> {
@@ -165,7 +199,7 @@ export async function grantTpmAccess(): Promise<TpmAccessResult> {
     if (!pkexec) {
         return { ...manual, error: 'Vigil could not ask for your administrator password. Run these commands in a terminal instead' };
     }
-    const code = await runElevated(pkexec);
+    const code = await runElevated(pkexec, GRANT_SCRIPT);
     probeCache = null;
     if (code === 126) return { success: false, cancelled: true, error: 'The administrator password was not given' };
     if (code !== 0) {

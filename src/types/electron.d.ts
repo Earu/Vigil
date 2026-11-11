@@ -196,6 +196,8 @@ export interface IElectronAPI {
 	setPinAllowUnprotected: (allow: boolean) => Promise<{ success: boolean; error?: string }>;
 	getTpmSetupStep: () => Promise<TpmSetupStep | null>;
 	grantTpmAccess: () => Promise<{ success: boolean; cancelled?: boolean; error?: string; commands?: string[] }>;
+	getTpmAccessGranted: () => Promise<boolean>;
+	revokeTpmAccess: () => Promise<{ success: boolean; cancelled?: boolean; error?: string; commands?: string[] }>;
 	getTpmLockoutPlan: () => Promise<{ success: true; change: TpmLimitChange | null } | { success: false; error: string }>;
 	beginTpmLockout: (acceptLimits: boolean) => Promise<{ success: true; password: string } | { success: false; error: string }>;
 	cancelTpmLockout: () => Promise<void>;

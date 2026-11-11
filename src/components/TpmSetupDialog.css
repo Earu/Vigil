@@ -60,6 +60,11 @@
     user-select: text;
 }
 
+code.tpm-setup-commands {
+    display: block;
+    margin-top: 0.4rem;
+}
+
 .pairing-dialog p.tpm-setup-error {
     font-size: 0.75rem;
     color: var(--color-error);

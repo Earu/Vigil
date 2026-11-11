@@ -21,6 +21,8 @@ export {
     setAllowUnprotectedTpm,
     getTpmSetupStep,
     grantTpmAccess,
+    tpmAccessGranted,
+    revokeTpmAccess,
     getTpmLockoutPlan,
     beginTpmLockout,
     cancelTpmLockout,

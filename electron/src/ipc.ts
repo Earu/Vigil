@@ -30,6 +30,8 @@ import {
     setAllowUnprotectedTpm,
     getTpmSetupStep,
     grantTpmAccess,
+    tpmAccessGranted,
+    revokeTpmAccess,
     getTpmLockoutPlan,
     beginTpmLockout,
     cancelTpmLockout,
@@ -501,6 +503,16 @@ export function setupIpcHandlers(): void {
             return { success: false, error: 'The setup must follow a click in the window' };
         }
         return await grantTpmAccess();
+    });
+
+    handle('get-tpm-access-granted', () => tpmAccessGranted());
+
+    handle('tpm-revoke-access', async (event) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        if (!senderWindow || !consumeRecentGesture(senderWindow)) {
+            return { success: false, error: 'Removing access must follow a click in the window' };
+        }
+        return await revokeTpmAccess();
     });
 
     handle('tpm-lockout-plan', async () => await getTpmLockoutPlan());

@@ -82,6 +82,7 @@ vi.mock('../electron/src/biometrics', () => ({
     disableBiometrics: vi.fn(),
     getPinLockoutPolicy: vi.fn(),
     setAllowUnprotectedTpm: vi.fn(),
+    revokeTpmAccess: vi.fn(),
 }));
 
 vi.mock('../electron/src/hibp', () => ({
@@ -422,6 +423,28 @@ describe('vault-opened', () => {
         expect(await invoke('vault-opened', '/vault.kdbx')).toEqual({ duplicate: false });
         expect(registerVault).toHaveBeenCalledWith('/vault.kdbx', mine);
         expect(focusWindow).not.toHaveBeenCalled();
+    });
+});
+
+describe('tpm-revoke-access gating', () => {
+    const consume = vi.mocked(gesture.consumeRecentGesture);
+    const revoke = vi.mocked(biometrics.revokeTpmAccess);
+
+    beforeEach(() => {
+        revoke.mockClear().mockResolvedValue({ success: true });
+        fromWebContents.mockReturnValue({});
+    });
+
+    it('refuses without a recent gesture', async () => {
+        consume.mockReturnValue(false);
+        expect(await invoke('tpm-revoke-access')).toMatchObject({ success: false });
+        expect(revoke).not.toHaveBeenCalled();
+    });
+
+    it('removes access after a gesture', async () => {
+        consume.mockReturnValue(true);
+        expect(await invoke('tpm-revoke-access')).toEqual({ success: true });
+        expect(revoke).toHaveBeenCalledOnce();
     });
 });
 

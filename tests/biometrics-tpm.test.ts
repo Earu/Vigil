@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
         exitCode: 0,
         grants: true,
         device: '',
+        rule: '',
     },
     hello: { available: true, deleted: 0 },
 }));
@@ -102,8 +103,15 @@ vi.mock('child_process', async (importOriginal) => ({
     execFile: (file: string, args: string[], callback: (error: (Error & { code?: number }) | null) => void) => {
         state.pkexec.calls.push({ file, args });
         if (state.pkexec.exitCode === 0 && state.pkexec.grants) {
-            fs.chmodSync(state.pkexec.device, 0o600);
-            state.tpm.probe = { ok: true };
+            if (args[2].startsWith('rm ')) {
+                fs.rmSync(state.pkexec.rule, { force: true });
+                fs.chmodSync(state.pkexec.device, 0o000);
+                state.tpm.probe = { ok: false, code: 'unavailable', status: 0x0a000a };
+            } else {
+                fs.writeFileSync(state.pkexec.rule, '');
+                fs.chmodSync(state.pkexec.device, 0o600);
+                state.tpm.probe = { ok: true };
+            }
         }
         setImmediate(() => callback(state.pkexec.exitCode === 0 ? null : Object.assign(new Error('pkexec'), { code: state.pkexec.exitCode })));
     },
@@ -119,7 +127,9 @@ const SALT = 'cd'.repeat(32);
 fs.writeFileSync(path.join(state.userData, '.salt'), SALT);
 const DEVICE = path.join(state.userData, 'tpmrm0');
 const PKEXEC = path.join(state.userData, 'pkexec');
+const RULE = path.join(state.userData, '70-vigil-tpm.rules');
 state.pkexec.device = DEVICE;
+state.pkexec.rule = RULE;
 
 const bio = await import('../electron/src/biometrics');
 const { resetTpmForTests } = await import('../electron/src/biometrics-pin-tpm');
@@ -136,7 +146,8 @@ beforeEach(() => {
     fs.rmSync(DEVICE, { force: true });
     fs.writeFileSync(DEVICE, '', { mode: 0o600 });
     fs.writeFileSync(PKEXEC, '');
-    resetTpmForTests(DEVICE, [PKEXEC]);
+    fs.rmSync(RULE, { force: true });
+    resetTpmForTests(DEVICE, [PKEXEC], RULE);
     state.tpm.setLockoutCalls = [];
     state.tpm.setLockoutFails = false;
     state.pkexec.calls = [];
@@ -481,6 +492,61 @@ describe('TPM setup on Linux', () => {
         const result = await bio.grantTpmAccess();
         expect(result).toMatchObject({ success: false });
         expect(result.success === false && result.error).toMatch(/Logging out and back in/);
+    });
+
+    it('removes the access it granted through pkexec, then asks for the setup again', async () => {
+        noAccess();
+        await bio.grantTpmAccess();
+        expect(bio.tpmAccessGranted()).toBe(true);
+        state.pkexec.calls = [];
+
+        expect(await bio.revokeTpmAccess()).toEqual({ success: true });
+        expect(state.pkexec.calls).toHaveLength(1);
+        const [{ file, args }] = state.pkexec.calls;
+        expect(file).toBe(PKEXEC);
+        expect(args.slice(0, 2)).toEqual(['/bin/sh', '-c']);
+        expect(args[2]).toMatch(/^rm -f \/etc\/udev\/rules\.d\/70-vigil-tpm\.rules && /);
+        expect(args[2]).toContain('setfacl -x "u:$PKEXEC_UID"');
+        expect(bio.tpmAccessGranted()).toBe(false);
+        expect(await bio.getTpmSetupStep()).toBe('access');
+    });
+
+    it('does not run pkexec to remove access Vigil never granted', async () => {
+        expect(bio.tpmAccessGranted()).toBe(false);
+        expect(await bio.revokeTpmAccess()).toEqual({ success: true });
+        expect(state.pkexec.calls).toHaveLength(0);
+    });
+
+    it('reports no granted access off Linux', () => {
+        fs.writeFileSync(RULE, '');
+        setPlatform('win32');
+        expect(bio.tpmAccessGranted()).toBe(false);
+    });
+
+    it('keeps access when the password prompt for removing it is dismissed', async () => {
+        fs.writeFileSync(RULE, '');
+        state.pkexec.exitCode = 126;
+        expect(await bio.revokeTpmAccess()).toMatchObject({ success: false, cancelled: true });
+        expect(bio.tpmAccessGranted()).toBe(true);
+    });
+
+    it.each([
+        ['pkexec is missing', () => resetTpmForTests(DEVICE, [path.join(state.userData, 'missing')])],
+        ['the change failed', () => { state.pkexec.exitCode = 1; }],
+    ])('gives the commands to remove access when %s', async (_label, arrange) => {
+        fs.writeFileSync(RULE, '');
+        arrange();
+        const result = await bio.revokeTpmAccess();
+        expect(result).toMatchObject({ success: false });
+        expect(result.success === false && result.commands?.[0]).toBe('sudo rm /etc/udev/rules.d/70-vigil-tpm.rules');
+    });
+
+    it('says when apps can still use the chip after removing access', async () => {
+        fs.writeFileSync(RULE, '');
+        state.pkexec.grants = false;
+        const result = await bio.revokeTpmAccess();
+        expect(result).toMatchObject({ success: false });
+        expect(result.success === false && result.error).toMatch(/Restarting the computer/);
     });
 
     it('sets the generated recovery password only once it is typed back', async () => {

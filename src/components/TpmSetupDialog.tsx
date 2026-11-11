@@ -132,7 +132,11 @@ export const TpmSetupDialog = ({ onClose }: TpmSetupDialogProps) => {
                             Your PIN is protected by a security chip in this computer. Vigil needs permission
                             to use it, which is a system change: your computer will ask for your administrator password.
                         </p>
-                        <p>Other apps you run will also be able to use the chip.</p>
+                        <p>
+                            Other apps you run will also be able to use the chip. Until it has a recovery password, a
+                            harmful app could erase it, which may break features that rely on it, such as disk encryption
+                            that unlocks on its own. You can remove this permission later in Settings.
+                        </p>
                         {errorLine}
                         {actions({ label: busy ? 'Waiting...' : 'Continue', onClick: () => void grantAccess() })}
                     </>
@@ -151,7 +155,7 @@ export const TpmSetupDialog = ({ onClose }: TpmSetupDialogProps) => {
                     <>
                         <h3 id="tpm-setup-title">Limit wrong PIN guesses</h3>
                         <p>
-                            Right now, software on this computer could try every possible PIN until one works.
+                            Right now, software on this computer could try every possible PIN until one works, or erase the security chip.
                             Vigil can set a recovery password on the security chip so it blocks guessing after a few wrong PINs.
                         </p>
                         <p>

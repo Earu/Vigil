@@ -112,9 +112,12 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [pinLockout, setPinLockout] = useState<{ applies: boolean; protected: boolean; allowUnprotected: boolean } | null>(null);
     const [showTpmSetup, setShowTpmSetup] = useState(false);
     const [tpmSetupStep, setTpmSetupStep] = useState<TpmSetupStep | null>(null);
+    const [tpmAccessGranted, setTpmAccessGranted] = useState(false);
+    const [tpmRevokeCommands, setTpmRevokeCommands] = useState<string[] | null>(null);
     const refreshTpmSetup = () => {
         window.electron?.getTpmSetupStep?.().then(setTpmSetupStep).catch(() => {});
         window.electron?.getPinLockoutPolicy?.().then(setPinLockout).catch(() => {});
+        window.electron?.getTpmAccessGranted?.().then(setTpmAccessGranted).catch(() => {});
     };
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
@@ -221,7 +224,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const handlePinAllowUnprotectedToggle = async (allow: boolean) => {
         if (!window.electron || !pinLockout) return;
         if (allow && !await confirmDialog(
-            'Without a TPM lockout password, software running as you can try every PIN until one works. '
+            'Without a TPM lockout password, software running as you can try every PIN until one works, or erase the TPM. '
             + 'Vigil will require a PIN of at least 10 digits. Allow PIN unlock anyway?',
             'Allow'
         )) return;
@@ -231,6 +234,21 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             return;
         }
         setPinLockout({ ...pinLockout, allowUnprotected: allow });
+        refreshBiometrics();
+    };
+
+    const handleRevokeTpmAccess = async () => {
+        if (!window.electron) return;
+        if (!await confirmDialog(
+            'PIN unlock will stop working on this computer until you set it up again. Remove access?',
+            'Remove'
+        )) return;
+        const result = await window.electron.revokeTpmAccess();
+        setTpmRevokeCommands(!result.success && result.commands ? result.commands : null);
+        if (!result.success && !result.cancelled) {
+            (window as any).showToast?.({ message: result.error || 'Failed to remove access', type: 'error', duration: 5000 });
+        }
+        refreshTpmSetup();
         refreshBiometrics();
     };
 
@@ -853,6 +871,19 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                                 checked={pinLockout.allowUnprotected}
                                                 onChange={handlePinAllowUnprotectedToggle}
                                             />
+                                        </SettingRow>
+                                    )}
+                                    {tpmAccessGranted && (
+                                        <SettingRow
+                                            label="Security chip access"
+                                            help={<>
+                                                Apps you run can use this computer's security chip. PIN unlock needs this.
+                                                {tpmRevokeCommands && <code className="tpm-setup-commands">{tpmRevokeCommands.join('\n')}</code>}
+                                            </>}
+                                        >
+                                            <button className="setting-row-button" onClick={() => void handleRevokeTpmAccess()}>
+                                                Remove
+                                            </button>
                                         </SettingRow>
                                     )}
                                 </div>
