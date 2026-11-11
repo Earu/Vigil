@@ -16,7 +16,10 @@ type Stage =
     | { kind: 'foreign-lockout' }
     | { kind: 'too-few-tries' }
     | { kind: 'unreachable' }
+    | { kind: 'leave'; commands?: string[] }
     | { kind: 'done' };
+
+const UNPROTECTED_STAGES: Stage['kind'][] = ['lockout', 'limits', 'show', 'confirm'];
 
 const FOREIGN_COMMAND = 'tpm2_dictionarylockout --setup-parameters --max-tries=32 --recovery-time=7200 -p <password>';
 
@@ -43,6 +46,7 @@ export const TpmSetupDialog = ({ onClose }: TpmSetupDialogProps) => {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [typed, setTyped] = useState('');
+    const [grantedHere, setGrantedHere] = useState(false);
 
     const refresh = async () => {
         setError(null);
@@ -55,7 +59,28 @@ export const TpmSetupDialog = ({ onClose }: TpmSetupDialogProps) => {
 
     const close = () => {
         if (stage.kind === 'show' || stage.kind === 'confirm') void electron.cancelTpmLockout();
+        if (grantedHere && UNPROTECTED_STAGES.includes(stage.kind)) {
+            setError(null);
+            setTyped('');
+            setStage({ kind: 'leave' });
+            return;
+        }
         onClose();
+    };
+
+    const revokeAccess = async () => {
+        setBusy(true);
+        setError(null);
+        const result = await electron.revokeTpmAccess();
+        setBusy(false);
+        if (result.success) {
+            onClose();
+        } else if (result.commands) {
+            setError(result.error ?? 'Vigil could not remove access');
+            setStage({ kind: 'leave', commands: result.commands });
+        } else if (!result.cancelled) {
+            setError(result.error ?? 'Vigil could not remove access');
+        }
     };
 
     const planLockout = async () => {
@@ -72,6 +97,7 @@ export const TpmSetupDialog = ({ onClose }: TpmSetupDialogProps) => {
         const result = await electron.grantTpmAccess();
         setBusy(false);
         if (result.success) {
+            setGrantedHere(true);
             await refresh();
         } else if (result.commands) {
             setStage({ kind: 'manual', error: result.error ?? '', commands: result.commands });
@@ -272,6 +298,23 @@ export const TpmSetupDialog = ({ onClose }: TpmSetupDialogProps) => {
                         <h3 id="tpm-setup-title">Set up PIN unlock</h3>
                         <p>Vigil cannot reach this computer's security chip.</p>
                         {actions(undefined, 'Close')}
+                    </>
+                );
+            case 'leave':
+                return (
+                    <>
+                        <h3 id="tpm-setup-title">Remove access for now?</h3>
+                        <p>
+                            Apps you run can use the security chip, and it has no recovery password yet, so a harmful
+                            app could erase it. You can remove this access now and set up PIN unlock later.
+                        </p>
+                        {stage.commands && <pre className="tpm-setup-commands">{stage.commands.join('\n')}</pre>}
+                        {errorLine}
+                        {actions(
+                            { label: busy ? 'Waiting...' : 'Remove access', onClick: () => void revokeAccess() },
+                            'Keep access',
+                            onClose
+                        )}
                     </>
                 );
             case 'done':

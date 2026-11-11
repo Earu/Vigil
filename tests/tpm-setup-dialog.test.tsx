@@ -14,6 +14,7 @@ let step: string | null;
 const electron = {
     getTpmSetupStep: vi.fn(async () => step),
     grantTpmAccess: vi.fn(),
+    revokeTpmAccess: vi.fn(),
     getTpmLockoutPlan: vi.fn(async (): Promise<any> => ({ success: true, change: null })),
     beginTpmLockout: vi.fn(async (_accept: boolean) => ({ success: true, password: PASSWORD })),
     cancelTpmLockout: vi.fn(async () => {}),
@@ -130,6 +131,78 @@ describe('the access setup', () => {
         const view = render(<TpmSetupDialog onClose={() => {}} />);
         fireEvent.click(await view.findByText('Continue'));
         await waitFor(() => expect(view.container.querySelector('pre')?.textContent).toBe('first\nsecond'));
+    });
+
+    const leaveAfterGrant = async (onClose = vi.fn()) => {
+        electron.grantTpmAccess.mockImplementationOnce(async () => {
+            step = 'lockout';
+            return { success: true };
+        });
+        const view = render(<TpmSetupDialog onClose={onClose} />);
+        fireEvent.click(await view.findByText('Continue'));
+        await view.findByText('Limit wrong PIN guesses');
+        fireEvent.click(view.getByText('Cancel'));
+        expect(await view.findByText('Remove access for now?')).toBeTruthy();
+        expect(onClose).not.toHaveBeenCalled();
+        return view;
+    };
+
+    it('offers to remove the access when left before the recovery password is set', async () => {
+        const onClose = vi.fn();
+        electron.revokeTpmAccess.mockResolvedValueOnce({ success: true });
+        const view = await leaveAfterGrant(onClose);
+        await expectNoA11yViolations(view.container);
+        fireEvent.click(view.getByText('Remove access'));
+        await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+        expect(electron.revokeTpmAccess).toHaveBeenCalledTimes(1);
+    });
+
+    it('closes without removing anything when the access is kept', async () => {
+        const onClose = vi.fn();
+        const view = await leaveAfterGrant(onClose);
+        fireEvent.click(view.getByText('Keep access'));
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(electron.revokeTpmAccess).not.toHaveBeenCalled();
+    });
+
+    it('drops the pending password when left from the password step', async () => {
+        electron.grantTpmAccess.mockImplementationOnce(async () => {
+            step = 'lockout';
+            return { success: true };
+        });
+        const view = render(<TpmSetupDialog onClose={() => {}} />);
+        fireEvent.click(await view.findByText('Continue'));
+        fireEvent.click(await view.findByText('Continue'));
+        await view.findByText(PASSWORD);
+        fireEvent.click(view.getByText('Cancel'));
+        expect(await view.findByText('Remove access for now?')).toBeTruthy();
+        expect(electron.cancelTpmLockout).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the commands when Vigil cannot remove the access', async () => {
+        electron.revokeTpmAccess.mockResolvedValueOnce({ success: false, error: 'Run these commands', commands: ['sudo rm rule'] });
+        const view = await leaveAfterGrant();
+        fireEvent.click(view.getByText('Remove access'));
+        await waitFor(() => expect(view.container.querySelector('pre')?.textContent).toBe('sudo rm rule'));
+        expect(view.getByRole('alert').textContent).toBe('Run these commands');
+    });
+
+    it('stays put without an error when the removal password prompt is dismissed', async () => {
+        electron.revokeTpmAccess.mockResolvedValueOnce({ success: false, cancelled: true, error: 'not given' });
+        const view = await leaveAfterGrant();
+        fireEvent.click(view.getByText('Remove access'));
+        await waitFor(() => expect(electron.revokeTpmAccess).toHaveBeenCalled());
+        expect(view.queryByRole('alert')).toBeNull();
+        expect(view.getByText('Remove access for now?')).toBeTruthy();
+    });
+
+    it('closes straight away when access was there before the dialog opened', async () => {
+        step = 'lockout';
+        const onClose = vi.fn();
+        const view = render(<TpmSetupDialog onClose={onClose} />);
+        fireEvent.click(await view.findByText('Cancel'));
+        expect(onClose).toHaveBeenCalledTimes(1);
+        expect(view.queryByText('Remove access for now?')).toBeNull();
     });
 
     it('stays put without an error when the password prompt is dismissed', async () => {
