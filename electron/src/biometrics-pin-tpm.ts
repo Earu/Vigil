@@ -286,6 +286,8 @@ function linuxDeviceAccessible(): boolean {
 }
 
 const tpmPinVault: PinVault = {
+    countsWrongPins: true,
+
     supported() {
         if (!tpm.isLoaded()) return false;
         if (process.platform === 'linux') return fs.existsSync(linuxDevice);

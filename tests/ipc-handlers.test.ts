@@ -448,6 +448,34 @@ describe('tpm-revoke-access gating', () => {
     });
 });
 
+describe('set-pin-allow-unprotected gating', () => {
+    const consume = vi.mocked(gesture.consumeRecentGesture);
+    const setAllow = vi.mocked(biometrics.setAllowUnprotectedTpm);
+
+    beforeEach(() => {
+        setAllow.mockClear().mockResolvedValue({ success: true });
+        fromWebContents.mockReturnValue({});
+    });
+
+    it('refuses to allow unprotected PIN unlock without a recent gesture', async () => {
+        consume.mockReturnValue(false);
+        expect(await invoke('set-pin-allow-unprotected', true)).toMatchObject({ success: false });
+        expect(setAllow).not.toHaveBeenCalled();
+    });
+
+    it('allows it after a gesture', async () => {
+        consume.mockReturnValue(true);
+        expect(await invoke('set-pin-allow-unprotected', true)).toEqual({ success: true });
+        expect(setAllow).toHaveBeenCalledWith(true);
+    });
+
+    it('turns it off without a gesture', async () => {
+        consume.mockReturnValue(false);
+        expect(await invoke('set-pin-allow-unprotected', false)).toEqual({ success: true });
+        expect(setAllow).toHaveBeenCalledWith(false);
+    });
+});
+
 describe('qr-capture-screens gating', () => {
     // Full-desktop screenshots only for a focused, visible window that just
     // saw a real click or key press: the legit path is the user clicking the

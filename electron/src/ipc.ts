@@ -490,8 +490,14 @@ export function setupIpcHandlers(): void {
 
     handle('get-pin-lockout-policy', async () => await getPinLockoutPolicy());
 
-    handle('set-pin-allow-unprotected', async (_, allow: unknown) => {
+    handle('set-pin-allow-unprotected', async (event, allow: unknown) => {
         if (typeof allow !== 'boolean') return { success: false, error: 'Invalid setting' };
+        if (allow) {
+            const senderWindow = BrowserWindow.fromWebContents(event.sender);
+            if (!senderWindow || !consumeRecentGesture(senderWindow)) {
+                return { success: false, error: 'This setting must follow a click in the window' };
+            }
+        }
         return await setAllowUnprotectedTpm(allow);
     });
 

@@ -21,7 +21,7 @@ type Stage =
 
 const UNPROTECTED_STAGES: Stage['kind'][] = ['lockout', 'limits', 'show', 'confirm'];
 
-const FOREIGN_COMMAND = 'tpm2_dictionarylockout --setup-parameters --max-tries=32 --recovery-time=7200 -p <password>';
+const FOREIGN_COMMAND = 'read -rs PASS; printf \'%s\' "$PASS" | tpm2_dictionarylockout --setup-parameters --max-tries=32 --recovery-time=7200 -p file:-; unset PASS';
 
 const plural = (count: number, unit: string) => `${count} ${unit}${count === 1 ? '' : 's'}`;
 
@@ -274,7 +274,8 @@ export const TpmSetupDialog = ({ onClose }: TpmSetupDialogProps) => {
                         <h3 id="tpm-setup-title">Limit wrong PIN guesses</h3>
                         <p>
                             This computer's security chip already has a recovery password, set outside Vigil.
-                            Vigil cannot change the guess limits without it. Whoever set it can run:
+                            Vigil cannot change the guess limits without it. Whoever set it can run this, then type
+                            the recovery password and press Enter:
                         </p>
                         <pre className="tpm-setup-commands">{FOREIGN_COMMAND}</pre>
                         <p>You can also allow PIN unlock without this in Settings.</p>
@@ -286,8 +287,8 @@ export const TpmSetupDialog = ({ onClose }: TpmSetupDialogProps) => {
                     <>
                         <h3 id="tpm-setup-title">Set up PIN unlock</h3>
                         <p>
-                            This computer's security chip blocks guessing after fewer than 2 wrong PINs. Setting up
-                            a PIN uses one of them, so PIN unlock would lock itself. Vigil leaves this setting as it is.
+                            This computer's security chip blocks guessing after fewer than 2 wrong PINs, so a single
+                            typo would lock it for every app that uses it. Vigil leaves this setting as it is.
                         </p>
                         {actions(undefined, 'Close')}
                     </>

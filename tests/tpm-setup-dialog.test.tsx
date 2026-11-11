@@ -102,6 +102,15 @@ describe('the lockout setup', () => {
         expect(view.queryByText('Continue')).toBeNull();
     });
 
+    it('gives a command for a recovery password set outside Vigil that keeps it off the command line', async () => {
+        step = 'foreign-lockout';
+        const view = render(<TpmSetupDialog onClose={() => {}} />);
+        await view.findByText(/set outside Vigil/);
+        const command = view.container.querySelector('pre')?.textContent ?? '';
+        expect(command).toMatch(/^read -rs PASS; printf '%s' "\$PASS" \| tpm2_dictionarylockout .* -p file:-; unset PASS$/);
+        expect(command).not.toContain('<password>');
+    });
+
     it('drops the pending password when cancelled', async () => {
         const onClose = vi.fn();
         const view = render(<TpmSetupDialog onClose={onClose} />);

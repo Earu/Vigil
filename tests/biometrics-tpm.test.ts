@@ -627,10 +627,15 @@ describe('TPM setup on Linux', () => {
         expect(state.tpm.setLockoutCalls).toHaveLength(0);
     });
 
+    it('spends no TPM try on setup', async () => {
+        expect(await enablePin()).toEqual({ success: true });
+        expect(state.tpm.failures).toBe(0);
+    });
+
     it('counts the TPM tries left when there are fewer than Vigil allows', async () => {
         state.tpm.lockout = { ...state.tpm.lockout, maxTries: 3 };
         await enablePin();
-        expect(state.tpm.failures).toBe(1);
+        expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 2 attempts left');
         expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 1 attempt left');
         expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN. Too many incorrect PINs, the TPM is refusing attempts for now. Try again later');
     });

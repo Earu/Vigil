@@ -17,6 +17,7 @@ export const PIN_PATTERN = /^\d{6,32}$/;
 export type VaultResult<T> = ({ ok: true } & T) | { ok: false; code: string };
 
 export interface PinVault {
+    countsWrongPins?: boolean;
     supported(): boolean;
     refusal(): Promise<string | null>;
     minPinLength?(): Promise<number>;
@@ -130,13 +131,15 @@ async function enroll(vault: PinVault, account: string, pin: string): Promise<En
             await vault.wipe(account);
             throw new ArmError('Could not set up PIN unlock: the key store did not release the key it stored');
         }
-        const decoy = (pin[0] === '0' ? '1' : '0') + pin.slice(1);
-        const refused = await vault.unseal(account, decoy, written.sealed);
-        if (refused.ok) refused.data.fill(0);
-        if (refused.ok || refused.code !== 'wrong-pin') {
-            await vault.wipe(account);
-            console.error('PIN key store accepted a wrong PIN or failed to check it:', refused.ok ? 'accepted' : refused.code);
-            throw new ArmError('Could not set up PIN unlock: the key store did not enforce the PIN');
+        if (!vault.countsWrongPins) {
+            const decoy = (pin[0] === '0' ? '1' : '0') + pin.slice(1);
+            const refused = await vault.unseal(account, decoy, written.sealed);
+            if (refused.ok) refused.data.fill(0);
+            if (refused.ok || refused.code !== 'wrong-pin') {
+                await vault.wipe(account);
+                console.error('PIN key store accepted a wrong PIN or failed to check it:', refused.ok ? 'accepted' : refused.code);
+                throw new ArmError('Could not set up PIN unlock: the key store did not enforce the PIN');
+            }
         }
         const raw = rawPublicKey(publicKey);
         const state = { publicKey: raw.toString('base64'), epoch: newEpoch(), failures: 0, sealed: written.sealed };
