@@ -215,13 +215,42 @@ Outcome Lockout(const Request&) {
     if (status != TSS2_RC_SUCCESS) return Outcome{status, {}};
 
     std::vector<uint8_t> data;
-    for (TPM2_PT property : {TPM2_PT_PERMANENT, TPM2_PT_MAX_AUTH_FAIL, TPM2_PT_LOCKOUT_INTERVAL}) {
+    for (TPM2_PT property : {TPM2_PT_PERMANENT, TPM2_PT_MAX_AUTH_FAIL, TPM2_PT_LOCKOUT_INTERVAL,
+                             TPM2_PT_LOCKOUT_RECOVERY, TPM2_PT_LOCKOUT_COUNTER}) {
         uint32_t value = 0;
         status = ReadProperty(context, property, &value);
         if (status != TSS2_RC_SUCCESS) return Outcome{status, {}};
         for (int shift = 24; shift >= 0; shift -= 8) data.push_back(static_cast<uint8_t>(value >> shift));
     }
     return Outcome{0, std::move(data)};
+}
+
+Outcome SetLockout(const Request& request) {
+    constexpr size_t kMaxLockoutAuth = 32;
+    if (request.input.empty() || request.input.size() > kMaxLockoutAuth) return Outcome{kBadInput, {}};
+    TPM2B_AUTH auth = {};
+    auth.size = static_cast<UINT16>(request.input.size());
+    std::memcpy(auth.buffer, request.input.data(), request.input.size());
+
+    Context context;
+    TSS2_RC status = context.status();
+    ESYS_TR primary = ESYS_TR_NONE;
+    ESYS_TR session = ESYS_TR_NONE;
+    if (status == TSS2_RC_SUCCESS) status = CreatePrimary(context, &primary);
+    if (status == TSS2_RC_SUCCESS) status = StartSession(context, primary, 0, &session);
+    if (status == TSS2_RC_SUCCESS && request.hasValues) {
+        status = Esys_DictionaryAttackParameters(context.get(), ESYS_TR_RH_LOCKOUT, session, ESYS_TR_NONE, ESYS_TR_NONE,
+                                                 request.values[0], request.values[1], request.values[2]);
+    }
+    if (status == TSS2_RC_SUCCESS) {
+        status = Esys_TRSess_SetAttributes(context.get(), session, TPMA_SESSION_DECRYPT | TPMA_SESSION_CONTINUESESSION, 0xff);
+    }
+    if (status == TSS2_RC_SUCCESS) {
+        status = Esys_HierarchyChangeAuth(context.get(), ESYS_TR_RH_LOCKOUT, session, ESYS_TR_NONE, ESYS_TR_NONE, &auth);
+    }
+    ScrubStruct(&auth, sizeof(auth));
+    if (context.get() != nullptr) Esys_TR_SetAuth(context.get(), ESYS_TR_RH_LOCKOUT, &auth);
+    return Outcome{status, {}};
 }
 
 uint32_t Probe() {

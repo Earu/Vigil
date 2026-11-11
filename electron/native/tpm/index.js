@@ -92,12 +92,14 @@ const unavailable = async () => ({ ok: false, code: 'unavailable', status: UNIMP
 const TPMA_PERMANENT_LOCKOUTAUTHSET = 0x4;
 
 function parseLockout(data) {
-    if (!Buffer.isBuffer(data) || data.length !== 12) return { ok: false, code: 'error', status: BAD_INPUT };
+    if (!Buffer.isBuffer(data) || data.length !== 20) return { ok: false, code: 'error', status: BAD_INPUT };
     return {
         ok: true,
         lockoutAuthSet: (data.readUInt32BE(0) & TPMA_PERMANENT_LOCKOUTAUTHSET) !== 0,
         maxTries: data.readUInt32BE(4),
         recoveryInterval: data.readUInt32BE(8),
+        lockoutRecovery: data.readUInt32BE(12),
+        failures: data.readUInt32BE(16),
     };
 }
 
@@ -120,4 +122,9 @@ module.exports = {
     unseal: native ? async (name, pin, sealed) => outcome(await native.unseal(name, pin, sealed), 'data') : unavailable,
     remove: native ? async (name) => outcome(await native.remove(name), 'data') : unavailable,
     lockout: native && typeof native.lockout === 'function' ? lockout : unavailable,
+    setLockout: native && typeof native.setLockout === 'function'
+        ? async (auth, limits) => outcome(await (limits
+            ? native.setLockout(auth, limits.maxTries, limits.recoveryInterval, limits.lockoutRecovery)
+            : native.setLockout(auth)), 'data')
+        : unavailable,
 };

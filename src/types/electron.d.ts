@@ -116,6 +116,13 @@ export interface OathResult<T> {
 
 export type QuickUnlockMethod = 'touch-id' | 'windows-hello' | 'pin';
 
+export type TpmSetupStep = 'access' | 'lockout' | 'foreign-lockout' | 'too-few-tries' | 'unreachable';
+
+export interface TpmLimitChange {
+	maxTries?: { from: number; to: number };
+	recoveryInterval?: { from: number; to: number };
+}
+
 export interface IElectronAPI {
 	focusWindow: () => Promise<void>;
 	minimizeWindow: () => Promise<void>;
@@ -187,6 +194,12 @@ export interface IElectronAPI {
 	// wrong PINs (lockout password set, tight lockout settings)
 	getPinLockoutPolicy: () => Promise<{ applies: boolean; protected: boolean; allowUnprotected: boolean }>;
 	setPinAllowUnprotected: (allow: boolean) => Promise<{ success: boolean; error?: string }>;
+	getTpmSetupStep: () => Promise<TpmSetupStep | null>;
+	grantTpmAccess: () => Promise<{ success: boolean; cancelled?: boolean; error?: string; commands?: string[] }>;
+	getTpmLockoutPlan: () => Promise<{ success: true; change: TpmLimitChange | null } | { success: false; error: string }>;
+	beginTpmLockout: (acceptLimits: boolean) => Promise<{ success: true; password: string } | { success: false; error: string }>;
+	cancelTpmLockout: () => Promise<void>;
+	applyTpmLockout: (typed: string) => Promise<{ success: boolean; mismatch?: boolean; error?: string }>;
 	// Copying runs in the main process so it can carry the macOS pasteboard
 	// markers and so a quit mid-countdown can still take the secret back
 	copySecret: (text: string, clearSeconds?: number) => Promise<{ success: boolean; error?: string }>;

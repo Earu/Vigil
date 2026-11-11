@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import * as kdbxweb from 'kdbxweb';
 import { Database } from '../../types/database';
-import type { QuickUnlockMethod } from '../../types/electron';
+import type { QuickUnlockMethod, TpmSetupStep } from '../../types/electron';
+import { TpmSetupDialog } from '../TpmSetupDialog';
 import { QUICK_UNLOCK_NAMES, MIN_PIN_LENGTH, isValidPin, pinRule } from '../../services/QuickUnlockMethods';
 import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
@@ -65,6 +66,8 @@ export const PasswordForm = ({
     // Why the option is missing on a machine whose sensor works (an unsigned
     // macOS build); the user should be told, since nothing else explains it
     const [biometricsUnavailableReason, setBiometricsUnavailableReason] = useState<string | null>(null);
+    const [tpmSetupStep, setTpmSetupStep] = useState<TpmSetupStep | null>(null);
+    const [showTpmSetup, setShowTpmSetup] = useState(false);
     // Whether an unlock attempt could release a password right now. False for
     // a session-scoped vault after a restart, until the password unlock below
     // re-arms it
@@ -172,15 +175,18 @@ export const PasswordForm = ({
             : 'Invalid password or corrupted database file';
     };
 
+    const checkBiometrics = async () => {
+        if (!window.electron) return;
+        const info = await window.electron.getBiometricsInfo();
+        setIsBiometricsAvailable(info.available);
+        setBiometricsUnavailableReason(info.unavailableReason ?? null);
+        setMethods(info.methods ?? []);
+        setPinMinLength(info.pinMinLength ?? MIN_PIN_LENGTH);
+        const step = info.available ? null : await window.electron.getTpmSetupStep?.();
+        setTpmSetupStep(step && step !== 'unreachable' ? step : null);
+    };
+
     useEffect(() => {
-        const checkBiometrics = async () => {
-            if (!window.electron) return;
-            const info = await window.electron.getBiometricsInfo();
-            setIsBiometricsAvailable(info.available);
-            setBiometricsUnavailableReason(info.unavailableReason ?? null);
-            setMethods(info.methods ?? []);
-            setPinMinLength(info.pinMinLength ?? MIN_PIN_LENGTH);
-        };
         checkBiometrics();
     }, []);
 
@@ -911,7 +917,24 @@ export const PasswordForm = ({
             {selectedFile && !isCreatingNew && !isBiometricsAvailable && biometricsUnavailableReason && (
                 <p className="biometric-weak-notice">
                     {biometricsUnavailableReason}
+                    {tpmSetupStep && (
+                        <>
+                            {' '}
+                            <button className="biometric-setup-button" onClick={() => setShowTpmSetup(true)}>
+                                {tpmSetupStep === 'too-few-tries' ? 'Why?' : 'Set up'}
+                            </button>
+                        </>
+                    )}
                 </p>
+            )}
+
+            {showTpmSetup && (
+                <TpmSetupDialog
+                    onClose={() => {
+                        setShowTpmSetup(false);
+                        void checkBiometrics();
+                    }}
+                />
             )}
 
             {(!isBiometricsAvailable || showPasswordInput || !isBiometricsEnabled || isCreatingNew) && (

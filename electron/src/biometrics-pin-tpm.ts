@@ -1,29 +1,47 @@
 import { app } from 'electron';
-import { createHash, randomBytes } from 'crypto';
+import { execFile } from 'child_process';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import * as tpm from '../native/tpm';
 import { createPinProvider, MIN_PIN_LENGTH, type PinVault } from './biometrics-pin';
 
-const NO_ACCESS = 'PIN unlock needs access to the TPM: add your user to the tss group, then log out and back in';
-const UNREACHABLE = 'PIN unlock could not reach the TPM';
-const UNPROTECTED = 'PIN unlock needs the TPM to limit wrong PINs, which takes a lockout password. '
-    + 'Set one with "tpm2_changeauth -c lockout <password>" and keep it somewhere safe, '
-    + 'or allow PIN unlock without it in Settings';
+const NO_ACCESS = 'PIN unlock needs a one-time setup on this computer';
+const UNREACHABLE = 'PIN unlock could not reach this computer\'s security chip';
+const UNPROTECTED = 'PIN unlock needs a one-time setup that limits wrong PIN guesses. '
+    + 'You can also allow it without that in Settings';
+const TOO_FEW_TRIES = 'PIN unlock cannot work on this computer: its security chip allows fewer than 2 wrong PINs';
 
 // Beyond these, guessing every 6-digit PIN through the TPM is practical
 const MAX_TRIES = 32;
 const MIN_RECOVERY_SECONDS = 600;
+const DEFAULT_RECOVERY_SECONDS = 7200;
+const MIN_TRIES = 2;
 export const UNPROTECTED_MIN_PIN_LENGTH = 10;
 
+const UDEV_RULE = 'SUBSYSTEM=="tpmrm", KERNEL=="tpmrm[0-9]*", TAG+="uaccess"';
+const UDEV_RULE_PATH = '/etc/udev/rules.d/70-vigil-tpm.rules';
+const GRANT_SCRIPT = `printf '%s\\n' '${UDEV_RULE}' > ${UDEV_RULE_PATH}`
+    + ' && udevadm control --reload && udevadm trigger --subsystem-match=tpmrm --action=change && udevadm settle';
+export const TPM_ACCESS_COMMANDS = [
+    `echo '${UDEV_RULE}' | sudo tee ${UDEV_RULE_PATH}`,
+    'sudo udevadm trigger --subsystem-match=tpmrm --action=change',
+];
+
+const RECOVERY_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz';
+
 let linuxDevice = '/dev/tpmrm0';
+let pkexecPaths = ['/usr/bin/pkexec', '/run/wrappers/bin/pkexec'];
 let probeCache: ReturnType<typeof tpm.probe> | null = null;
 let allowUnprotectedCache: boolean | null = null;
+let pendingRecovery: { password: string; change: TpmLimitChange | null } | null = null;
 
-export function resetTpmForTests(device?: string): void {
+export function resetTpmForTests(device?: string, pkexec?: string[]): void {
     probeCache = null;
     allowUnprotectedCache = null;
+    pendingRecovery = null;
     if (device) linuxDevice = device;
+    if (pkexec) pkexecPaths = pkexec;
 }
 
 const CONFIG_PATH = () => path.join(app.getPath('userData'), 'tpm-pin-config.json');
@@ -84,6 +102,126 @@ function probe(): ReturnType<typeof tpm.probe> {
     return probeCache;
 }
 
+export type TpmSetupStep = 'access' | 'lockout' | 'foreign-lockout' | 'too-few-tries' | 'unreachable';
+
+async function tooFewTries(): Promise<boolean> {
+    const lockout = await tpm.lockout();
+    return lockout.ok && lockout.maxTries < MIN_TRIES;
+}
+
+export async function getTpmSetupStep(): Promise<TpmSetupStep | null> {
+    if (process.platform !== 'linux' || !tpmPinVault.supported()) return null;
+    if (!probe().ok) return linuxDeviceAccessible() ? 'unreachable' : 'access';
+    const lockout = await tpm.lockout();
+    if (!lockout.ok) return 'unreachable';
+    if (lockout.maxTries < MIN_TRIES) return 'too-few-tries';
+    if (await lockoutProtected()) return null;
+    return lockout.lockoutAuthSet ? 'foreign-lockout' : 'lockout';
+}
+
+export interface TpmLimitChange {
+    maxTries?: { from: number; to: number };
+    recoveryInterval?: { from: number; to: number };
+}
+
+function limitChange(lockout: { maxTries: number; recoveryInterval: number }): TpmLimitChange | null {
+    const change: TpmLimitChange = {};
+    if (lockout.maxTries > MAX_TRIES) change.maxTries = { from: lockout.maxTries, to: MAX_TRIES };
+    if (lockout.recoveryInterval < MIN_RECOVERY_SECONDS) {
+        change.recoveryInterval = { from: lockout.recoveryInterval, to: DEFAULT_RECOVERY_SECONDS };
+    }
+    return change.maxTries || change.recoveryInterval ? change : null;
+}
+
+const sameChange = (a: TpmLimitChange | null, b: TpmLimitChange | null) => JSON.stringify(a) === JSON.stringify(b);
+
+export async function getTpmLockoutPlan(): Promise<{ success: true; change: TpmLimitChange | null } | { success: false; error: string }> {
+    if (await getTpmSetupStep() !== 'lockout') return { success: false, error: 'This computer does not need this setup' };
+    const lockout = await tpm.lockout();
+    if (!lockout.ok) return { success: false, error: 'Vigil could not read the security chip\'s settings' };
+    return { success: true, change: limitChange(lockout) };
+}
+
+export type TpmAccessResult =
+    | { success: true }
+    | { success: false; cancelled?: boolean; error: string; commands?: string[] };
+
+function runElevated(pkexec: string): Promise<number> {
+    return new Promise(resolve => {
+        execFile(pkexec, ['/bin/sh', '-c', GRANT_SCRIPT], error => {
+            if (!error) resolve(0);
+            else resolve(typeof error.code === 'number' ? error.code : -1);
+        });
+    });
+}
+
+export async function grantTpmAccess(): Promise<TpmAccessResult> {
+    if (await getTpmSetupStep() !== 'access') {
+        probeCache = null;
+        return { success: true };
+    }
+    const pkexec = pkexecPaths.find(candidate => fs.existsSync(candidate));
+    const manual = { success: false as const, commands: TPM_ACCESS_COMMANDS };
+    if (!pkexec) {
+        return { ...manual, error: 'Vigil could not ask for your administrator password. Run these commands in a terminal instead' };
+    }
+    const code = await runElevated(pkexec);
+    probeCache = null;
+    if (code === 126) return { success: false, cancelled: true, error: 'The administrator password was not given' };
+    if (code !== 0) {
+        console.error('Granting TPM access failed with exit code', code);
+        return { ...manual, error: 'Vigil could not make the change. Run these commands in a terminal instead' };
+    }
+    if (!linuxDeviceAccessible() || !probe().ok) {
+        return { success: false, error: 'The change was made, but Vigil still cannot use the security chip. Logging out and back in may fix this' };
+    }
+    return { success: true };
+}
+
+export async function beginTpmLockout(acceptLimits: boolean): Promise<{ success: true; password: string } | { success: false; error: string }> {
+    pendingRecovery = null;
+    const plan = await getTpmLockoutPlan();
+    if (!plan.success) return plan;
+    if (plan.change && !acceptLimits) return { success: false, error: 'Changing the limits needs your consent' };
+    const group = () => Array.from({ length: 4 }, () => RECOVERY_ALPHABET[randomInt(RECOVERY_ALPHABET.length)]).join('');
+    const password = [group(), group(), group(), group()].join('-');
+    pendingRecovery = { password, change: plan.change };
+    return { success: true, password };
+}
+
+export function cancelTpmLockout(): void {
+    pendingRecovery = null;
+}
+
+export async function applyTpmLockout(typed: string): Promise<{ success: boolean; mismatch?: boolean; error?: string }> {
+    if (!pendingRecovery) return { success: false, error: 'Start the setup again' };
+    if (typed.trim().toLowerCase() !== pendingRecovery.password) {
+        return { success: false, mismatch: true, error: 'This does not match the recovery password' };
+    }
+    const { password, change } = pendingRecovery;
+    pendingRecovery = null;
+    const lockout = await tpm.lockout();
+    if (!lockout.ok || lockout.lockoutAuthSet || lockout.maxTries < MIN_TRIES || !sameChange(limitChange(lockout), change)) {
+        return { success: false, error: 'The security chip changed since the setup started. Start it again' };
+    }
+    const limits = change && {
+        maxTries: change.maxTries?.to ?? lockout.maxTries,
+        recoveryInterval: change.recoveryInterval?.to ?? lockout.recoveryInterval,
+        lockoutRecovery: lockout.lockoutRecovery,
+    };
+    const auth = Buffer.from(password, 'utf8');
+    const result = await tpm.setLockout(auth, limits);
+    auth.fill(0);
+    if (!result.ok) {
+        console.error('Failed to set the TPM lockout password:', failure(result));
+        return { success: false, error: 'Vigil could not set the recovery password' };
+    }
+    if (!await lockoutProtected()) {
+        return { success: false, error: 'The recovery password was set, but the security chip still does not limit wrong PINs' };
+    }
+    return { success: true };
+}
+
 function digest(account: string): string {
     return createHash('sha256').update(account).digest('hex');
 }
@@ -117,8 +255,16 @@ const tpmPinVault: PinVault = {
             if (process.platform === 'linux' && !linuxDeviceAccessible()) return NO_ACCESS;
             return UNREACHABLE;
         }
-        if (process.platform !== 'linux' || allowUnprotected() || await lockoutProtected()) return null;
+        if (process.platform !== 'linux') return null;
+        if (await tooFewTries()) return TOO_FEW_TRIES;
+        if (allowUnprotected() || await lockoutProtected()) return null;
         return UNPROTECTED;
+    },
+
+    async remainingTries() {
+        if (process.platform !== 'linux') return null;
+        const lockout = await tpm.lockout();
+        return lockout.ok ? Math.max(0, lockout.maxTries - lockout.failures) : null;
     },
 
     async minPinLength() {

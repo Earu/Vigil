@@ -9,14 +9,16 @@ describe('TPM lockout settings', () => {
         return data;
     };
 
-    it('reads the lockout password flag and the limits', () => {
-        expect(parseLockout(encode(0x4, 32, 7200))).toEqual({ ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200 });
-        expect(parseLockout(encode(0x3, 0xffffffff, 0))).toEqual({ ok: true, lockoutAuthSet: false, maxTries: 0xffffffff, recoveryInterval: 0 });
+    it('reads the lockout password flag, the limits and the failure count', () => {
+        expect(parseLockout(encode(0x4, 32, 7200, 86400, 2))).toEqual(
+            { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200, lockoutRecovery: 86400, failures: 2 });
+        expect(parseLockout(encode(0x3, 0xffffffff, 0, 0, 0))).toEqual(
+            { ok: true, lockoutAuthSet: false, maxTries: 0xffffffff, recoveryInterval: 0, lockoutRecovery: 0, failures: 0 });
     });
 
-    it('refuses anything but three values', () => {
-        expect(parseLockout(encode(0x4, 32)).ok).toBe(false);
-        expect(parseLockout(Buffer.alloc(16)).ok).toBe(false);
+    it('refuses anything but five values', () => {
+        expect(parseLockout(encode(0x4, 32, 7200)).ok).toBe(false);
+        expect(parseLockout(Buffer.alloc(24)).ok).toBe(false);
         expect(parseLockout(undefined).ok).toBe(false);
     });
 });

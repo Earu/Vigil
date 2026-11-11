@@ -20,6 +20,7 @@ export interface PinVault {
     supported(): boolean;
     refusal(): Promise<string | null>;
     minPinLength?(): Promise<number>;
+    remainingTries?(): Promise<number | null>;
     seal(account: string, data: Buffer, pin: string): Promise<VaultResult<{ sealed?: string }>>;
     unseal(account: string, pin: string, sealed?: string): Promise<VaultResult<{ data: Buffer }>>;
     readState(account: string): Promise<VaultResult<{ data: Buffer }>>;
@@ -285,7 +286,9 @@ export function createPinProvider(vault: PinVault): QuickUnlockProvider {
             throw new ReleaseError('revoked', LOCKED_OUT_MESSAGE);
         }
         if (released.code === 'wrong-pin') {
-            const left = MAX_PIN_ATTEMPTS - failures;
+            const hardwareLeft = await vault.remainingTries?.() ?? null;
+            if (hardwareLeft === 0) throw new ReleaseError('wrong-pin', `Incorrect PIN. ${HARDWARE_LOCKOUT_MESSAGE}`);
+            const left = Math.min(MAX_PIN_ATTEMPTS - failures, hardwareLeft ?? MAX_PIN_ATTEMPTS);
             throw new ReleaseError('wrong-pin', `Incorrect PIN, ${left} ${left === 1 ? 'attempt' : 'attempts'} left`);
         }
         throw new ReleaseError('failed', released.code);

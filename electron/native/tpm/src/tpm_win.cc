@@ -207,6 +207,10 @@ Outcome Lockout(const Request&) {
     return Outcome{kUnimplemented, {}};
 }
 
+Outcome SetLockout(const Request&) {
+    return Outcome{kUnimplemented, {}};
+}
+
 uint32_t Probe() {
     Provider provider;
     SECURITY_STATUS status = OpenProvider(provider);

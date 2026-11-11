@@ -14,7 +14,15 @@ const state = vi.hoisted(() => ({
         failures: 0,
         lockoutAt: 32,
         failWith: null as { code: string; status: number } | null,
-        lockout: { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200 } as Record<string, unknown>,
+        lockout: { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200, lockoutRecovery: 86400 } as Record<string, unknown>,
+        setLockoutCalls: [] as { auth: string; limits: { maxTries: number; recoveryInterval: number; lockoutRecovery: number } | null }[],
+        setLockoutFails: false,
+    },
+    pkexec: {
+        calls: [] as { file: string; args: string[] }[],
+        exitCode: 0,
+        grants: true,
+        device: '',
     },
     hello: { available: true, deleted: 0 },
 }));
@@ -80,7 +88,25 @@ vi.mock('../electron/native/tpm', () => ({
         for (const [id, object] of state.tpm.objects) if (object.name === name) state.tpm.objects.delete(id);
         return { ok: true, data: Buffer.alloc(0) };
     },
-    lockout: async () => state.tpm.lockout,
+    lockout: async () => state.tpm.lockout.ok ? { ...state.tpm.lockout, failures: state.tpm.failures } : state.tpm.lockout,
+    setLockout: async (auth: Buffer, limits: { maxTries: number; recoveryInterval: number; lockoutRecovery: number } | null) => {
+        state.tpm.setLockoutCalls.push({ auth: auth.toString(), limits: limits ?? null });
+        if (state.tpm.setLockoutFails) return { ok: false, code: 'error', status: 0x101 };
+        state.tpm.lockout = { ...state.tpm.lockout, ...limits, lockoutAuthSet: true };
+        return { ok: true, data: Buffer.alloc(0) };
+    },
+}));
+
+vi.mock('child_process', async (importOriginal) => ({
+    ...await importOriginal<typeof import('child_process')>(),
+    execFile: (file: string, args: string[], callback: (error: (Error & { code?: number }) | null) => void) => {
+        state.pkexec.calls.push({ file, args });
+        if (state.pkexec.exitCode === 0 && state.pkexec.grants) {
+            fs.chmodSync(state.pkexec.device, 0o600);
+            state.tpm.probe = { ok: true };
+        }
+        setImmediate(() => callback(state.pkexec.exitCode === 0 ? null : Object.assign(new Error('pkexec'), { code: state.pkexec.exitCode })));
+    },
 }));
 
 const realPlatform = process.platform;
@@ -92,6 +118,8 @@ state.userData = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'vigil-t
 const SALT = 'cd'.repeat(32);
 fs.writeFileSync(path.join(state.userData, '.salt'), SALT);
 const DEVICE = path.join(state.userData, 'tpmrm0');
+const PKEXEC = path.join(state.userData, 'pkexec');
+state.pkexec.device = DEVICE;
 
 const bio = await import('../electron/src/biometrics');
 const { resetTpmForTests } = await import('../electron/src/biometrics-pin-tpm');
@@ -107,7 +135,13 @@ beforeEach(() => {
     setPlatform('linux');
     fs.rmSync(DEVICE, { force: true });
     fs.writeFileSync(DEVICE, '', { mode: 0o600 });
-    resetTpmForTests(DEVICE);
+    fs.writeFileSync(PKEXEC, '');
+    resetTpmForTests(DEVICE, [PKEXEC]);
+    state.tpm.setLockoutCalls = [];
+    state.tpm.setLockoutFails = false;
+    state.pkexec.calls = [];
+    state.pkexec.exitCode = 0;
+    state.pkexec.grants = true;
     bio.resetForTests();
     state.keytar.clear();
     state.tpm.loaded = true;
@@ -116,7 +150,7 @@ beforeEach(() => {
     state.tpm.failures = 0;
     state.tpm.lockoutAt = 32;
     state.tpm.failWith = null;
-    state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200 };
+    state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 32, recoveryInterval: 7200, lockoutRecovery: 86400 };
     state.hello.available = true;
     state.hello.deleted = 0;
     fs.rmSync(pinDir(), { recursive: true, force: true });
@@ -290,14 +324,20 @@ describe('PIN unlock on Linux', () => {
         expect(fs.readdirSync(pinDir())).toEqual([]);
     });
 
-    it('says how to get access when the TPM device is not readable', async () => {
+    it('offers the setup when the TPM device is not readable', async () => {
         state.tpm.probe = { ok: false, code: 'unavailable', status: 0x0a000a };
         fs.chmodSync(DEVICE, 0o000);
         const info = await bio.getBiometricsInfo();
         expect(info.available).toBe(false);
-        expect(info.unavailableReason).toMatch(/tss group/);
-        expect((await enablePin()).error).toMatch(/tss group/);
+        expect(info.unavailableReason).toMatch(/one-time setup on this computer/);
+        expect((await enablePin()).error).toMatch(/one-time setup on this computer/);
+        expect(await bio.getTpmSetupStep()).toBe('access');
         expect(state.keytar.size).toBe(0);
+    });
+
+    it('does not offer the setup for a readable TPM it cannot reach', async () => {
+        state.tpm.probe = { ok: false, code: 'unavailable', status: 0x0a000a };
+        expect(await bio.getTpmSetupStep()).toBe('unreachable');
     });
 
     it('is not offered without a TPM device or without the addon', async () => {
@@ -315,13 +355,14 @@ describe('PIN unlock on Linux without TPM lockout protection', () => {
     const LONG_PIN = '4829150371';
     const unprotected = () => { state.tpm.lockout = { ok: true, lockoutAuthSet: false, maxTries: 32, recoveryInterval: 7200 }; };
 
-    it('is refused, naming the command and the setting', async () => {
+    it('is refused, naming the setup and the setting', async () => {
         unprotected();
         const info = await bio.getBiometricsInfo();
         expect(info).toMatchObject({ available: false, methods: [] });
-        expect(info.unavailableReason).toMatch(/tpm2_changeauth -c lockout/);
+        expect(info.unavailableReason).toMatch(/one-time setup that limits wrong PIN guesses/);
         expect(info.unavailableReason).toMatch(/Settings/);
-        expect((await enablePin()).error).toMatch(/tpm2_changeauth/);
+        expect((await enablePin()).error).toMatch(/wrong PIN guesses/);
+        expect(await bio.getTpmSetupStep()).toBe('lockout');
         expect(state.tpm.objects.size).toBe(0);
         expect(await bio.getPinLockoutPolicy()).toEqual({ applies: true, protected: false, allowUnprotected: false });
     });
@@ -332,19 +373,21 @@ describe('PIN unlock on Linux without TPM lockout protection', () => {
         ['a recovery time of zero, which turns the lockout off', { maxTries: 32, recoveryInterval: 0 }],
     ])('is refused with a lockout password but %s', async (_label, settings) => {
         state.tpm.lockout = { ok: true, lockoutAuthSet: true, ...settings };
-        expect((await enablePin()).error).toMatch(/lockout password/);
+        expect((await enablePin()).error).toMatch(/wrong PIN guesses/);
+        expect(await bio.getTpmSetupStep()).toBe('foreign-lockout');
     });
 
     it('treats unreadable lockout settings as unprotected', async () => {
         state.tpm.lockout = { ok: false, code: 'error', status: 0x18b };
-        expect((await enablePin()).error).toMatch(/lockout password/);
+        expect((await enablePin()).error).toMatch(/wrong PIN guesses/);
+        expect(await bio.getTpmSetupStep()).toBe('unreachable');
     });
 
     it('refuses to re-arm after a restart once the lockout password is gone', async () => {
         await enablePin();
         restart();
         unprotected();
-        expect((await bio.enableBiometrics(DB, 'hunter2')).error).toMatch(/lockout password/);
+        expect((await bio.enableBiometrics(DB, 'hunter2')).error).toMatch(/wrong PIN guesses/);
     });
 
     it('with the opt-out, takes only a PIN of at least 10 digits', async () => {
@@ -366,12 +409,180 @@ describe('PIN unlock on Linux without TPM lockout protection', () => {
         expect((await bio.getPinLockoutPolicy()).allowUnprotected).toBe(true);
         await bio.setAllowUnprotectedTpm(false);
         restart();
-        expect((await enablePin(LONG_PIN)).error).toMatch(/lockout password/);
+        expect((await enablePin(LONG_PIN)).error).toMatch(/wrong PIN guesses/);
     });
 
     it('a protected TPM keeps the 6-digit minimum', async () => {
         expect(await bio.getBiometricsInfo()).toMatchObject({ pinMinLength: 6 });
         expect(await bio.getPinLockoutPolicy()).toEqual({ applies: true, protected: true, allowUnprotected: false });
+    });
+});
+
+describe('TPM setup on Linux', () => {
+    const noAccess = () => {
+        state.tpm.probe = { ok: false, code: 'unavailable', status: 0x0a000a };
+        fs.chmodSync(DEVICE, 0o000);
+    };
+    const unprotected = (settings: Record<string, unknown> = {}) => {
+        state.tpm.lockout = { ok: true, lockoutAuthSet: false, maxTries: 32, recoveryInterval: 7200, lockoutRecovery: 86400, ...settings };
+    };
+    const begin = async (acceptLimits = false) => {
+        const result = await bio.beginTpmLockout(acceptLimits);
+        if (!result.success) throw new Error(result.error);
+        return result.password;
+    };
+
+    it('needs nothing on a protected TPM, and nothing off Linux', async () => {
+        expect(await bio.getTpmSetupStep()).toBeNull();
+        setPlatform('win32');
+        noAccess();
+        expect(await bio.getTpmSetupStep()).toBeNull();
+    });
+
+    it('grants access through pkexec with a fixed udev rule, then PIN unlock works', async () => {
+        noAccess();
+        expect(await bio.grantTpmAccess()).toEqual({ success: true });
+        expect(state.pkexec.calls).toHaveLength(1);
+        const [{ file, args }] = state.pkexec.calls;
+        expect(file).toBe(PKEXEC);
+        expect(args.slice(0, 2)).toEqual(['/bin/sh', '-c']);
+        expect(args[2]).toContain(`'SUBSYSTEM=="tpmrm", KERNEL=="tpmrm[0-9]*", TAG+="uaccess"' > /etc/udev/rules.d/70-vigil-tpm.rules`);
+        expect(await bio.getTpmSetupStep()).toBeNull();
+        expect(await enablePin()).toEqual({ success: true });
+    });
+
+    it('does not run pkexec when access is already there', async () => {
+        expect(await bio.grantTpmAccess()).toEqual({ success: true });
+        expect(state.pkexec.calls).toHaveLength(0);
+    });
+
+    it('treats a dismissed password prompt as a cancel', async () => {
+        noAccess();
+        state.pkexec.exitCode = 126;
+        expect(await bio.grantTpmAccess()).toMatchObject({ success: false, cancelled: true });
+        expect(await bio.getTpmSetupStep()).toBe('access');
+    });
+
+    it.each([
+        ['pkexec is missing', () => resetTpmForTests(DEVICE, [path.join(state.userData, 'missing')])],
+        ['no password prompt could be shown', () => { state.pkexec.exitCode = 127; }],
+        ['the change failed', () => { state.pkexec.exitCode = 1; }],
+    ])('gives the commands to run when %s', async (_label, arrange) => {
+        noAccess();
+        arrange();
+        const result = await bio.grantTpmAccess();
+        expect(result).toMatchObject({ success: false });
+        expect(result.success === false && result.commands?.[0]).toContain('/etc/udev/rules.d/70-vigil-tpm.rules');
+    });
+
+    it('says to log out and back in when the change took no effect', async () => {
+        noAccess();
+        state.pkexec.grants = false;
+        const result = await bio.grantTpmAccess();
+        expect(result).toMatchObject({ success: false });
+        expect(result.success === false && result.error).toMatch(/Logging out and back in/);
+    });
+
+    it('sets the generated recovery password only once it is typed back', async () => {
+        unprotected();
+        const password = await begin();
+        expect(password).toMatch(/^[0-9a-hjkmnp-tv-z]{4}(-[0-9a-hjkmnp-tv-z]{4}){3}$/);
+
+        expect(await bio.applyTpmLockout('wrong-password')).toMatchObject({ success: false, mismatch: true });
+        expect(state.tpm.setLockoutCalls).toHaveLength(0);
+
+        expect(await bio.applyTpmLockout(`  ${password.toUpperCase()} `)).toEqual({ success: true });
+        expect(state.tpm.setLockoutCalls).toEqual([{ auth: password, limits: null }]);
+        expect(await bio.getTpmSetupStep()).toBeNull();
+        expect(await bio.getPinLockoutPolicy()).toMatchObject({ protected: true });
+        expect(await enablePin()).toEqual({ success: true });
+    });
+
+    it('generates a different password each time', async () => {
+        unprotected();
+        expect(await begin()).not.toBe(await begin());
+    });
+
+    it('keeps limits that are as strict or stricter, and only sets the password', async () => {
+        unprotected({ maxTries: 3, recoveryInterval: 1000, lockoutRecovery: 1000 });
+        expect(await bio.getTpmLockoutPlan()).toEqual({ success: true, change: null });
+        await bio.applyTpmLockout(await begin());
+        expect(state.tpm.setLockoutCalls[0].limits).toBeNull();
+        expect(state.tpm.lockout).toMatchObject({ lockoutAuthSet: true, maxTries: 3, recoveryInterval: 1000, lockoutRecovery: 1000 });
+    });
+
+    it.each([
+        ['too many tries', { maxTries: 1000, recoveryInterval: 1000 },
+            { maxTries: { from: 1000, to: 32 } }, { maxTries: 32, recoveryInterval: 1000 }],
+        ['a recovery too fast', { maxTries: 3, recoveryInterval: 60 },
+            { recoveryInterval: { from: 60, to: 7200 } }, { maxTries: 3, recoveryInterval: 7200 }],
+        ['protection turned off', { maxTries: 1000, recoveryInterval: 0 },
+            { maxTries: { from: 1000, to: 32 }, recoveryInterval: { from: 0, to: 7200 } }, { maxTries: 32, recoveryInterval: 7200 }],
+    ])('changes only the loose limits, with consent, for %s', async (_label, settings, change, limits) => {
+        unprotected({ ...settings, lockoutRecovery: 1000 });
+        expect(await bio.getTpmLockoutPlan()).toEqual({ success: true, change });
+        expect(await bio.beginTpmLockout(false)).toMatchObject({ success: false });
+
+        expect(await bio.applyTpmLockout(await begin(true))).toEqual({ success: true });
+        expect(state.tpm.setLockoutCalls[0].limits).toEqual({ ...limits, lockoutRecovery: 1000 });
+    });
+
+    it('starts over when the limits change after consent', async () => {
+        unprotected({ maxTries: 1000 });
+        const password = await begin(true);
+        unprotected({ maxTries: 2000 });
+        expect(await bio.applyTpmLockout(password)).toMatchObject({ success: false });
+        expect(state.tpm.setLockoutCalls).toHaveLength(0);
+    });
+
+    it.each([0, 1])('refuses PIN unlock and changes nothing when the TPM allows %i tries', async (maxTries) => {
+        unprotected({ maxTries });
+        expect(await bio.getTpmSetupStep()).toBe('too-few-tries');
+        expect((await bio.getBiometricsInfo()).unavailableReason).toMatch(/fewer than 2 wrong PINs/);
+        expect(await bio.beginTpmLockout(true)).toMatchObject({ success: false });
+
+        state.tpm.lockout = { ...state.tpm.lockout, lockoutAuthSet: true };
+        await bio.setAllowUnprotectedTpm(true);
+        expect((await enablePin('4829150371')).error).toMatch(/fewer than 2 wrong PINs/);
+        expect(state.tpm.setLockoutCalls).toHaveLength(0);
+    });
+
+    it('counts the TPM tries left when there are fewer than Vigil allows', async () => {
+        state.tpm.lockout = { ...state.tpm.lockout, maxTries: 3 };
+        await enablePin();
+        expect(state.tpm.failures).toBe(1);
+        expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN, 1 attempt left');
+        expect((await bio.getBiometricPassword(DB, '000000')).error).toBe('Incorrect PIN. Too many incorrect PINs, the TPM is refusing attempts for now. Try again later');
+    });
+
+    it('needs a fresh start after a cancel or a finished setup', async () => {
+        unprotected();
+        const password = await begin();
+        bio.cancelTpmLockout();
+        expect(await bio.applyTpmLockout(password)).toMatchObject({ success: false, error: 'Start the setup again' });
+
+        const next = await begin();
+        await bio.applyTpmLockout(next);
+        expect(await bio.applyTpmLockout(next)).toMatchObject({ success: false, error: 'Start the setup again' });
+        expect(state.tpm.setLockoutCalls).toHaveLength(1);
+    });
+
+    it('never touches a lockout password set outside Vigil', async () => {
+        state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 1000, recoveryInterval: 7200 };
+        expect(await bio.beginTpmLockout(true)).toMatchObject({ success: false });
+
+        unprotected();
+        const password = await begin();
+        state.tpm.lockout = { ok: true, lockoutAuthSet: true, maxTries: 1000, recoveryInterval: 7200 };
+        expect(await bio.applyTpmLockout(password)).toMatchObject({ success: false });
+        expect(state.tpm.setLockoutCalls).toHaveLength(0);
+    });
+
+    it('reports a TPM that refuses the change', async () => {
+        unprotected();
+        state.tpm.setLockoutFails = true;
+        expect(await bio.applyTpmLockout(await begin())).toMatchObject({ success: false, error: 'Vigil could not set the recovery password' });
+        expect(await bio.getTpmSetupStep()).toBe('lockout');
     });
 });
 

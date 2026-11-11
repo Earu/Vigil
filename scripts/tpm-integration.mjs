@@ -5,7 +5,7 @@
 //           user can listen on that port
 //   device  swtpm behind the kernel's vTPM proxy, so /dev/tpmrm0 is real:
 //           seal, unseal, a wrong PIN, and the lockout settings before and
-//           after a lockout password is set
+//           after Vigil sets a lockout password
 //
 // Needs the addon built in electron/native/tpm/build/Release and, for
 // device, tpm2-tools.
@@ -39,6 +39,8 @@ if (mode === 'tcp') {
     check('seal refuses the TCP simulator', !sealed.ok && sealed.code === 'unavailable', sealed);
     const lockout = await tpm.lockout();
     check('lockout refuses the TCP simulator', !lockout.ok, lockout);
+    const setLockout = await tpm.setLockout(Buffer.from('ci-lockout'));
+    check('setLockout refuses the TCP simulator', !setLockout.ok && setLockout.code === 'unavailable', setLockout);
 } else if (mode === 'device') {
     check('probe reaches /dev/tpmrm0', tpm.probe().ok, tpm.probe());
 
@@ -53,12 +55,32 @@ if (mode === 'tcp') {
     const fresh = await tpm.lockout();
     check('lockout reads a fresh TPM as unprotected', fresh.ok && !fresh.lockoutAuthSet, fresh);
 
-    tpm2('dictionarylockout', '--setup-parameters', '--max-tries=32', '--recovery-time=7200', '--lockout-recovery-time=86400');
-    tpm2('changeauth', '-c', 'lockout', 'ci-lockout');
-    const protectedTpm = await tpm.lockout();
-    check('lockout reads the password and the limits',
-        protectedTpm.ok && protectedTpm.lockoutAuthSet && protectedTpm.maxTries === 32 && protectedTpm.recoveryInterval === 7200,
-        protectedTpm);
+    const limits = { maxTries: 16, recoveryInterval: 3600, lockoutRecovery: 86400 };
+    const tooLong = await tpm.setLockout(Buffer.alloc(33, 0x61), limits);
+    check('setLockout refuses an oversized password', !tooLong.ok && tooLong.code === 'bad-input', tooLong);
+
+    const withLimits = await tpm.setLockout(Buffer.from('k7qm-2xrp-9dht-w4nb'), limits);
+    check('setLockout sets the password and the limits', withLimits.ok, withLimits);
+    const limited = await tpm.lockout();
+    check('lockout reads the password, the limits and the failure count',
+        limited.ok && limited.lockoutAuthSet && limited.maxTries === 16 && limited.recoveryInterval === 3600
+            && limited.lockoutRecovery === 86400 && limited.failures === 1,
+        limited);
+    tpm2('dictionarylockout', '--clear-lockout', '--auth=k7qm-2xrp-9dht-w4nb');
+    check('tpm2-tools accept the password Vigil set', true);
+    tpm2('changeauth', '-c', 'lockout', '-p', 'k7qm-2xrp-9dht-w4nb');
+
+    const passwordOnly = await tpm.setLockout(Buffer.from('8c5p-9gfw-0tnv-49rh'));
+    check('setLockout sets only the password when given no limits', passwordOnly.ok, passwordOnly);
+    const kept = await tpm.lockout();
+    check('the limits stay as they were',
+        kept.ok && kept.lockoutAuthSet && kept.maxTries === 16 && kept.recoveryInterval === 3600 && kept.lockoutRecovery === 86400,
+        kept);
+    tpm2('dictionarylockout', '--clear-lockout', '--auth=8c5p-9gfw-0tnv-49rh');
+    check('tpm2-tools accept the second password', true);
+
+    const again = await tpm.setLockout(Buffer.from('another-password'), limits);
+    check('setLockout cannot replace a password it does not hold', !again.ok, again);
 } else {
     console.error('usage: node scripts/tpm-integration.mjs tcp|device');
     process.exit(2);

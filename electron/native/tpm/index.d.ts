@@ -13,8 +13,15 @@ export function unseal(name: string, pin: string, sealed: Buffer): Promise<TpmRe
 export function remove(name: string): Promise<TpmResult<'data'>>;
 
 export type LockoutResult =
-    | { ok: true; lockoutAuthSet: boolean; maxTries: number; recoveryInterval: number }
+    | { ok: true; lockoutAuthSet: boolean; maxTries: number; recoveryInterval: number; lockoutRecovery: number; failures: number }
     | { ok: false; code: TpmCode; status: number };
+
+export interface LockoutLimits {
+    maxTries: number;
+    recoveryInterval: number;
+    lockoutRecovery: number;
+}
 
 export function parseLockout(data: Buffer): LockoutResult;
 export function lockout(): Promise<LockoutResult>;
+export function setLockout(auth: Buffer, limits?: LockoutLimits | null): Promise<TpmResult<'data'>>;

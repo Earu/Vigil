@@ -812,3 +812,13 @@
     color: var(--color-text-secondary);
     cursor: help;
 }
+
+.biometric-setup-button {
+    padding: 0;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}

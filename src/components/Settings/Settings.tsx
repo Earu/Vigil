@@ -15,6 +15,7 @@ import * as kdbxweb from 'kdbxweb';
 import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
 import { Modal } from '../Modal';
 import { MasterKeyDialog } from '../MasterKeyDialog';
+import { TpmSetupDialog } from '../TpmSetupDialog';
 import { TabStrip, tabPanelProps } from '../TabStrip';
 import { SettingRow, Toggle, helpId } from './SettingRow';
 import { SHORTCUT_GROUPS, chordKeys } from '../../services/Shortcuts';
@@ -101,6 +102,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     // setting rather than a guess from the user agent
     const [biometricsMethod, setBiometricsMethod] = useState<string | null>(null);
     const [pinLockout, setPinLockout] = useState<{ applies: boolean; protected: boolean; allowUnprotected: boolean } | null>(null);
+    const [showTpmSetup, setShowTpmSetup] = useState(false);
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
     // the database
@@ -804,6 +806,16 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                             />
                                         </SettingRow>
                                     )}
+                                    {pinLockout?.applies && !pinLockout.protected && (
+                                        <SettingRow
+                                            label="Limit wrong PIN guesses"
+                                            help="Sets a recovery password on this computer's security chip so it blocks guessing after a few wrong PINs"
+                                        >
+                                            <button className="setting-row-button" onClick={() => setShowTpmSetup(true)}>
+                                                Set up
+                                            </button>
+                                        </SettingRow>
+                                    )}
                                     {pinLockout?.applies && (!pinLockout.protected || pinLockout.allowUnprotected) && (
                                         <SettingRow
                                             label="Allow PIN unlock without a TPM lockout password"
@@ -812,8 +824,8 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                                 ? 'The TPM now limits wrong PINs, so this is no longer needed.'
                                                 : <>
                                                     This TPM does not limit wrong PINs, so software running as you can try every
-                                                    PIN. Setting a lockout password with "tpm2_changeauth -c lockout" fixes that.
-                                                    Turning this on allows PIN unlock anyway, with a PIN of at least 10 digits.
+                                                    PIN. The setup above fixes that. Turning this on allows PIN unlock anyway,
+                                                    with a PIN of at least 10 digits.
                                                 </>}
                                         >
                                             <Toggle
@@ -1189,6 +1201,15 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                     kdbxDb={kdbxDb}
                     onSave={(rekeyTo) => Promise.resolve(onDatabaseChange?.(rekeyTo)).then(saved => saved === true)}
                     onClose={() => setShowMasterKey(false)}
+                />
+            )}
+            {showTpmSetup && (
+                <TpmSetupDialog
+                    onClose={() => {
+                        setShowTpmSetup(false);
+                        window.electron?.getPinLockoutPolicy?.().then(setPinLockout).catch(() => {});
+                        refreshBiometrics();
+                    }}
                 />
             )}
         </Modal>

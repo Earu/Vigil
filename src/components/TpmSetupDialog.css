@@ -1,0 +1,66 @@
+.pairing-dialog.tpm-setup-dialog {
+    text-align: left;
+}
+
+.pairing-dialog.tpm-setup-dialog p {
+    margin: 0;
+}
+
+.tpm-setup-password {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.tpm-setup-password code {
+    flex: 1;
+    padding: 0.6rem 0.8rem;
+    background-color: var(--overlay-medium);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 1rem;
+    letter-spacing: 0.05em;
+    text-align: center;
+    user-select: all;
+}
+
+.tpm-setup-password button {
+    padding: 0.5rem 0.9rem;
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
+.tpm-setup-limits {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+}
+
+.tpm-setup-input {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: 0.05em;
+}
+
+.tpm-setup-commands {
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    background-color: var(--overlay-medium);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.75rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.pairing-dialog p.tpm-setup-error {
+    font-size: 0.75rem;
+    color: var(--color-error);
+}

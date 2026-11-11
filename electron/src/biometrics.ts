@@ -16,7 +16,17 @@ import { touchId, resetTouchIdForTests } from './biometrics-touchid';
 import { macPin } from './biometrics-pin-mac';
 import { tpmPin, resetTpmForTests } from './biometrics-pin-tpm';
 
-export { getPinLockoutPolicy, setAllowUnprotectedTpm, type PinLockoutPolicy } from './biometrics-pin-tpm';
+export {
+    getPinLockoutPolicy,
+    setAllowUnprotectedTpm,
+    getTpmSetupStep,
+    grantTpmAccess,
+    getTpmLockoutPlan,
+    beginTpmLockout,
+    cancelTpmLockout,
+    applyTpmLockout,
+    type PinLockoutPolicy
+} from './biometrics-pin-tpm';
 
 const SERVICE_NAME = 'Vigil Password Manager';
 const SALT_PATH = path.join(app.getPath('userData'), '.salt');

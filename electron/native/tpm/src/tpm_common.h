@@ -24,6 +24,8 @@ struct Request {
     std::string name;
     std::string pin;
     std::vector<uint8_t> input;
+    uint32_t values[3] = {};
+    bool hasValues = false;
 };
 
 using Operation = Outcome (*)(const Request&);
@@ -31,8 +33,10 @@ using Operation = Outcome (*)(const Request&);
 Outcome Seal(const Request& request);
 Outcome Unseal(const Request& request);
 Outcome Remove(const Request& request);
-// Big-endian TPM2_PT_PERMANENT, TPM2_PT_MAX_AUTH_FAIL, TPM2_PT_LOCKOUT_INTERVAL
+// Big-endian TPM2_PT_PERMANENT, TPM2_PT_MAX_AUTH_FAIL, TPM2_PT_LOCKOUT_INTERVAL,
+// TPM2_PT_LOCKOUT_RECOVERY, TPM2_PT_LOCKOUT_COUNTER
 Outcome Lockout(const Request& request);
+Outcome SetLockout(const Request& request);
 uint32_t Probe();
 const char* PlatformName();
 
@@ -54,7 +58,7 @@ public:
 
 protected:
     void Execute() override {
-        if (operation_ != Remove && operation_ != Lockout && !IsPin(request_.pin)) {
+        if (operation_ != Remove && operation_ != Lockout && operation_ != SetLockout && !IsPin(request_.pin)) {
             outcome_ = Outcome{kBadInput, {}};
         } else {
             outcome_ = operation_(request_);
@@ -128,6 +132,21 @@ inline Napi::Value JsLockout(const Napi::CallbackInfo& info) {
     return Queue(info.Env(), Lockout, Request{});
 }
 
+inline Napi::Value JsSetLockout(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    const bool hasValues = info.Length() >= 4;
+    if (info.Length() < 1 || !info[0].IsBuffer() ||
+        (hasValues && (!info[1].IsNumber() || !info[2].IsNumber() || !info[3].IsNumber()))) {
+        return Refuse(env, "setLockout(auth: Buffer[, maxTries: number, recoveryInterval: number, lockoutRecovery: number])");
+    }
+    Request request{std::string(), std::string(), BufferBytes(info[0])};
+    request.hasValues = hasValues;
+    if (hasValues) {
+        for (size_t i = 0; i < 3; ++i) request.values[i] = info[i + 1].As<Napi::Number>().Uint32Value();
+    }
+    return Queue(env, SetLockout, std::move(request));
+}
+
 inline Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("platform", Napi::String::New(env, PlatformName()));
     exports.Set("probe", Napi::Function::New(env, JsProbe));
@@ -135,6 +154,7 @@ inline Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("unseal", Napi::Function::New(env, JsUnseal));
     exports.Set("remove", Napi::Function::New(env, JsRemove));
     exports.Set("lockout", Napi::Function::New(env, JsLockout));
+    exports.Set("setLockout", Napi::Function::New(env, JsSetLockout));
     return exports;
 }
 

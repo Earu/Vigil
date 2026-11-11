@@ -27,7 +27,13 @@ import {
     getBiometricPassword,
     disableBiometrics,
     getPinLockoutPolicy,
-    setAllowUnprotectedTpm
+    setAllowUnprotectedTpm,
+    getTpmSetupStep,
+    grantTpmAccess,
+    getTpmLockoutPlan,
+    beginTpmLockout,
+    cancelTpmLockout,
+    applyTpmLockout
 } from './biometrics';
 import { checkEmailBreaches, setHibpApiKey, hasHibpApiKey } from './hibp';
 import { fetchFavicon } from './favicon';
@@ -485,6 +491,38 @@ export function setupIpcHandlers(): void {
     handle('set-pin-allow-unprotected', async (_, allow: unknown) => {
         if (typeof allow !== 'boolean') return { success: false, error: 'Invalid setting' };
         return await setAllowUnprotectedTpm(allow);
+    });
+
+    handle('get-tpm-setup-step', async () => await getTpmSetupStep());
+
+    handle('tpm-grant-access', async (event) => {
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        if (!senderWindow || !consumeRecentGesture(senderWindow)) {
+            return { success: false, error: 'The setup must follow a click in the window' };
+        }
+        return await grantTpmAccess();
+    });
+
+    handle('tpm-lockout-plan', async () => await getTpmLockoutPlan());
+
+    handle('tpm-begin-lockout', async (event, acceptLimits: unknown) => {
+        if (typeof acceptLimits !== 'boolean') return { success: false, error: 'Invalid request' };
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        if (!senderWindow || !consumeRecentGesture(senderWindow)) {
+            return { success: false, error: 'The setup must follow a click in the window' };
+        }
+        return await beginTpmLockout(acceptLimits);
+    });
+
+    handle('tpm-cancel-lockout', () => cancelTpmLockout());
+
+    handle('tpm-apply-lockout', async (event, typed: unknown) => {
+        if (typeof typed !== 'string' || typed.length > 64) return { success: false, error: 'Invalid password' };
+        const senderWindow = BrowserWindow.fromWebContents(event.sender);
+        if (!senderWindow || !consumeRecentGesture(senderWindow)) {
+            return { success: false, error: 'The setup must follow a click in the window' };
+        }
+        return await applyTpmLockout(typed);
     });
 
     // Gated like the file channels: get-biometric-password hands out a
