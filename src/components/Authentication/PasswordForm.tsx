@@ -488,7 +488,12 @@ export const PasswordForm = ({
             return;
         }
         await HaveIBeenPwnedService.preloadStrengthEstimator().catch(() => {});
-        if (HaveIBeenPwnedService.isEasyPin(newPin, pinGuessesPerYear) === true) {
+        const easy = HaveIBeenPwnedService.isEasyPin(newPin, pinGuessesPerYear);
+        if (easy === null) {
+            setError('Vigil could not check how easy this PIN is to guess. Try again');
+            return;
+        }
+        if (easy) {
             setError('');
             setPinEstimatorReady(true);
             return;

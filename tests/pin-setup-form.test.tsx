@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 import { PasswordForm } from '../src/components/Authentication/PasswordForm';
+import { HaveIBeenPwnedService } from '../src/services/HaveIBeenPwnedService';
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 afterEach(cleanup);
@@ -24,14 +25,14 @@ beforeEach(() => {
     (window as any).electron = electron;
 });
 
-const choosePin = async (pin: string) => {
+const choosePin = async (pin: string, setError: (error: string | null) => void = () => {}) => {
     const view = render(
         <PasswordForm
             selectedFile={new File([], 'vault.kdbx')}
             isCreatingNew={false}
             databasePath="/home/someone/vault.kdbx"
             error={null}
-            setError={() => {}}
+            setError={setError}
             setSelectedFile={() => {}}
             onDatabaseOpen={() => {}}
             onBreachCheckComplete={() => {}}
@@ -63,5 +64,21 @@ describe('choosing a PIN', () => {
         fireEvent.click(view.getByRole('button', { name: /Turn on PIN/ }));
         await waitFor(() => expect(calls.readFile).toHaveBeenCalled());
         expect(view.queryByText(EASY)).toBeNull();
+    });
+
+    it('refuses any PIN when the strength check cannot load', async () => {
+        const preload = vi.spyOn(HaveIBeenPwnedService, 'preloadStrengthEstimator').mockRejectedValue(new Error('chunk failed'));
+        const estimate = vi.spyOn(HaveIBeenPwnedService, 'isEasyPin').mockReturnValue(null);
+        try {
+            const setError = vi.fn();
+            const view = await choosePin('482915', setError);
+            fireEvent.click(view.getByRole('button', { name: /Turn on PIN/ }));
+            await waitFor(() => expect(setError).toHaveBeenCalledWith('Vigil could not check how easy this PIN is to guess. Try again'));
+            await new Promise(resolve => setTimeout(resolve, 50));
+            expect(calls.readFile).not.toHaveBeenCalled();
+        } finally {
+            preload.mockRestore();
+            estimate.mockRestore();
+        }
     });
 });

@@ -1,4 +1,6 @@
-// Drives the Linux TPM addon against swtpm, a software TPM, in CI.
+// Drives the TPM addon against a real or software TPM. tcp and device run in
+// CI against swtpm on Linux; win runs by hand on a Windows machine with a
+// TPM, since GitHub's Windows runners have none.
 //
 //   tcp     swtpm listens on localhost:2321 and there is no /dev/tpmrm0: the
 //           addon must refuse rather than fall back to it, since any local
@@ -6,9 +8,12 @@
 //   device  swtpm behind the kernel's vTPM proxy, so /dev/tpmrm0 is real:
 //           seal, unseal, a wrong PIN, and the lockout settings before and
 //           after Vigil sets a lockout password
+//   win     the Platform Crypto Provider: seal, unseal, a wrong PIN, a
+//           forged signature, and removal. Spends one of the TPM's
+//           wrong-PIN tries
 //
-// Needs the addon built in electron/native/tpm/build/Release and, for
-// device, tpm2-tools.
+// Needs the addon built in electron/native/tpm/build/Release (or beside
+// index.js) and, for device, tpm2-tools.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -30,7 +35,7 @@ function tpm2(...args) {
     });
 }
 
-assert.equal(tpm.platform, 'linux', 'the native addon did not load');
+assert.equal(tpm.platform, mode === 'win' ? 'win' : 'linux', 'the native addon did not load');
 
 if (mode === 'tcp') {
     const probe = tpm.probe();
@@ -81,7 +86,30 @@ if (mode === 'tcp') {
 
     const again = await tpm.setLockout(Buffer.from('another-password'), limits);
     check('setLockout cannot replace a password it does not hold', !again.ok, again);
+} else if (mode === 'win') {
+    const name = `Vigil PIN ci ${process.pid}`;
+    check('probe reaches the Platform Crypto Provider', tpm.probe().ok, tpm.probe());
+
+    const secret = Buffer.alloc(48, 7);
+    const sealed = await tpm.seal(name, secret, '482915');
+    check('seal', sealed.ok, sealed);
+    try {
+        const opened = await tpm.unseal(name, '482915', sealed.sealed);
+        check('unseal with the right PIN', opened.ok && opened.data.equals(secret), opened.code);
+        const refused = await tpm.unseal(name, '000000', sealed.sealed);
+        check('unseal with a wrong PIN', !refused.ok && refused.code === 'wrong-pin', refused);
+
+        const forged = Buffer.from(sealed.sealed);
+        forged[forged.length - 1] ^= 1;
+        const tampered = await tpm.unseal(name, '482915', forged);
+        check('unseal refuses a forged signature before the PIN', !tampered.ok && tampered.code === 'tampered', tampered);
+    } finally {
+        const removed = await tpm.remove(name);
+        check('remove', removed.ok, removed);
+    }
+    const gone = await tpm.unseal(name, '482915', sealed.sealed);
+    check('unseal after remove', !gone.ok && gone.code === 'not-found', gone);
 } else {
-    console.error('usage: node scripts/tpm-integration.mjs tcp|device');
+    console.error('usage: node scripts/tpm-integration.mjs tcp|device|win');
     process.exit(2);
 }
