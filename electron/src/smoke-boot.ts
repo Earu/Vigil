@@ -1,4 +1,7 @@
 import { app, BrowserWindow } from 'electron';
+import * as pcsc from '../native/pcsc';
+import * as tpm from '../native/tpm';
+import * as touchid from '../native/touchid';
 
 // --smoke-boot: the packaged binary checks itself and exits. The CI boot test
 // used to attach over --remote-debugging-port, which launch-guard now
@@ -31,6 +34,7 @@ export function runSmokeBoot(win: BrowserWindow): void {
             finish({
                 url: win.webContents.getURL(),
                 rendered,
+                natives: { pcsc: pcsc.isLoaded(), tpm: tpm.isLoaded(), touchid: touchid.isLoaded() },
                 bridge: await evaluate('typeof window.electron'),
                 platform: await evaluate('window.electron.getPlatform()'),
                 // Settings live in localStorage, which the origin only has

@@ -3,7 +3,7 @@
     {
       "target_name": "vigil_tpm",
       "include_dirs": ["<!@(node -p \"require('node-addon-api').include\")"],
-      "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS"],
+      "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS", "NODE_API_SWALLOW_UNTHROWABLE_EXCEPTIONS"],
       "conditions": [
         ["OS=='win'", {
           "sources": ["src/tpm_win.cc"],

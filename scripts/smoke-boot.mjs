@@ -12,7 +12,8 @@
 // main-process failure that only happens at runtime, so a build that dies
 // before its first window passes both. This is the check that catches that:
 // it runs with a throwaway config dir and fails unless the window exists,
-// the page rendered and the bridge answered.
+// the page rendered, the bridge answered and the platform's native addons
+// loaded from where the package put them.
 //
 //     node scripts/smoke-boot.mjs [binary] [-- extra electron args]
 //
@@ -144,6 +145,10 @@ try {
     check('preload bridge present', report.bridge === 'object', String(report.bridge));
     check('IPC round trip', report.platform === process.platform, String(report.platform));
     check('localStorage works on the app origin', report.storage === true, String(report.storage));
+    const expectedNatives = process.platform === 'darwin' ? ['pcsc', 'touchid'] : ['pcsc', 'tpm'];
+    for (const name of expectedNatives) {
+        check(`the ${name} addon loaded`, report.natives?.[name] === true, JSON.stringify(report.natives));
+    }
     check('exited cleanly', boot.exit?.code === 0, JSON.stringify(boot.exit));
 
     const logFile = path.join(configHome, 'Vigil', 'logs', 'main.log');
