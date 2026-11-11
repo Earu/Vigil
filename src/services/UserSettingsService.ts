@@ -57,6 +57,7 @@ interface UserSettings {
     // file that gets synced and shared, so it must say nothing about the
     // machine or the person using it
     replicaId?: string;
+    quickUnlockNoticeDismissed?: boolean;
 }
 
 export const MIN_BACKUP_KEEP = 1;
@@ -237,6 +238,15 @@ class UserSettingsService {
 
     setAutoLockEnabled(enabled: boolean): void {
         this.current.autoLockEnabled = enabled;
+        this.saveSettings();
+    }
+
+    getQuickUnlockNoticeDismissed(): boolean {
+        return this.current.quickUnlockNoticeDismissed ?? false;
+    }
+
+    setQuickUnlockNoticeDismissed(dismissed: boolean): void {
+        this.current.quickUnlockNoticeDismissed = dismissed;
         this.saveSettings();
     }
 

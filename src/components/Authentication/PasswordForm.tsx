@@ -8,7 +8,7 @@ import { BreachCheckService } from '../../services/BreachCheckService';
 import { KeepassDatabaseService } from '../../services/KeepassDatabaseService';
 import { ImportService, ImportResult } from '../../services/ImportService';
 import { LockAuthIcon, BiometricAuthIcon, PinAuthIcon, ShowPasswordIcon, HidePasswordIcon, UnlockAuthIcon } from '../../icons/auth/AuthIcons';
-import { ChevronActionIcon, KeyActionIcon, UsbKeyIcon } from '../../icons/actions/ActionIcons';
+import { ChevronActionIcon, CloseActionIcon, KeyActionIcon, UsbKeyIcon } from '../../icons/actions/ActionIcons';
 import { SpinnerIcon } from '../../icons/status/StatusIcons';
 import { userSettingsService } from '../../services/UserSettingsService';
 import {
@@ -68,6 +68,7 @@ export const PasswordForm = ({
     const [biometricsUnavailableReason, setBiometricsUnavailableReason] = useState<string | null>(null);
     const [tpmSetupStep, setTpmSetupStep] = useState<TpmSetupStep | null>(null);
     const [showTpmSetup, setShowTpmSetup] = useState(false);
+    const [noticeDismissed, setNoticeDismissed] = useState(() => userSettingsService.getQuickUnlockNoticeDismissed());
     // Whether an unlock attempt could release a password right now. False for
     // a session-scoped vault after a restart, until the password unlock below
     // re-arms it
@@ -914,7 +915,7 @@ export const PasswordForm = ({
                 </>
             )}
 
-            {selectedFile && !isCreatingNew && !isBiometricsAvailable && biometricsUnavailableReason && (
+            {selectedFile && !isCreatingNew && !isBiometricsAvailable && biometricsUnavailableReason && !noticeDismissed && (
                 <p className="biometric-weak-notice">
                     {biometricsUnavailableReason}
                     {tpmSetupStep && (
@@ -925,6 +926,17 @@ export const PasswordForm = ({
                             </button>
                         </>
                     )}
+                    <button
+                        className="biometric-notice-dismiss"
+                        aria-label="Hide this message"
+                        title="Hide this message"
+                        onClick={() => {
+                            userSettingsService.setQuickUnlockNoticeDismissed(true);
+                            setNoticeDismissed(true);
+                        }}
+                    >
+                        <CloseActionIcon />
+                    </button>
                 </p>
             )}
 

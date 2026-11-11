@@ -813,6 +813,27 @@
     cursor: help;
 }
 
+.biometric-notice-dismiss {
+    display: inline-flex;
+    vertical-align: middle;
+    margin-left: 0.4rem;
+    padding: 2px;
+    background: none;
+    border: none;
+    border-radius: var(--radius-sm, 2px);
+    color: var(--text-tertiary);
+    cursor: pointer;
+}
+
+.biometric-notice-dismiss:hover {
+    color: var(--text-primary);
+}
+
+.biometric-notice-dismiss svg {
+    width: 0.75rem;
+    height: 0.75rem;
+}
+
 .biometric-setup-button {
     padding: 0;
     background: none;

@@ -12,7 +12,7 @@ import { BrowserIntegrationService } from '../../services/BrowserIntegrationServ
 import { KeepassDatabaseService, PendingCredentialChange, KdfInfo } from '../../services/KeepassDatabaseService';
 import { useState, useEffect } from 'react';
 import * as kdbxweb from 'kdbxweb';
-import { UpdateStatus, BackupInfo, SshAgentStatus } from '../../types/electron';
+import { UpdateStatus, BackupInfo, SshAgentStatus, TpmSetupStep } from '../../types/electron';
 import { Modal } from '../Modal';
 import { MasterKeyDialog } from '../MasterKeyDialog';
 import { TpmSetupDialog } from '../TpmSetupDialog';
@@ -26,6 +26,13 @@ import './Settings.css';
 const REPO_URL = 'https://github.com/Earu/Vigil';
 const ISSUES_URL = `${REPO_URL}/issues`;
 const RELEASES_URL = `${REPO_URL}/releases`;
+
+const TPM_SETUP_HELP: Record<Exclude<TpmSetupStep, 'unreachable'>, string> = {
+    'access': 'Needs a one-time setup on this computer before it can be turned on',
+    'lockout': 'Needs a one-time setup that limits wrong PIN guesses',
+    'foreign-lockout': 'This computer\'s security chip does not limit wrong PIN guesses enough, and its settings were locked outside Vigil',
+    'too-few-tries': 'Cannot work on this computer: its security chip allows fewer than 2 wrong PINs',
+};
 
 const openLink = (url: string) => {
     if (window.electron) window.electron.openExternal(url).catch(() => {});
@@ -103,6 +110,11 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
     const [biometricsMethod, setBiometricsMethod] = useState<string | null>(null);
     const [pinLockout, setPinLockout] = useState<{ applies: boolean; protected: boolean; allowUnprotected: boolean } | null>(null);
     const [showTpmSetup, setShowTpmSetup] = useState(false);
+    const [tpmSetupStep, setTpmSetupStep] = useState<TpmSetupStep | null>(null);
+    const refreshTpmSetup = () => {
+        window.electron?.getTpmSetupStep?.().then(setTpmSetupStep).catch(() => {});
+        window.electron?.getPinLockoutPolicy?.().then(setPinLockout).catch(() => {});
+    };
 
     // Fresh dialog starts on the first tab; the Database tab disappears with
     // the database
@@ -155,7 +167,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
             .then(config => setBiometricsRestartLock(config.requirePasswordAfterRestart))
             .catch(() => {});
         refreshBiometrics();
-        window.electron.getPinLockoutPolicy?.().then(setPinLockout).catch(() => {});
+        refreshTpmSetup();
         const refreshAssociations = () =>
             setBrowserAssociations(kdbxDb ? BrowserIntegrationService.listAssociations(kdbxDb) : []);
         refreshAssociations();
@@ -806,13 +818,10 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                                             />
                                         </SettingRow>
                                     )}
-                                    {pinLockout?.applies && !pinLockout.protected && (
-                                        <SettingRow
-                                            label="Limit wrong PIN guesses"
-                                            help="Sets a recovery password on this computer's security chip so it blocks guessing after a few wrong PINs"
-                                        >
+                                    {tpmSetupStep && tpmSetupStep !== 'unreachable' && (
+                                        <SettingRow label="PIN unlock" help={TPM_SETUP_HELP[tpmSetupStep]}>
                                             <button className="setting-row-button" onClick={() => setShowTpmSetup(true)}>
-                                                Set up
+                                                {tpmSetupStep === 'too-few-tries' || tpmSetupStep === 'foreign-lockout' ? 'Details' : 'Set up'}
                                             </button>
                                         </SettingRow>
                                     )}
@@ -1207,7 +1216,7 @@ export function Settings({ isOpen, onClose, kdbxDb, autoLockEnabled, setAutoLock
                 <TpmSetupDialog
                     onClose={() => {
                         setShowTpmSetup(false);
-                        window.electron?.getPinLockoutPolicy?.().then(setPinLockout).catch(() => {});
+                        refreshTpmSetup();
                         refreshBiometrics();
                     }}
                 />
