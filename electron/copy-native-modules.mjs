@@ -15,6 +15,7 @@ if (process.platform === 'win32') {
 // one binary works across Node and every Electron version that supports the
 // same NAPI level; only the architecture has to match
 const NATIVE_DIR = path.join(process.cwd(), 'electron', 'native');
+const NODE_GYP = path.join(process.cwd(), 'node_modules', 'node-gyp', 'bin', 'node-gyp.js');
 
 function buildAddon(name, { fallback }) {
     const dir = path.join(NATIVE_DIR, name);
@@ -30,11 +31,16 @@ function buildAddon(name, { fallback }) {
         // A full rebuild takes seconds and `npm run electron:dev` runs this on
         // every start, so skip it when nothing the binary is made of changed
         if (!upToDate) {
-            execFileSync('npx', ['node-gyp', 'rebuild'], { cwd: dir, stdio: 'inherit' });
+            execFileSync(process.execPath, [NODE_GYP, 'rebuild'], { cwd: dir, stdio: 'inherit' });
         }
     } catch (error) {
-        // A missing toolchain must not break the build; the feature then
-        // reports itself unavailable at runtime
+        // A missing toolchain must not break a local build; the feature then
+        // reports itself unavailable at runtime. CI builds what ships, so there
+        // it fails
+        if (process.env.CI) {
+            console.error(`Could not build the ${name} addon:`, error.message);
+            process.exit(1);
+        }
         console.warn(`Could not build the ${name} addon, ${fallback}:`, error.message);
         return;
     }
