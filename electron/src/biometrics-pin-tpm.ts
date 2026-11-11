@@ -21,9 +21,13 @@ export const UNPROTECTED_MIN_PIN_LENGTH = 10;
 const SECONDS_PER_YEAR = 365 * 24 * 3600;
 const WINDOWS_MAX_TRIES = 31;
 const WINDOWS_RECOVERY_SECONDS = 600;
+const UNPROTECTED_GUESSES_PER_SECOND = 1;
 
 const guessesInAYear = (maxTries: number, recoveryInterval: number) =>
     maxTries + Math.floor(SECONDS_PER_YEAR / recoveryInterval);
+
+const limitsGuessing = (lockout: { lockoutAuthSet: boolean; maxTries: number; recoveryInterval: number }) =>
+    lockout.lockoutAuthSet && lockout.maxTries <= MAX_TRIES && lockout.recoveryInterval >= MIN_RECOVERY_SECONDS;
 
 const UDEV_RULE = 'SUBSYSTEM=="tpmrm", KERNEL=="tpmrm[0-9]*", TAG+="uaccess"';
 const UDEV_RULE_PATH = '/etc/udev/rules.d/70-vigil-tpm.rules';
@@ -82,9 +86,7 @@ async function lockoutProtected(): Promise<boolean> {
         console.error('Could not read the TPM lockout settings:', lockout.code, lockout.status);
         return false;
     }
-    return lockout.lockoutAuthSet
-        && lockout.maxTries <= MAX_TRIES
-        && lockout.recoveryInterval >= MIN_RECOVERY_SECONDS;
+    return limitsGuessing(lockout);
 }
 
 export interface PinLockoutPolicy {
@@ -314,9 +316,9 @@ const tpmPinVault: PinVault = {
 
     async guessesPerYear() {
         if (process.platform !== 'linux') return guessesInAYear(WINDOWS_MAX_TRIES, WINDOWS_RECOVERY_SECONDS);
-        if (!await lockoutProtected()) return null;
         const lockout = await tpm.lockout();
-        return lockout.ok ? guessesInAYear(lockout.maxTries, lockout.recoveryInterval) : null;
+        if (!lockout.ok || !limitsGuessing(lockout)) return UNPROTECTED_GUESSES_PER_SECOND * SECONDS_PER_YEAR;
+        return guessesInAYear(lockout.maxTries, lockout.recoveryInterval);
     },
 
     async seal(account, data, pin) {

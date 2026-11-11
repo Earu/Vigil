@@ -176,6 +176,12 @@ describe('PIN unlock on Linux', () => {
         expect(await bio.getBiometricsInfo()).toMatchObject({ pinGuessesPerYear: 31 + 52560 });
     });
 
+    it('counts a guess a second when the TPM limits cannot be read', async () => {
+        await bio.setAllowUnprotectedTpm(true);
+        state.tpm.lockout = { ok: false, code: 'error', status: 0x101 };
+        expect(await bio.getBiometricsInfo()).toMatchObject({ available: true, pinGuessesPerYear: 365 * 24 * 3600 });
+    });
+
     it('is the only method, and releases with the PIN', async () => {
         expect(await bio.getBiometricsInfo()).toMatchObject({ available: true, methods: ['pin'] });
         expect(await enablePin()).toEqual({ success: true });
@@ -412,7 +418,7 @@ describe('PIN unlock on Linux without TPM lockout protection', () => {
         expect((await bio.setAllowUnprotectedTpm(true)).success).toBe(true);
         const info = await bio.getBiometricsInfo();
         expect(info).toMatchObject({ available: true, methods: ['pin'], pinMinLength: 10 });
-        expect(info.pinGuessesPerYear).toBeUndefined();
+        expect(info.pinGuessesPerYear).toBe(365 * 24 * 3600);
 
         expect((await enablePin()).error).toBe('A PIN is 10 to 32 digits');
         expect(state.tpm.objects.size).toBe(0);

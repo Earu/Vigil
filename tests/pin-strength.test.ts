@@ -38,6 +38,18 @@ describe('easy PIN warning', () => {
             });
         });
 
+        describe('where the TPM does not limit guessing, at a guess a second', () => {
+            const PER_YEAR = 365 * 24 * 3600;
+
+            it.each(['1503199012', '2509199000', '0612345678', '1234509876'])('refuses %s, a 10-digit pattern', (pin) => {
+                expect(Hibp.isEasyPin(pin, PER_YEAR)).toBe(true);
+            });
+
+            it.each(['8462095173', '4829157306', '7395021846'])('takes %s, a random 10-digit PIN', (pin) => {
+                expect(Hibp.isEasyPin(pin, PER_YEAR)).toBe(false);
+            });
+        });
+
         it('still refuses the most common PINs where only a few tries are allowed', () => {
             expect(Hibp.isEasyPin('147258', 5)).toBe(true);
             expect(Hibp.isEasyPin('250990', 5)).toBe(false);
